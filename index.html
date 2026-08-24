@@ -91,6 +91,19 @@ body.dark .choices button.active{color:#111}
 .reader-head{flex-wrap:wrap;padding:10px 16px}
 #transcript{max-height:none}
 }
+@media(pointer:coarse){
+.btn{min-height:42px;padding:10px 13px}
+.pane-actions .btn{padding:10px 6px}
+.chip{padding:9px 14px;font-size:.78rem}
+.row{padding:13px 6px}
+.row input[type=checkbox]{width:20px;height:20px;margin-top:2px}
+.todo-item{padding:12px}
+.t-text{font-size:.95rem}
+.field{padding:11px;font-size:.85rem}
+#recordBtn{width:78px;height:78px;right:16px;bottom:16px}
+#recordBtn svg{width:32px;height:32px}
+.add-row .field{margin:0}
+}
 </style></head>
 <body>
 <header class="topbar">
@@ -429,6 +442,47 @@ return svg;
 }
 $('#recordBtn').onclick=()=>{if(recActive())stopRec();else startRec();};
 window.addEventListener('beforeunload',event=>{if(recActive()){event.preventDefault();event.returnValue='';}});
+
+const buzz=pattern=>{try{if(navigator.vibrate)navigator.vibrate(pattern);}catch(_){}};
+document.addEventListener('pointerdown',event=>{
+if(event.target.closest&&event.target.closest('.chip,#recordBtn,#syncBtn,#speakBtn,#transcribeOneBtn,#addTodo'))buzz(8);
+},{passive:true});
+
+(function(){
+const listEl=$('#list');
+let timer=null,row=null,suppressed=false;
+listEl.addEventListener('pointerdown',event=>{
+const target=event.target.closest?event.target.closest('.row'):null;
+if(!target)return;
+row=target;suppressed=false;
+timer=setTimeout(()=>{
+suppressed=true;buzz(20);
+timer=null;
+const box=row.querySelector('input[type=checkbox]');
+if(box){box.checked=!box.checked;box.dispatchEvent(new Event('change'));}
+},480);
+});
+['pointermove','pointercancel','pointerup'].forEach(type=>listEl.addEventListener(type,()=>{if(timer){clearTimeout(timer);timer=null;}}));
+listEl.addEventListener('click',event=>{
+if(suppressed){suppressed=false;event.preventDefault();event.stopPropagation();}
+},true);
+})();
+
+(function(){
+let startX=0,startY=0;
+const reader=$('#reader');
+reader.addEventListener('touchstart',event=>{
+startX=event.touches[0].clientX;startY=event.touches[0].clientY;
+},{passive:true});
+reader.addEventListener('touchend',event=>{
+const dx=event.changedTouches[0].clientX-startX,dy=event.changedTouches[0].clientY-startY;
+if(Math.abs(dx)<64||Math.abs(dy)>48||selection.size)return;
+const list=sorted();
+const index=list.findIndex(i=>i.id===activeId);
+const next=index+(dx<0?1:-1);
+if(next>=0&&next<list.length){activeId=list[next].id;buzz(6);render();}
+},{passive:true});
+})();
 
 $('#importBtn').onclick=()=>$('#wavPicker').click();
 $('#wavPicker').onchange=async event=>{
