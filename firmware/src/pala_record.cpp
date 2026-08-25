@@ -12,6 +12,7 @@
 static int16_t* monoBuf = nullptr;
 static size_t monoLen = 0;
 static bool recording = false;
+static int lastLevel = 0;
 
 static File playHandle;
 static bool playing = false;
@@ -56,9 +57,17 @@ void recPoll() {
   int16_t stereo[512];
   audio_playback_read(stereo, sizeof(stereo));
   const int frames = sizeof(stereo) / (2 * sizeof(int16_t));
-  for (int i = 0; i < frames; i++)
-    monoBuf[monoLen++] = (int16_t)(((int32_t)stereo[2 * i] + stereo[2 * i + 1]) >> 1);
+  int64_t sumSq = 0;
+  for (int i = 0; i < frames; i++) {
+    int16_t m = (int16_t)(((int32_t)stereo[2 * i] + stereo[2 * i + 1]) >> 1);
+    monoBuf[monoLen++] = m;
+    sumSq += (int32_t)m * m;
+  }
+  int rms = (int)sqrt((double)(sumSq / frames));
+  lastLevel = rms > 3000 ? 100 : rms / 30;
 }
+
+int recLevel() { return recording ? lastLevel : 0; }
 
 uint32_t recSeconds() { return monoLen / REC_SAMPLE_RATE; }
 

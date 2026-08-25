@@ -5,6 +5,7 @@
 bool recBegin();
 void recPoll();
 uint32_t recSeconds();
+int recLevel();
 bool recSave(const String& wavPath);
 void recDiscard();
 

@@ -12,6 +12,7 @@ bool staConnect(uint32_t timeoutMs);
 void staDisconnect();
 bool portalActive();
 String portalStart();
+String serverStartSta();
 void portalPoll();
 void portalStop();
 bool transcribeFile(const String& wavPath, String& outText);

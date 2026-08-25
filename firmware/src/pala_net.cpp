@@ -56,9 +56,9 @@ static void handleRoot() {
 }
 
 static void handleApp() {
-  String page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>PALA</title>";
+  String page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Mono Note Mini</title>";
   page += "<body style='font-family:sans-serif;max-width:480px;margin:auto'>";
-  page += "<h2>PALA Note</h2><p>Drop your own site at <code>/www/index.html</code> on the SD card and it replaces this page.</p>";
+  page += "<h2>Mono Note Mini</h2><p>Drop your own site at <code>/www/index.html</code> on the SD card and it replaces this page.</p>";
   page += "<input id=q placeholder='filter...' oninput='f()' style='width:100%;padding:8px'>";
   page += "<ul id=list>";
   File dir = SD_MMC.open("/recordings");
@@ -141,12 +141,7 @@ static void onUploadFile() {
   }
 }
 
-String portalStart() {
-  WiFi.mode(WIFI_AP);
-  String mac = WiFi.macAddress();
-  mac.replace(":", "");
-  String ssid = "PALA-" + mac.substring(mac.length() - 4);
-  WiFi.softAP(ssid.c_str(), "record123");
+static void beginServerRoutes() {
   server.on("/", handleRoot);
   server.on("/app", handleApp);
   server.on("/api/list", handleApiList);
@@ -156,7 +151,21 @@ String portalStart() {
   server.serveStatic("/www/", SD_MMC, "/www/");
   server.begin();
   portalUp = true;
+}
+
+String portalStart() {
+  WiFi.mode(WIFI_AP);
+  String mac = WiFi.macAddress();
+  mac.replace(":", "");
+  String ssid = "MonoNote-" + mac.substring(mac.length() - 4);
+  WiFi.softAP(ssid.c_str(), "record123");
+  beginServerRoutes();
   return ssid;
+}
+
+String serverStartSta() {
+  beginServerRoutes();
+  return WiFi.localIP().toString();
 }
 
 void portalPoll() { if (portalUp) server.handleClient(); }
