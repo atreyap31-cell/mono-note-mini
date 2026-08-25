@@ -8,4 +8,11 @@ uint32_t recSeconds();
 bool recSave(const String& wavPath);
 void recDiscard();
 
+void audioReady();
+void beep();
+bool playFile(const String& wavPath);
+void playPoll();
+void playStop();
+bool playActive();
+
 #endif

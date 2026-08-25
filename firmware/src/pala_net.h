@@ -6,6 +6,8 @@
 void netBegin();
 String netGet(const char* key, const String& def = "");
 void netSet(const char* key, const String& value);
+uint64_t netGetU64(const char* key, uint64_t def);
+void netSetU64(const char* key, uint64_t value);
 bool staConnect(uint32_t timeoutMs);
 void staDisconnect();
 bool portalActive();

@@ -1,7 +1,7 @@
 # Squiggly Pala — device firmware
 
 Custom firmware for the **Waveshare ESP32-S3-Touch-ePaper-1.54** (touch variant, 16MB flash / 8MB PSRAM).
-Voice-only note device: record to SD, transcribe through your Jetson tunnel, transfer files over Wi-Fi, deep sleep between uses.
+Voice-only note device: hold-to-record to SD, tag, play back on the speaker, transcribe through your own server (no OpenAI required — any endpoint that accepts a WAV upload and returns JSON text), auto-sync daily, deep sleep between uses.
 
 Built on Waveshare's own BSP code (e-paper driver, FT6336 touch, ES8311 codec stack, power rails) with a PlatformIO/Arduino glue layer written for this project.
 
@@ -19,28 +19,43 @@ If upload fails: hold the **BOOT** button while it says "Connecting...", or try 
 
 | Gesture | Action |
 |---|---|
-| Tap **REC** | start recording (16 kHz mono WAV → `/recordings/`) |
-| Tap anywhere while recording | stop & save |
-| Tap **SYNC** | join Wi-Fi, upload every WAV without a transcript to `POST {api}/transcribe`, save `.txt` next to it |
-| Tap **TRANSFER** | start hotspot `PALA-XXXX` (key `record123`) → browse to `http://192.168.4.1` |
-| **Hold** anywhere | deep sleep (weeks of standby) |
-| Press **BOOT** | wake up |
+| **Hold REC** | records while held (16 kHz mono WAV → `/recordings/`) |
+| Release | saves, then prompts the **tag picker** (idea / task / reminder / project, or skip) |
+| **SYNC** | joins Wi-Fi, uploads every WAV without a transcript to `POST {api}/transcribe`, saves `.txt` beside it |
+| **PLAY** | recording browser: tap a title to play on the speaker, tap again to stop, swipe to scroll, hold to exit |
+| **SEND / SETTINGS** | hotspot `PALA-XXXX` (key `record123`) → `http://192.168.4.1` |
+| **Hold anywhere (menu)** | deep sleep — wakes on **BOOT** or **PWR** button; auto-sleeps after 60 s idle |
+| Button sounds | confirmation blips on taps; toggle on the settings page |
 
-## First-time setup
+## Daily auto-sync
 
-1. TRANSFER mode → join the hotspot → open the page
-2. Fill in **SSID / password** and your **API base** (e.g. `https://your-tunnel.ngrok-free.dev`) → Save & reboot
-3. Now SYNC works: every new recording gets transcribed and stored beside it as `.txt`
+After the first successful SYNC (which sets the clock via NTP), the device checks on every boot and once per minute: if **24 h** have passed and Wi-Fi + API are configured, it syncs by itself. Manual SYNC still works anytime.
+
+## Your own web interface
+
+The TRANSFER hotspot serves **`/www/index.html` from the SD card at the root URL** — design any site you like, drop it in `/www/`, done (no reflash). It talks to these endpoints:
+
+| Route | What |
+|---|---|
+| `GET /api/list` | JSON `[{name, size}]` of everything in `/recordings` |
+| `GET /file?n=rec_x.wav` | download any recording/transcript/tag file |
+| `POST /up` | multipart upload, saves to `/recordings/<filename>` |
+| `POST /save` | form fields: `ssid`, `pass`, `api`, `sound` |
+
+If `/www/index.html` doesn't exist, `/` redirects to the built-in manager at `/app` (browse, filter, download, upload, settings).
+
+## Transcription backend
+
+SYNC uploads each WAV as multipart field `audio` to `{api}/transcribe` and reads `text`, `content`, `transcript`, or `result` from the JSON reply. Point `api` at anything that speaks that contract — your Jetson tunnel, a local Whisper server, anything. No OpenAI keys involved.
 
 ## Notes
 
-- Recordings: `/sdcard/recordings/*.wav` (16 kHz, 16-bit, mono) with matching `.txt` transcripts
+- Files on SD: `rec_YYYYMMDD_HHMMSS.wav` + matching `.txt` (transcript) + `.tag` (category)
 - Max clip length: 120 seconds
-- The web app (`index.html` at the repo root) imports these WAVs; transcripts can be pasted in or synced via GitHub
-- Battery % isn't shown yet (ADC pin mapping TBD) — everything else runs from the battery
+- The companion web app (`index.html` at the repo root) imports these WAVs for reading aloud, tagging, and GitHub sync
 
 ## Troubleshooting
 
 - **"no SD card"** → card must be FAT32, inserted before power-on
-- **"wifi failed"** → check SSID/password in TRANSFER page; ngrok URL must be live
-- **Upload fails** → data cable, hold BOOT during connect, try USB-A ports on the back of the PC
+- **"wifi failed"** → check SSID/password on the settings page; API URL must be live
+- **Upload fails** → data cable, hold BOOT during connect, try another USB port
