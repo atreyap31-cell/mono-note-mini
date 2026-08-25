@@ -1,0 +1,22 @@
+.pio/build/pala-note/src/src/esp_codec_dev/device/es7210/es7210.c.o: \
+ src/src/esp_codec_dev/device/es7210/es7210.c \
+ src/src/esp_codec_dev/device/es7210/../include/es7210_adc.h \
+ src/src/esp_codec_dev/device/es7210/../include/../../interface/audio_codec_if.h \
+ C:/Users/atrey/squiggly-pala/firmware/src/src/esp_codec_dev/include/esp_codec_dev_types.h \
+ src/src/esp_codec_dev/device/es7210/../include/../../interface/audio_codec_ctrl_if.h \
+ src/src/esp_codec_dev/device/es7210/es7210_reg.h \
+ src/src/esp_codec_dev/device/es7210/../priv_include/es_common.h \
+ src/src/esp_codec_dev/device/es7210/../../include/esp_codec_dev_defaults.h \
+ src/src/esp_codec_dev/device/es7210/../../include/../interface/audio_codec_if.h \
+ src/src/esp_codec_dev/device/es7210/../../include/../interface/audio_codec_ctrl_if.h \
+ src/src/esp_codec_dev/device/es7210/../../include/../interface/audio_codec_data_if.h \
+ C:/Users/atrey/squiggly-pala/firmware/src/src/esp_codec_dev/include/esp_codec_dev_types.h \
+ src/src/esp_codec_dev/device/es7210/../../include/../interface/audio_codec_gpio_if.h \
+ src/src/esp_codec_dev/device/es7210/../../include/../device/include/es8311_codec.h \
+ C:/Users/atrey/squiggly-pala/firmware/src/src/esp_codec_dev/interface/audio_codec_if.h \
+ C:/Users/atrey/squiggly-pala/firmware/src/src/esp_codec_dev/interface/audio_codec_ctrl_if.h \
+ C:/Users/atrey/squiggly-pala/firmware/src/src/esp_codec_dev/interface/audio_codec_gpio_if.h \
+ C:/Users/atrey/squiggly-pala/firmware/src/src/esp_codec_dev/include/esp_codec_dev_vol.h \
+ C:/Users/atrey/squiggly-pala/firmware/src/src/esp_codec_dev/include/esp_codec_dev_types.h \
+ src/src/esp_codec_dev/device/es7210/../../include/../device/include/es7210_adc.h \
+ src/src/esp_codec_dev/device/es7210/../../include/esp_codec_dev_vol.h
