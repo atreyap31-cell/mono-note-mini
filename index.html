@@ -213,7 +213,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <p>The device records; this page manages, transcribes, reads aloud, and syncs.</p>
   <div class="settings-row"><span>Theme</span><div class="choices"><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
   <div class="settings-row"><span>Typewriter sounds</span><div class="choices"><button data-sound="off">Off</button><button data-sound="on">On</button></div></div>
-  <details class="stack-row"><summary class="eyebrow" style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:6px">Advanced — API base URL <span style="color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0">for Transcribe & Read aloud</span></summary><div style="margin-top:12px"><label class="eyebrow" for="apiBaseInput">API base URL</label><input class="field" id="apiBaseInput" type="url" inputmode="url" placeholder="https://your-tunnel.ngrok-free.dev"><p class="hint">Uses POST /transcribe (form field audio) and POST /tts (JSON text + voice).</p><div class="inline-actions"><span class="hint" id="testResult" style="margin:0"></span><button class="btn" id="testConnBtn">Test connection</button></div></div></details>
+  <div class="stack-row"><label class="eyebrow" for="ttsRate">Speech speed</label><div style="display:flex;gap:12px;align-items:center"><input type="range" id="ttsRate" min="0.5" max="2" step="0.1" value="1" style="flex:1;accent-color:var(--ink)"><span id="ttsRateLabel" class="eyebrow" style="min-width:36px;text-align:right">1.0×</span></div><p class="hint">Free browser voice — drag to choose how fast it speaks. No server needed.</p></div>
   <div class="stack-row"><label class="eyebrow" for="voiceSelect">Read-aloud voice</label><select class="field" id="voiceSelect"></select></div>
   <div class="stack-row"><label class="eyebrow" for="tagsInput">Tag buttons (comma separated)</label><input class="field" id="tagsInput" type="text" placeholder="idea, reminder, task, journal"><p class="hint">Tap tags on a recording to file it. No typing per note.</p></div>
   
@@ -247,7 +247,7 @@ const VOICES=[
 ['American Male',[['am_adam','Adam'],['am_michael','Michael'],['am_echo','Echo'],['am_eric','Eric'],['am_fenrir','Fenrir'],['am_liam','Liam'],['am_onyx','Onyx'],['am_puck','Puck']]],
 ['British Female',[['bf_emma','Emma'],['bf_alice','Alice'],['bf_isabella','Isabella'],['bf_lily','Lily']]],
 ['British Male',[['bm_george','George'],['bm_daniel','Daniel'],['bm_fable','Fable'],['bm_lewis','Lewis']]]];
-const defaults={theme:'light',voice:'af_heart',tags:['idea','reminder','task','journal'],apiBase:'https://absolve-marigold-procedure.ngrok-free.dev',gh:{owner:'',repo:'',branch:'main',path:'data/notes.json',token:'',auto:true},lastSync:0,typeSounds:false};
+const defaults={theme:'light',voice:'af_heart',tags:['idea','reminder','task','journal'],apiBase:'',ttsRate:1,gh:{owner:'',repo:'',branch:'main',path:'data/notes.json',token:'',auto:true},lastSync:0,typeSounds:false};
 let prefs=Object.assign({},defaults,JSON.parse(localStorage.getItem(PREF_KEY)||'{}'));
 prefs.gh=Object.assign({},defaults.gh,prefs.gh||{});
 if(!Array.isArray(prefs.tags)||!prefs.tags.length)prefs.tags=defaults.tags.slice();
@@ -687,7 +687,7 @@ speechSynthesis.cancel();
 const u=new SpeechSynthesisUtterance(t);
 const vs=speechSynthesis.getVoices();
 if(vs.length) u.voice=vs.find(v=>v.name.toLowerCase().includes(prefs.voice.split('_')[1]||''))||vs[0];
-u.rate=1; u.pitch=1;
+u.rate=prefs.ttsRate||1; u.pitch=1;
 speechSynthesis.speak(u);
 return true;
 }catch(_){ return false; }
@@ -757,7 +757,7 @@ function applySounds(){document.body.classList.toggle('sounds-on', !!prefs.typeS
 function refreshSettings(){
 document.querySelectorAll('[data-theme]').forEach(button=>button.classList.toggle('active',prefs.theme===button.dataset.theme));
 document.querySelectorAll('[data-sound]').forEach(button=>button.classList.toggle('active', (prefs.typeSounds?'on':'off')===button.dataset.sound));
-$('#apiBaseInput').value=prefs.apiBase||'';
+const tr=$('#ttsRate'); const rl=$('#ttsRateLabel'); if(tr){ tr.value=prefs.ttsRate||1; if(rl) rl.textContent=Number(prefs.ttsRate||1).toFixed(1)+'×'; }
 $('#voiceSelect').value=prefs.voice;
 $('#tagsInput').value=prefs.tags.join(', ');
 $('#ghOwner').value=prefs.gh.owner;$('#ghRepo').value=prefs.gh.repo;
@@ -776,7 +776,7 @@ $('#settingsBtn').onclick=openSettings;
 $('#closeSettings').onclick=()=>$('#settingsDialog').close();
 document.querySelectorAll('[data-theme]').forEach(button=>button.onclick=()=>{prefs.theme=button.dataset.theme;savePrefs();applyTheme();refreshSettings();});
 document.querySelectorAll('[data-sound]').forEach(button=>button.onclick=()=>{prefs.typeSounds=button.dataset.sound==='on';savePrefs();refreshSettings(); if(prefs.typeSounds) typeTick('type');});
-$('#apiBaseInput').oninput=event=>{prefs.apiBase=event.target.value.trim();savePrefs();};
+const _trEl=$('#ttsRate'); if(_trEl){ _trEl.oninput=e=>{ prefs.ttsRate=parseFloat(e.target.value)||1; savePrefs(); const l=$('#ttsRateLabel'); if(l) l.textContent=prefs.ttsRate.toFixed(1)+'×'; }; }
 $('#voiceSelect').onchange=event=>{prefs.voice=event.target.value;savePrefs();};
 $('#tagsInput').oninput=event=>{
 const tags=[...new Set(event.target.value.split(',').map(t=>t.trim().replace(/^#/,'')).filter(Boolean))];
@@ -798,14 +798,7 @@ voices.forEach(([value,label])=>{const option=document.createElement('option');o
 $('#voiceSelect').append(optgroup);
 });
 
-$('#testConnBtn').onclick=async()=>{
-const result=$('#testResult');
-result.textContent='Testingâ€¦';
-try{
-const response=await fetch(apiBase()+'/',{method:'GET'});
-result.textContent='Reachable Â· HTTP '+response.status;
-}catch(error){result.textContent='Unreachable: '+(error.message||'network error');}
-};
+const _tcb=$('#testConnBtn'); const _trr=$('#testResult'); if(_tcb && _trr){ _tcb.onclick=async()=>{ _trr.textContent='Testing…'; try{ const r=await fetch((apiBase()||location.origin)+'/',{method:'GET'}); _trr.textContent='Reachable · HTTP '+r.status; }catch(e){ _trr.textContent='Unreachable: '+(e.message||'network error'); } }; }
 navigator.storage&&navigator.storage.estimate&&navigator.storage.estimate().then(({usage,quota})=>{
 if(quota)$('#storageLine').textContent=fmtSize(usage||0)+' used of '+fmtSize(quota)+' available for WAV storage.';
 }).catch(()=>{});
