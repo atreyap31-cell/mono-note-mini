@@ -23,7 +23,7 @@ static I2cMasterBus* i2c = nullptr;
 static I2cFt6336Dev* touch = nullptr;
 static epaper_driver_display* epd = nullptr;
 
-enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE };
+enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE };
 static State state = ST_HOME;
 static State syncReturnTo = ST_HOME;
 
@@ -174,12 +174,64 @@ static void drawMenu() {
   epd->EPD_Clear();
   uiTextCentered(10, "mono note mini", 1);
   uiRect(0, 26, 200, 1);
-  uiRect(10, 40, 180, 44);
-  uiTextCentered(56, "VIEW NOTES", 2);
-  uiRect(10, 94, 180, 44);
-  uiTextCentered(110, "MAKE NOTE", 2);
-  uiRect(10, 148, 180, 44);
-  uiTextCentered(164, "SETTINGS", 2);
+  uiRect(10, 36, 180, 36);  uiTextCentered(48, "VIEW NOTES", 1);
+  uiRect(10, 76, 180, 36);  uiTextCentered(88, "MAKE NOTE", 1);
+  uiRect(10, 116, 180, 36); uiTextCentered(128, "TO-DO", 1);
+  uiRect(10, 156, 180, 36); uiTextCentered(168, "SETTINGS", 1);
+  uiFlushFull();
+}
+
+struct TodoItem { String text; bool done; };
+static std::vector<TodoItem> todos;
+static int todoTop = 0;
+
+static void todoLoad() {
+  todos.clear();
+  if (!SD_MMC.exists("/todo.txt")) return;
+  File f = SD_MMC.open("/todo.txt", "r");
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    line.trim();
+    if (!line.length()) continue;
+    TodoItem item;
+    if (line.startsWith("[x] ")) { item.done = true; item.text = line.substring(4); }
+    else if (line.startsWith("[ ] ")) { item.done = false; item.text = line.substring(4); }
+    else { item.done = false; item.text = line; }
+    todos.push_back(item);
+  }
+  f.close();
+}
+
+static void todoSave() {
+  File f = SD_MMC.open("/todo.txt", "w");
+  if (!f) return;
+  for (auto& t : todos) {
+    f.print(t.done ? "[x] " : "[ ] ");
+    f.println(t.text);
+  }
+  f.close();
+}
+
+static void drawTodo() {
+  epd->EPD_Clear();
+  uiTextCentered(10, "TO-DO", 2);
+  uiRect(0, 28, 200, 1);
+  if (todos.empty()) uiTextCentered(100, "no jobs - add via web", 1);
+  for (int i = 0; i < 6 && todoTop + i < (int)todos.size(); i++) {
+    int idx = todoTop + i;
+    int y = 36 + i * 24;
+    bool sel = false;
+    uiRect(8, y + 4, 14, 14);
+    if (todos[idx].done) {
+      uiFillRect(10, y + 6, 10, 10, 0x00);
+      uiFillRect(11, y + 11, 8, 2, 0xff);
+    }
+    String t = todos[idx].text;
+    if ((int)t.length() > 24) t = t.substring(0, 24);
+    uiText(30, y + 6, t, 1);
+  }
+  uiFillRect(0, 184, 200, 16, 0x00);
+  uiTextCentered(188, "< back   (tap = check off)", 1, 0xff);
   uiFlushFull();
 }
 
@@ -560,13 +612,18 @@ void loop() {
       if (longPress || (tap && ty > 184)) { sleepNow(); break; }
       if (tap) {
         if (soundOn()) beep();
-        if (ty >= 40 && ty < 88) {
+        if (ty >= 36 && ty < 72) {
           viewTag = "";
           state = ST_VIEW_TAGS;
           drawViewTags();
-        } else if (ty >= 94 && ty < 142) {
+        } else if (ty >= 76 && ty < 112) {
           startRecording();
-        } else if (ty >= 148 && ty < 196) {
+        } else if (ty >= 116 && ty < 152) {
+          todoLoad();
+          todoTop = 0;
+          state = ST_TODO;
+          drawTodo();
+        } else if (ty >= 156 && ty < 192) {
           state = ST_SETTINGS;
           drawSettings();
         }
@@ -587,6 +644,21 @@ void loop() {
       }
       if (tap && ty >= 44 && ty <= 104) finishRecording();
       if (longPress) finishRecording();
+      break;
+
+    case ST_TODO:
+      if (longPress || (tap && ty > 184)) { state = ST_MENU; drawMenu(); break; }
+      if (swipe == -1 && todoTop > 0) { todoTop--; drawTodo(); }
+      if (swipe == 1 && todoTop + 6 < (int)todos.size()) { todoTop++; drawTodo(); }
+      if (tap) {
+        int trow = (ty - 36) / 24;
+        if (trow >= 0 && trow < 6 && todoTop + trow < (int)todos.size()) {
+          todos[todoTop + trow].done = !todos[todoTop + trow].done;
+          todoSave();
+          if (soundOn()) beep();
+          drawTodo();
+        }
+      }
       break;
 
     case ST_TAG:

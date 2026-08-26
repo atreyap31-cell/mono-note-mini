@@ -72,6 +72,15 @@ static void handleApp() {
   }
   page += "</ul><script>function f(){var q=document.getElementById('q').value.toLowerCase();"
           "document.querySelectorAll('#list li').forEach(function(li){li.style.display=li.dataset.n.toLowerCase().includes(q)?'':'none'})}</script>";
+  page += "</ul><h3>To-do</h3><p>One job per line. Use [x] for done.</p>";
+  String todoText = "";
+  if (SD_MMC.exists("/todo.txt")) {
+    File tf = SD_MMC.open("/todo.txt", "r");
+    todoText = tf.readString();
+    tf.close();
+  }
+  page += "<textarea id=todo rows=6 style='width:100%'>" + htmlEscape(todoText) + "</textarea>";
+  page += "<button onclick=\"fetch('/api/todo',{method:'POST',body:document.getElementById('todo').value}).then(()=>location.reload())\">Save to-do</button>";
   page += "<h3>Upload transcript (.txt)</h3><form method=POST action=/up enctype=multipart/form-data><input type=file name=f accept='.txt'><button>Upload</button></form>";
   page += "<h3>Settings</h3><form method=POST action=/save>";
   page += "SSID <input name=ssid value='" + netGet("ssid") + "'><br>";
@@ -126,6 +135,22 @@ static void handleSave() {
 
 static void handleUpload() { server.send(200, "text/plain", "ok"); }
 
+static void handleTodoGet() {
+  String out = "";
+  if (SD_MMC.exists("/todo.txt")) {
+    File f = SD_MMC.open("/todo.txt", "r");
+    out = f.readString();
+    f.close();
+  }
+  server.send(200, "text/plain", out);
+}
+
+static void handleTodoPost() {
+  File f = SD_MMC.open("/todo.txt", "w");
+  if (f) { f.print(server.arg("plain")); f.close(); }
+  server.send(200, "text/plain", "ok");
+}
+
 static void onUploadFile() {
   HTTPUpload& up = server.upload();
   static File fh;
@@ -148,6 +173,8 @@ static void beginServerRoutes() {
   server.on("/file", handleFile);
   server.on("/save", HTTP_POST, handleSave);
   server.on("/up", HTTP_POST, handleUpload, onUploadFile);
+  server.on("/api/todo", HTTP_GET, handleTodoGet);
+  server.on("/api/todo", HTTP_POST, handleTodoPost);
   server.serveStatic("/www/", SD_MMC, "/www/");
   server.begin();
   portalUp = true;
