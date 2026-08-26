@@ -19,7 +19,7 @@
 }
 *{box-sizing:border-box}
 html{scrollbar-gutter:stable}
-body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);min-width:0;overflow-x:hidden;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+body{margin:0;background-color:var(--bg);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='400'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E"),radial-gradient(ellipse at 20% 10%, rgba(0,0,0,.04) 0%, transparent 55%),radial-gradient(ellipse at 90% 90%, rgba(0,0,0,.03) 0%, transparent 50%),linear-gradient(180deg, rgba(255,255,255,.6) 0%, transparent 100%);color:var(--ink);font-family:var(--sans);min-width:0;overflow-x:hidden;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
 body.dark{--bg:#0A0A0A;--paper:#141413;--ink:#FCFCFA;--muted:#9A9590;--line:#FCFCFA;--soft:#1E1E1E}
 button,input,select,textarea{font:inherit}
 button{cursor:pointer}
@@ -40,7 +40,7 @@ body.dark .btn.primary{background:var(--paper);color:var(--bg);border-color:var(
 .btn.gear{width:38px;height:38px;padding:0;display:inline-grid;place-items:center;font-size:1rem}
 .btn:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
 .layout{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px;width:min(1280px,calc(100% - 32px));margin:20px auto 140px}
-.card{background:var(--paper);border:2px solid var(--ink);border-radius:0;box-shadow:var(--shadow)}
+.card{background-color:var(--paper);background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E"),linear-gradient(180deg, rgba(255,255,255,.7) 0%, rgba(255,255,255,0) 100%);border:2px solid var(--ink);border-radius:0;box-shadow:var(--shadow)}
 .pane-head{display:flex;justify-content:space-between;align-items:center;padding:16px 14px 10px;border-bottom:2px solid var(--ink);background:var(--paper)}
 .pane-head h2{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);margin:0;font-weight:700}
 .pane-head h2::before{content:"// ";color:var(--muted);font-weight:500}
@@ -182,7 +182,7 @@ footer{padding:40px 0 28px;text-align:center;font-family:var(--mono);font-size:.
   <h2>Settings</h2>
   <p>The device records; this page manages, transcribes, reads aloud, and syncs.</p>
   <div class="settings-row"><span>Theme</span><div class="choices"><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
-  <div class="stack-row"><label class="eyebrow" for="apiBaseInput">API base URL</label><input class="field" id="apiBaseInput" type="url" inputmode="url" placeholder="https://your-tunnel.ngrok-free.dev"><p class="hint">Uses POST /transcribe (form field audio) and POST /tts (JSON text + voice).</p><div class="inline-actions"><span class="hint" id="testResult" style="margin:0"></span><button class="btn" id="testConnBtn">Test connection</button></div></div>
+  <div class="stack-row" style="display:none"><label class="eyebrow" for="apiBaseInput">API base URL</label><input class="field" id="apiBaseInput" type="url" inputmode="url" placeholder="https://your-tunnel.ngrok-free.dev"><p class="hint">Uses POST /transcribe (form field audio) and POST /tts (JSON text + voice).</p><div class="inline-actions"><span class="hint" id="testResult" style="margin:0"></span><button class="btn" id="testConnBtn">Test connection</button></div></div>
   <div class="stack-row"><label class="eyebrow" for="voiceSelect">Read-aloud voice</label><select class="field" id="voiceSelect"></select></div>
   <div class="stack-row"><label class="eyebrow" for="tagsInput">Tag buttons (comma separated)</label><input class="field" id="tagsInput" type="text" placeholder="idea, reminder, task, journal"><p class="hint">Tap tags on a recording to file it. No typing per note.</p></div>
   
