@@ -642,6 +642,7 @@ setStatus(files.length+' WAV file'+(files.length===1?'':'s')+' imported.',false,
 render();
 };
 async function transcribeOne(item){
+if(!apiBase()) throw new Error('No transcription server configured — new recordings already use free live transcription while you record. For existing wavs, add a server URL in Settings → Advanced, or re-record with live mode for a free transcript.');
 const form=new FormData();
 form.append('audio',item.blob,safeName(item.name)+'.wav');
 const response=await fetch(apiUrl('transcribe'),{method:'POST',body:form});
@@ -679,7 +680,23 @@ if(!note)return;
 const text=(note.transcript||'').trim();
 if(!text){setStatus('Transcribe this recording first so there is something to read.',true);return;}
 const button=$('#speakBtn');
-button.disabled=true;setStatus('Generating speechâ€¦');
+button.disabled=true;setStatus('Generating speech…');
+const freeSpeak=(t)=>{
+try{
+speechSynthesis.cancel();
+const u=new SpeechSynthesisUtterance(t);
+const vs=speechSynthesis.getVoices();
+if(vs.length) u.voice=vs.find(v=>v.name.toLowerCase().includes(prefs.voice.split('_')[1]||''))||vs[0];
+u.rate=1; u.pitch=1;
+speechSynthesis.speak(u);
+return true;
+}catch(_){ return false; }
+};
+if(!apiBase()){
+if(freeSpeak(text)){ setStatus('Speaking with browser voice (free, no server).',false,true); button.disabled=false; return; }
+setStatus('No TTS server configured.',true);
+showFeedback('Read aloud — free mode','No server URL is set.','Your browser can speak for free — this fallback just ran. For higher-quality voices, add a server URL in Settings → Advanced.'); button.disabled=false; return;
+}
 try{
 const response=await fetch(apiUrl('tts'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice:prefs.voice})});
 if(!response.ok)throw new Error('HTTP '+response.status+' from '+apiUrl('tts'));
@@ -690,8 +707,8 @@ await dbPut(entry);items.push(entry);
 setStatus('Playing and saved to the library.',false,true);
 render();
 }catch(error){
-setStatus('Read aloud failed: '+error.message,true);
-showFeedback('Read aloud failed',String(error.message||error),'Check that your server is up, that /tts accepts {text, voice}, and that CORS allows this page origin.');
+if(freeSpeak(text)){ setStatus('Server unavailable — speaking with browser voice (free).',false,true); }
+else { setStatus('Read aloud failed: '+error.message,true); showFeedback('Read aloud failed',String(error.message||error),'Check that your server is up, that /tts accepts {text, voice}, and that CORS allows this page origin. Or keep it free — it will use your browser voice when no server is set.'); }
 }finally{button.disabled=false;}
 };
 
