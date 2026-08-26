@@ -27,9 +27,7 @@ button{cursor:pointer}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 .eyebrow{font-family:var(--mono);font-size:.62rem;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);font-weight:600}
 .topbar{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:2px solid var(--ink);min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 20px}
-.brand{font-family:var(--mono);font-size:1.05rem;font-weight:700;letter-spacing:-.04em;text-transform:uppercase;line-height:1}
-.brand .eyebrow{display:block;margin-top:4px;font-weight:500;letter-spacing:.1em}
-.brand::after{content:" 1.54\"";font-weight:500;color:var(--muted);letter-spacing:.06em}
+.brand{font-family:var(--mono);font-size:1.65rem;font-weight:800;letter-spacing:-.05em;text-transform:uppercase;line-height:1}
 .actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .btn{border:2px solid var(--ink);border-radius:0;background:var(--paper);color:var(--ink);padding:8px 14px;font-family:var(--mono);font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;transition:transform .08s,background .12s}
 .btn:hover{background:var(--soft);transform:translate(-1px,-1px);box-shadow:2px 2px 0 var(--ink)}
@@ -39,8 +37,15 @@ button{cursor:pointer}
 body.dark .btn.primary{background:var(--paper);color:var(--bg);border-color:var(--paper)}
 .btn.gear{width:38px;height:38px;padding:0;display:inline-grid;place-items:center;font-size:1rem}
 .btn:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none}
-.layout{display:grid;grid-template-columns:360px minmax(0,1fr);gap:16px;width:min(1280px,calc(100% - 32px));margin:20px auto 140px}
-.card{background:var(--paper);border:2px solid var(--ink);border-radius:0;box-shadow:var(--shadow)}
+html,body{height:100%}
+body{display:flex;flex-direction:column}
+.layout{flex:1;display:grid;grid-template-columns:360px minmax(0,1fr);gap:0;width:100%;margin:0;min-height:0;height:calc(100vh - 64px);height:calc(100dvh - 64px)}
+.card{background:var(--paper);border-radius:0;box-shadow:none;display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.card:first-child{border-right:2px solid var(--ink)}
+#list{flex:1;max-height:none;overflow:auto}
+.reader-body{flex:1;overflow:auto;display:flex;flex-direction:column;min-height:0}
+#transcript{flex:1;max-height:none}
+footer{margin-top:auto}
 .pane-head{display:flex;justify-content:space-between;align-items:center;padding:16px 14px 10px;border-bottom:2px solid var(--ink);background:var(--paper)}
 .pane-head h2{font-family:var(--mono);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink);margin:0;font-weight:700}
 .pane-head h2::before{content:"// ";color:var(--muted);font-weight:500}
@@ -133,8 +138,14 @@ footer{padding:40px 0 28px;text-align:center;font-family:var(--mono);font-size:.
 .todo-item.done .t-text{text-decoration:line-through}
 .t-text{flex:1;min-width:0;border:0;background:transparent;color:var(--ink);outline:0;font-family:var(--mono);font-size:.84rem;text-transform:uppercase;letter-spacing:.02em}
 .add-row{display:flex;gap:8px;margin-top:16px}
+body.sounds-on .btn:hover{transform:translate(-2px,-2px) scale(1.02);box-shadow:3px 3px 0 var(--ink)}
+body.sounds-on .chip:hover{transform:translate(-1px,-1px) scale(1.04) rotate(0.5deg)}
+body.sounds-on .tag-pill:hover{transform:translate(-1px,-1px) scale(1.05)}
+body.sounds-on .row:hover{transform:translate(-2px,-2px);box-shadow:3px 3px 0 var(--ink)}
+body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
 @media(max-width:900px){
-.layout{grid-template-columns:1fr;margin-bottom:120px}
+.layout{grid-template-columns:1fr;height:auto;min-height:calc(100dvh - 64px);margin:0}
+.card{height:auto}
 #list{max-height:38vh}
 .reader-head{flex-wrap:wrap;padding:12px 14px}
 #transcript{max-height:none}
@@ -155,7 +166,7 @@ footer{padding:40px 0 28px;text-align:center;font-family:var(--mono);font-size:.
 }</style></head>
 <body>
 <header class="topbar">
-  <div class="brand">Mono Note Mini<span class="eyebrow">voice only · ESP32 e-paper companion</span></div>
+  <div class="brand">Mono Note Mini</div>
   <div class="actions">
     <button class="btn" id="todoBtn">Tasks</button>
     <button class="btn" id="syncBtn">Sync now</button>
@@ -167,6 +178,7 @@ footer{padding:40px 0 28px;text-align:center;font-family:var(--mono);font-size:.
   <section class="card">
     <div class="pane-head"><h2>Recordings</h2></div>
     <div class="tag-bar" id="tagBar"></div>
+    <div style="padding:0 14px 10px"><input class="field" id="searchInput" placeholder="Search notes…"></div>
     <div class="pane-actions">
       <button class="btn primary wide" id="newNoteBtn">+ New note</button>
       <button class="btn primary wide" id="importBtn">Import WAV from SD card</button>
@@ -201,6 +213,7 @@ footer{padding:40px 0 28px;text-align:center;font-family:var(--mono);font-size:.
   <h2>Settings</h2>
   <p>The device records; this page manages, transcribes, reads aloud, and syncs.</p>
   <div class="settings-row"><span>Theme</span><div class="choices"><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
+  <div class="settings-row"><span>Typewriter sounds</span><div class="choices"><button data-sound="off">Off</button><button data-sound="on">On</button></div></div>
   <div class="stack-row" style="display:none"><label class="eyebrow" for="apiBaseInput">API base URL</label><input class="field" id="apiBaseInput" type="url" inputmode="url" placeholder="https://your-tunnel.ngrok-free.dev"><p class="hint">Uses POST /transcribe (form field audio) and POST /tts (JSON text + voice).</p><div class="inline-actions"><span class="hint" id="testResult" style="margin:0"></span><button class="btn" id="testConnBtn">Test connection</button></div></div>
   <div class="stack-row"><label class="eyebrow" for="voiceSelect">Read-aloud voice</label><select class="field" id="voiceSelect"></select></div>
   <div class="stack-row"><label class="eyebrow" for="tagsInput">Tag buttons (comma separated)</label><input class="field" id="tagsInput" type="text" placeholder="idea, reminder, task, journal"><p class="hint">Tap tags on a recording to file it. No typing per note.</p></div>
@@ -235,7 +248,7 @@ const VOICES=[
 ['American Male',[['am_adam','Adam'],['am_michael','Michael'],['am_echo','Echo'],['am_eric','Eric'],['am_fenrir','Fenrir'],['am_liam','Liam'],['am_onyx','Onyx'],['am_puck','Puck']]],
 ['British Female',[['bf_emma','Emma'],['bf_alice','Alice'],['bf_isabella','Isabella'],['bf_lily','Lily']]],
 ['British Male',[['bm_george','George'],['bm_daniel','Daniel'],['bm_fable','Fable'],['bm_lewis','Lewis']]]];
-const defaults={theme:'light',voice:'af_heart',tags:['idea','reminder','task','journal'],apiBase:'https://absolve-marigold-procedure.ngrok-free.dev',gh:{owner:'',repo:'',branch:'main',path:'data/notes.json',token:'',auto:true},lastSync:0};
+const defaults={theme:'light',voice:'af_heart',tags:['idea','reminder','task','journal'],apiBase:'https://absolve-marigold-procedure.ngrok-free.dev',gh:{owner:'',repo:'',branch:'main',path:'data/notes.json',token:'',auto:true},lastSync:0,typeSounds:false};
 let prefs=Object.assign({},defaults,JSON.parse(localStorage.getItem(PREF_KEY)||'{}'));
 prefs.gh=Object.assign({},defaults.gh,prefs.gh||{});
 if(!Array.isArray(prefs.tags)||!prefs.tags.length)prefs.tags=defaults.tags.slice();
@@ -304,6 +317,7 @@ const txtOf=item=>[item.name,new Date(item.created).toLocaleString(),'Tags: '+((
 const blobToBase64=(blob)=>new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(String(r.result).split(',')[1]||'');r.onerror=rej;r.readAsDataURL(blob);});
 const base64ToBlob=(b64,type='audio/wav')=>{try{const bin=atob(b64);const bytes=new Uint8Array(bin.length);for(let i=0;i<bin.length;i++)bytes[i]=bin.charCodeAt(i);return new Blob([bytes],{type});}catch(_){return null;}};
 let currentTagFilter=null;
+let searchQuery='';
 
 function applyTheme(){document.body.classList.toggle('dark',prefs.theme==='dark');}
 function updateButtons(){
@@ -330,10 +344,17 @@ const e=document.createElement('span'); e.className='eyebrow'; e.style.padding='
 bar.append(e);
 }
 }
+const _searchEl=$('#searchInput');
+if(_searchEl && !_searchEl._wired){
+_searchEl._wired=true;
+_searchEl.addEventListener('input', e=>{searchQuery=e.target.value.trim().toLowerCase(); render();});
+_searchEl.addEventListener('keydown', e=>{if(e.key==='Escape'){e.target.value=''; searchQuery=''; render();}});
+}
 function render(){
 renderTagBar();
 let list=sorted();
 if(currentTagFilter) list=list.filter(it=> (it.tags||[]).includes(currentTagFilter));
+if(searchQuery) list=list.filter(it=> (it.name+' '+(it.transcript||'')+' '+(it.tags||[]).join(' ')).toLowerCase().includes(searchQuery));
 if(list.length && !list.some(i=>i.id===activeId) && activeId && !sorted().some(i=>i.id===activeId)) activeId=list[0].id;
 else if(!list.some(i=>i.id===activeId)) activeId=list.length?list[0].id:activeItem()?.id||null;
 const active=activeItem();
@@ -389,6 +410,7 @@ $('#saveState').textContent=active.edited?'Edited '+new Date(active.edited).toLo
 const metaBits=['Created '+new Date(active.created).toLocaleString()];
 if(active.duration)metaBits.push(fmtDur(active.duration));
 if(active.source==='live')metaBits.push('free live transcription');
+const _wc=(active.transcript||'').trim(); if(_wc){ const _w=_wc.split(/\s+/).filter(Boolean).length; metaBits.push(_w+' words'); }
 $('#metaLine').textContent=metaBits.join(' Â· ');
 const tagUnion=[...new Set([...prefs.tags,...(active.tags||[])])];
 chipsEl.replaceChildren();
@@ -447,6 +469,7 @@ else if(a && t.isContentEditable){ a.transcript=t.innerText; a.edited=Date.now()
 });
 let typeCtx=null;
 function typeTick(kind){
+if(!prefs.typeSounds) return;
 try{
 if(!typeCtx) typeCtx=new (window.AudioContext||window.webkitAudioContext)();
 if(typeCtx.state==='suspended') typeCtx.resume();
@@ -714,8 +737,10 @@ render();
 setStatus('Deleted.',false,true);
 });
 };
+function applySounds(){document.body.classList.toggle('sounds-on', !!prefs.typeSounds);}
 function refreshSettings(){
 document.querySelectorAll('[data-theme]').forEach(button=>button.classList.toggle('active',prefs.theme===button.dataset.theme));
+document.querySelectorAll('[data-sound]').forEach(button=>button.classList.toggle('active', (prefs.typeSounds?'on':'off')===button.dataset.sound));
 $('#apiBaseInput').value=prefs.apiBase||'';
 $('#voiceSelect').value=prefs.voice;
 $('#tagsInput').value=prefs.tags.join(', ');
@@ -723,6 +748,7 @@ $('#ghOwner').value=prefs.gh.owner;$('#ghRepo').value=prefs.gh.repo;
 $('#ghBranch').value=prefs.gh.branch;$('#ghPath').value=prefs.gh.path;
 $('#ghToken').value=prefs.gh.token;$('#ghAuto').checked=!!prefs.gh.auto;
 updateSyncLabels();
+applySounds();
 }
 function updateSyncLabels(){
 const label=prefs.lastSync?'Last sync: '+new Date(prefs.lastSync).toLocaleString():'Never synced';
@@ -733,6 +759,7 @@ const openSettings=()=>{refreshSettings();if(!$('#settingsDialog').open)$('#sett
 $('#settingsBtn').onclick=openSettings;
 $('#closeSettings').onclick=()=>$('#settingsDialog').close();
 document.querySelectorAll('[data-theme]').forEach(button=>button.onclick=()=>{prefs.theme=button.dataset.theme;savePrefs();applyTheme();refreshSettings();});
+document.querySelectorAll('[data-sound]').forEach(button=>button.onclick=()=>{prefs.typeSounds=button.dataset.sound==='on';savePrefs();refreshSettings(); if(prefs.typeSounds) typeTick('type');});
 $('#apiBaseInput').oninput=event=>{prefs.apiBase=event.target.value.trim();savePrefs();};
 $('#voiceSelect').onchange=event=>{prefs.voice=event.target.value;savePrefs();};
 $('#tagsInput').oninput=event=>{
@@ -939,7 +966,7 @@ if(prefs.gh.auto&&prefs.gh.owner&&prefs.gh.repo&&prefs.gh.token&&Date.now()-(pre
 }
 setInterval(maybeAutoSync,30*60*1000);
 
-applyTheme();
+applyTheme(); applySounds();
 updateSyncLabels();
 renderTodos();
 dbAll().then(list=>{
