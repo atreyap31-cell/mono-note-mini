@@ -145,16 +145,16 @@ body.dark .choices button.active{color:#111}
   </section>
 </main>
 <button id="recordBtn" title="Record a voice note"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="3" width="8" height="12" rx="4"></rect><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"></path></svg></button>
-<footer>Credits: Ethan, Atreya, Robert, Joshua, Ryan</footer>
+<footer>By Atreya</footer>
 <input type="file" id="wavPicker" accept=".wav,audio/wav" multiple hidden>
 <dialog class="dialog scrollable" id="settingsDialog">
   <h2>Settings</h2>
   <p>The device records; this page manages, transcribes, reads aloud, and syncs.</p>
   <div class="settings-row"><span>Theme</span><div class="choices"><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
-  <div class="stack-row"><label class="eyebrow" for="apiBaseInput">Jetson API base URL</label><input class="field" id="apiBaseInput" type="url" inputmode="url" placeholder="https://your-tunnel.ngrok-free.dev"><p class="hint">Uses POST /transcribe (form field audio) and POST /tts (JSON text + voice).</p><div class="inline-actions"><span class="hint" id="testResult" style="margin:0"></span><button class="btn" id="testConnBtn">Test connection</button></div></div>
-  <div class="stack-row"><label class="eyebrow" for="voiceSelect">Default read-aloud voice (Kokoro)</label><select class="field" id="voiceSelect"></select></div>
+  <div class="stack-row"><label class="eyebrow" for="apiBaseInput">API base URL</label><input class="field" id="apiBaseInput" type="url" inputmode="url" placeholder="https://your-tunnel.ngrok-free.dev"><p class="hint">Uses POST /transcribe (form field audio) and POST /tts (JSON text + voice).</p><div class="inline-actions"><span class="hint" id="testResult" style="margin:0"></span><button class="btn" id="testConnBtn">Test connection</button></div></div>
+  <div class="stack-row"><label class="eyebrow" for="voiceSelect">Read-aloud voice</label><select class="field" id="voiceSelect"></select></div>
   <div class="stack-row"><label class="eyebrow" for="tagsInput">Tag buttons (comma separated)</label><input class="field" id="tagsInput" type="text" placeholder="idea, reminder, task, journal"><p class="hint">Tap tags on a recording to file it. No typing per note.</p></div>
-  <div class="stack-row"><label class="eyebrow" for="dgKeyInput">Deepgram backup key (optional)</label><input class="field" id="dgKeyInput" type="password" autocomplete="off" placeholder="Used only if Jetson transcription fails"><p class="hint">Kept until this tab closes.</p></div>
+  
   <div class="stack-row">
     <label class="eyebrow">GitHub sync</label>
     <div class="grid2"><input class="field" id="ghOwner" placeholder="owner (atreyap31-cell)"><input class="field" id="ghRepo" placeholder="repo (your-repo)"></div>
@@ -179,7 +179,7 @@ body.dark .choices button.active{color:#111}
 <script>
 (() => {
 "use strict";
-const PREF_KEY='pala-prefs-v2',TODO_KEY='pala-todos-v1',DG_STORAGE='pala-deepgram-key',DB_NAME='squiggly-recordings',STORE='recordings',DAY=86400000;
+const PREF_KEY='pala-prefs-v2',TODO_KEY='pala-todos-v1',DB_NAME='squiggly-recordings',STORE='recordings',DAY=86400000;
 const VOICES=[
 ['American Female',[['af_heart','Heart'],['af_bella','Bella'],['af_nicole','Nicole'],['af_alloy','Alloy'],['af_aoede','Aoede'],['af_jessica','Jessica'],['af_kore','Kore'],['af_nova','Nova'],['af_river','River'],['af_sarah','Sarah'],['af_sky','Sky']]],
 ['American Male',[['am_adam','Adam'],['am_michael','Michael'],['am_echo','Echo'],['am_eric','Eric'],['am_fenrir','Fenrir'],['am_liam','Liam'],['am_onyx','Onyx'],['am_puck','Puck']]],
@@ -195,7 +195,6 @@ const uid=()=>crypto.randomUUID?crypto.randomUUID():'id-'+Date.now()+'-'+Math.ra
 const SUFFIX=/(?:\/(?:transcribe|tts|rewrite|chat))+\/?$/;
 const apiBase=()=>String(prefs.apiBase||'').trim().replace(/\/+$/,'').replace(SUFFIX,'');
 const apiUrl=r=>apiBase()+'/'+r;
-const dgKey=()=>(sessionStorage.getItem(DG_STORAGE)||'').trim();
 const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
 
 const db=new Promise((resolve,reject)=>{
@@ -286,7 +285,7 @@ const meta=document.createElement('span');meta.className='row-meta';
 const parts=[new Date(item.created).toLocaleString()];
 if(item.duration)parts.push(fmtDur(item.duration));
 parts.push(item.blob?fmtSize(item.blob.size||0):'audio on another device');
-parts.push(item.kind==='speech'?'generated audio':item.transcript?('transcript Â· '+(item.source||'whisper')):'not transcribed');
+parts.push(item.kind==='speech'?'generated audio':item.transcript?('transcript Â· '+(item.source||'server')):'not transcribed');
 if((item.tags||[]).length)parts.push('#'+item.tags.join(' #'));
 meta.textContent=parts.join(' Â· ');
 main.append(nameSpan,meta);
@@ -339,7 +338,7 @@ sBtn.hidden=active.kind==='speech';
 const text=(active.transcript||'').trim();
 if(text){transcript.textContent=text;transcript.classList.remove('placeholder');}
 else{
-transcript.textContent=active.kind==='speech'?'Generated speech audio.':'No transcript yet. Live transcription runs while recording, or use Transcribe for Whisper.';
+transcript.textContent=active.kind==='speech'?'Generated speech audio.':'No transcript yet. Live transcription runs while recording, or use Transcribe with your server.';
 transcript.classList.add('placeholder');
 }
 }
@@ -429,7 +428,7 @@ const blob=floatToWav(chunks,sampleRate);
 const entry={id:uid(),name:'Recording '+new Date().toLocaleTimeString(),created:Date.now(),edited:0,blob,tags:[],transcript:liveText,source:liveText?'live':'',transcribedAt:liveText?Date.now():0,duration:(Date.now()-rec.t0)/1000,kind:'recording'};
 await dbPut(entry);
 items.push(entry);activeId=entry.id;
-setStatus(liveText?'Saved with free transcript attached.':'Saved WAV. Use Transcribe for Whisper.',false,true);
+setStatus(liveText?'Saved with free transcript attached.':'Saved WAV. Use Transcribe with your server.',false,true);
 render();
 }
 function micSvg(){
@@ -502,28 +501,12 @@ render();
 async function transcribeOne(item){
 const form=new FormData();
 form.append('audio',item.blob,safeName(item.name)+'.wav');
-try{
 const response=await fetch(apiUrl('transcribe'),{method:'POST',body:form});
-if(!response.ok)throw new Error('Jetson HTTP '+response.status);
+if(!response.ok)throw new Error('HTTP '+response.status);
 const data=await response.json();
 const text=data.text||data.content||data.transcript||data.result;
-if(!text)throw new Error('empty response');
-return{text,source:'whisper'};
-}catch(jetsonError){
-const key=dgKey();
-if(!key)throw jetsonError;
-setStatus('Jetson unavailable. Trying Deepgram backupâ€¦');
-const response=await fetch('https://api.deepgram.com/v1/listen?model=nova-3&smart_format=true',{
-method:'POST',
-headers:{'Authorization':'Token '+key,'Content-Type':item.blob.type||'audio/wav'},
-body:item.blob
-});
-if(!response.ok)throw new Error('Deepgram HTTP '+response.status);
-const data=await response.json();
-const text=data.results&&data.results.channels&&data.results.channels[0]&&data.results.channels[0].alternatives&&data.results.channels[0].alternatives[0]&&data.results.channels[0].alternatives[0].transcript;
-if(!text)throw new Error('Deepgram returned no text');
-return{text,source:'deepgram'};
-}
+if(!text)throw new Error('The server did not return text');
+return{text,source:'server'};
 }
 $('#transcribeBtn').onclick=async()=>{
 const files=targets().filter(t=>t.kind==='recording'&&t.blob);
@@ -565,7 +548,7 @@ setStatus('Playing and saved to the library.',false,true);
 render();
 }catch(error){
 setStatus('Read aloud failed: '+error.message,true);
-showFeedback('Read aloud failed',String(error.message||error),'Check the Jetson tunnel is up, that /tts accepts {text, voice}, and that CORS allows this page origin.');
+showFeedback('Read aloud failed',String(error.message||error),'Check that your server is up, that /tts accepts {text, voice}, and that CORS allows this page origin.');
 }finally{button.disabled=false;}
 };
 
@@ -615,7 +598,6 @@ document.querySelectorAll('[data-theme]').forEach(button=>button.classList.toggl
 $('#apiBaseInput').value=prefs.apiBase||'';
 $('#voiceSelect').value=prefs.voice;
 $('#tagsInput').value=prefs.tags.join(', ');
-$('#dgKeyInput').value=sessionStorage.getItem(DG_STORAGE)||'';
 $('#ghOwner').value=prefs.gh.owner;$('#ghRepo').value=prefs.gh.repo;
 $('#ghBranch').value=prefs.gh.branch;$('#ghPath').value=prefs.gh.path;
 $('#ghToken').value=prefs.gh.token;$('#ghAuto').checked=!!prefs.gh.auto;
@@ -636,7 +618,6 @@ $('#tagsInput').oninput=event=>{
 const tags=[...new Set(event.target.value.split(',').map(t=>t.trim().replace(/^#/,'')).filter(Boolean))];
 if(tags.length){prefs.tags=tags;savePrefs();}
 };
-$('#dgKeyInput').oninput=event=>sessionStorage.setItem(DG_STORAGE,event.target.value.trim());
 ['ghOwner','ghRepo','ghBranch','ghPath'].forEach(id=>{
 $('#'+id).oninput=event=>{
 const map={ghOwner:'owner',ghRepo:'repo',ghBranch:'branch',ghPath:'path'};
@@ -835,4 +816,6 @@ setStatus('The local audio library could not be opened. WAV storage is unavailab
 })();
 </script>
 </body></html>
+
+
 
