@@ -30,6 +30,12 @@ h1{font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing
 .controls button{border:2px solid var(--ink);background:var(--paper);font-family:"IBM Plex Mono",monospace;font-size:.62rem;font-weight:700;padding:4px 8px;cursor:pointer;flex-shrink:0}
 .hint{font-family:"IBM Plex Mono",monospace;font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;opacity:.5;text-align:center;margin-top:4px;flex-shrink:0;padding:2px 4px}
 a{color:var(--ink)}
+.walk-overlay{position:fixed;inset:0;background:rgba(10,10,10,0.55);z-index:100;display:flex;align-items:center;justify-content:center;padding:18px}
+.walk-card{background:var(--paper);border:2px solid var(--ink);padding:16px;max-width:300px;text-align:center;box-shadow:4px 4px 0 var(--ink);font-family:"IBM Plex Mono",monospace}
+.walk-card h3{font-size:.78rem;margin:0 0 6px;text-transform:uppercase;letter-spacing:.06em}
+.walk-card p{font-size:.68rem;line-height:1.5;margin:6px 0;text-transform:none;letter-spacing:0}
+.walk-highlight{outline:3px solid var(--ink);outline-offset:2px;animation:walkPulse 0.9s steps(2) infinite;position:relative;z-index:2}
+@keyframes walkPulse{50%{outline-offset:5px}}
 .scroll{overflow:auto;flex:1;min-height:0}
 </style></head>
 <body>
@@ -39,6 +45,7 @@ a{color:var(--ink)}
   <div class="bezel"><div id="screen" class="screen"></div></div>
   <div class="hint">click inside the screen • <a href="./">open full website</a> • scroll inside screen if needed</div>
 </div>
+<div id="emuWalk" class="walk-overlay" style="display:none"><div class="walk-card"><h3 id="emuWalkTitle"></h3><p id="emuWalkDesc" style="white-space:pre-wrap"></p><div class="small">tap the highlighted area to continue</div></div></div>
 <p class="small" style="max-width:520px;text-align:center;margin-top:16px">This is a clickable mock of the firmware you’ll flash to the Waveshare board. Recordings here are stored only in this browser tab. On the real device they live on the SD card and sync to your beautiful site at <code>mono-note-mini</code>.</p>
 <script>
 const $s=document.getElementById('screen');
@@ -235,6 +242,75 @@ function drawSettings(){
   }, {once:true});
   let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
 }
-drawHome();
+let emuWalkActive = !localStorage.getItem('mm-walkthrough-done');
+let emuWalkIdx = 0;
+const emuWalkSteps = [
+  {t:"Welcome — first boot", d:"This guided tour shows every feature. You'll tap each highlighted button.\nTap Next to begin.", sel:null},
+  {t:"Make Note", d:"Tap MAKE NOTE — hold to record, see the wave, then pick a tag.", sel:'.row[data-a="make"]'},
+  {t:"View Notes", d:"Your tapes live here, sorted by tag. Tap it.", sel:'.row[data-a="view"]'},
+  {t:"To-Do", d:"Check off jobs you added on the website.", sel:'.row[data-a="todo"]'},
+  {t:"Settings", d:"All controls live here. Tap to open.", sel:'.row[data-a="settings"]'},
+  {t:"Wi-Fi Setup", d:"Tap Wi-Fi — join hotspot MonoNote-XXXX / record123 → 192.168.4.1 to set your home network.", sel:'.row:nth-child(1)'},
+  {t:"Sound", d:"Choose your tick — clean and soft. Tap ON or OFF.", sel:null, isSound:true},
+  {t:"You're set!", d:"Tour done — explore freely. Replay anytime from Settings → How to use.", sel:null}
+];
+function showEmuWalk(n){
+  const s=emuWalkSteps[n];
+  document.getElementById('emuWalkTitle').textContent=s.t;
+  document.getElementById('emuWalkDesc').textContent=s.d;
+  document.getElementById('emuWalk').style.display='flex';
+  document.querySelectorAll('.walk-highlight').forEach(e=>e.classList.remove('walk-highlight'));
+  if(s.sel){
+    setTimeout(()=>{
+      const el=document.querySelector(s.sel) || document.getElementById('screen').querySelector(s.sel);
+      if(el) el.classList.add('walk-highlight');
+    },80);
+  }
+  // sound choice screen
+  if(s.isSound){
+    const screen=document.getElementById('screen');
+    screen.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">SOUND</div><div style="flex:1;display:flex;flex-direction:column;gap:8px;padding:12px;justify-content:center"><div class="row" data-sound="on">SOUND ON — clean tick</div><div class="row" data-sound="off">SOUND OFF — silent</div></div><div class="small" style="text-align:center;flex-shrink:0">tap to choose</div>`;
+    screen.querySelectorAll('.row').forEach(r=>r.onclick=()=>{
+      localStorage.setItem('mm-sound', r.dataset.sound);
+      document.querySelectorAll('.walk-highlight').forEach(e=>e.classList.remove('walk-highlight'));
+      advanceEmuWalk();
+    });
+  }
+}
+function hideEmuWalk(){ document.getElementById('emuWalk').style.display='none'; document.querySelectorAll('.walk-highlight').forEach(e=>e.classList.remove('walk-highlight')); }
+function advanceEmuWalk(){
+  // special: if we were on Wi-Fi step and screen shows Wi-Fi hotspot, go back first
+  if(emuWalkSteps[emuWalkIdx].t==="Wi-Fi Setup" && document.getElementById('screen').innerHTML.includes("MonoNote-XXXX")){
+    drawSettings();
+  }
+  emuWalkIdx++;
+  if(emuWalkIdx>=emuWalkSteps.length){ hideEmuWalk(); localStorage.setItem('mm-walkthrough-done','1'); emuWalkActive=false; return; }
+  const step=emuWalkSteps[emuWalkIdx];
+  // if step expects settings screen, ensure we're in settings
+  if(step.t==="Wi-Fi Setup" || step.t==="Sound"){
+    if(!document.getElementById('screen').innerHTML.includes("Wi-Fi (hotspot)")){ drawSettings(); }
+  }
+  showEmuWalk(emuWalkIdx);
+}
+document.getElementById('emuWalk').addEventListener('click', (e)=>{
+  const step=emuWalkSteps[emuWalkIdx];
+  if(!step.sel) advanceEmuWalk();
+});
+document.getElementById('screen').addEventListener('click', (e)=>{
+  if(!emuWalkActive) return;
+  const step=emuWalkSteps[emuWalkIdx];
+  if(!step.sel) return;
+  const target=document.querySelector(step.sel) || document.getElementById('screen').querySelector(step.sel);
+  if(target && (target===e.target || target.contains(e.target))){
+    // let normal handler run, then advance
+    setTimeout(()=>advanceEmuWalk(),180);
+  }
+});
+if(emuWalkActive){
+  drawHome();
+  setTimeout(()=>showEmuWalk(0), 500);
+} else {
+  drawHome();
+}
 </script>
 </body></html>
