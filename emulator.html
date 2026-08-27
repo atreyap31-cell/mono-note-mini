@@ -5,61 +5,75 @@
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600;700&display=swap');
 :root{--bg:#F2F0EC;--paper:#FCFCFA;--ink:#0A0A0A;--line:#0A0A0A}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:24px}
-h1{font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:-.04em;margin:8px 0 4px}
-.sub{font-family:"IBM Plex Mono",monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;opacity:.6;margin-bottom:18px}
+h1{font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:-.04em;margin:8px 0 4px;font-size:1.4rem}
+.sub{font-family:"IBM Plex Mono",monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;opacity:.6;margin-bottom:18px;text-align:center}
 .device{width:340px;background:#E8E6E1;border:2px solid var(--ink);border-radius:22px;padding:18px 18px 22px;box-shadow:6px 6px 0 var(--ink)}
 .bezel{background:var(--paper);border:2px solid var(--ink);border-radius:14px;padding:14px}
 .screen{width:200px;height:200px;margin:0 auto;background:var(--paper);border:2px solid var(--ink);position:relative;overflow:hidden;display:flex;flex-direction:column;font-family:"IBM Plex Mono",monospace;text-transform:uppercase;image-rendering:pixelated}
-.screen *{image-rendering:pixelated}
-.row{border:2px solid var(--ink);margin:6px 8px;padding:8px;text-align:center;font-size:.72rem;font-weight:700;letter-spacing:.06em;cursor:pointer;user-select:none}
+.screen *{image-rendering:pixelated;scrollbar-width:thin}
+.screen::-webkit-scrollbar{width:4px;height:4px}
+.screen::-webkit-scrollbar-thumb{background:var(--ink)}
+.row{border:2px solid var(--ink);margin:6px 8px;padding:8px;text-align:center;font-size:.72rem;font-weight:700;letter-spacing:.06em;cursor:pointer;user-select:none;flex-shrink:0}
 .row:active{transform:translate(1px,1px)}
-.home{flex:1;display:grid;place-items:center;text-align:center}
+.home{flex:1;display:grid;place-items:center;text-align:center;overflow:auto}
 .home .title{font-size:1.1rem;font-weight:800;letter-spacing:-.04em}
-.battery{position:absolute;top:8px;right:8px;width:26px;height:12px;border:2px solid var(--ink);display:flex;align-items:center;padding:1px}
+.battery{position:absolute;top:8px;right:8px;width:26px;height:12px;border:2px solid var(--ink);display:flex;align-items:center;padding:1px;z-index:2;background:var(--paper)}
 .battery::after{content:"";position:absolute;right:-4px;top:3px;width:2px;height:6px;background:var(--ink)}
 .fill{height:100%;background:var(--ink);width:68%}
-.small{font-size:.62rem;letter-spacing:.1em;opacity:.7}
-.wave{display:flex;gap:3px;justify-content:center;align-items:center;height:24px;margin:6px 0}
+.small{font-size:.62rem;letter-spacing:.1em;opacity:.7;flex-shrink:0}
+.wave{display:flex;gap:3px;justify-content:center;align-items:center;height:24px;margin:6px 0;flex-shrink:0}
 .bar{width:4px;background:var(--ink);transition:height .12s steps(2)}
-.list{flex:1;overflow:auto;padding:4px 6px}
-.item{border:1px solid var(--ink);padding:6px 8px;margin-bottom:6px;font-size:.68rem;cursor:pointer}
+.list{flex:1;overflow:auto;padding:4px 6px;min-height:0}
+.item{border:1px solid var(--ink);padding:6px 8px;margin-bottom:6px;font-size:.68rem;cursor:pointer;word-break:break-word}
 .item.active{background:var(--ink);color:var(--paper)}
-.controls{display:flex;gap:6px;justify-content:center;margin-top:6px}
-.controls button{border:2px solid var(--ink);background:var(--paper);font-family:"IBM Plex Mono",monospace;font-size:.62rem;font-weight:700;padding:4px 8px;cursor:pointer}
-.hint{font-family:"IBM Plex Mono",monospace;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;opacity:.5;text-align:center;margin-top:6px}
+.controls{display:flex;gap:6px;justify-content:center;margin-top:6px;flex-shrink:0;flex-wrap:wrap}
+.controls button{border:2px solid var(--ink);background:var(--paper);font-family:"IBM Plex Mono",monospace;font-size:.62rem;font-weight:700;padding:4px 8px;cursor:pointer;flex-shrink:0}
+.hint{font-family:"IBM Plex Mono",monospace;font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;opacity:.5;text-align:center;margin-top:4px;flex-shrink:0;padding:2px 4px}
 a{color:var(--ink)}
+.scroll{overflow:auto;flex:1;min-height:0}
 </style></head>
 <body>
 <h1>Mono Note Mini — PC Preview</h1>
 <div class="sub">200×200 1-bit e-paper • tap the screen • no hardware needed</div>
 <div class="device">
   <div class="bezel"><div id="screen" class="screen"></div></div>
-  <div class="hint">click inside the screen • <a href="./">open full website</a></div>
+  <div class="hint">click inside the screen • <a href="./">open full website</a> • scroll inside screen if needed</div>
 </div>
 <p class="small" style="max-width:520px;text-align:center;margin-top:16px">This is a clickable mock of the firmware you’ll flash to the Waveshare board. Recordings here are stored only in this browser tab. On the real device they live on the SD card and sync to your beautiful site at <code>mono-note-mini</code>.</p>
 <script>
 const $s=document.getElementById('screen');
-let state='home', recTimer=null, recSec=0, selectTag=null;
+let state='home', recTimer=null, recSec=0;
 let viewTag=null, viewList=[], noteIdx=-1, playing=false, playTimer=null;
 const TAGS=["Work","Projects","Ideas","Quotes","Random"];
 let todos=JSON.parse(localStorage.getItem('mm-preview-todos')||'[]');
 let notes=JSON.parse(localStorage.getItem('mm-preview-notes')||'null')||[
-  {name:"rec_20260513_101200.wav",tag:"Ideas",dur:12,txt:"Midnight thought about a mono type system that only uses black and white."},
-  {name:"rec_20260513_094410.wav",tag:"Work",dur:8,txt:"Remember to ask about per-device local IP so no one sees each other's notes."},
-  {name:"rec_20260513_090015.wav",tag:"Random",dur:5,txt:"Buy more paper."}
+  {name:"rec_20260513_101200.wav",tag:"Ideas",dur:12,txt:"Midnight thought about a mono type system that only uses black and white.",plays:2,last:Date.now()-86400000*2},
+  {name:"rec_20260513_094410.wav",tag:"Work",dur:8,txt:"Remember to ask about per-device local IP so no one sees each other's notes.",plays:0,last:0},
+  {name:"rec_20260513_090015.wav",tag:"Random",dur:5,txt:"Buy more paper.",plays:5,last:Date.now()-100000},
+  {name:"rec_20260512_180000.wav",tag:"Work",dur:20,txt:"Old meeting that was never re-listened.",plays:0,last:0},
+  {name:"rec_20260510_120000.wav",tag:"Quotes",dur:15,txt:"A quote I loved but never opened again.",plays:1,last:Date.now()-86400000*5}
 ];
 function save(){localStorage.setItem('mm-preview-notes',JSON.stringify(notes));localStorage.setItem('mm-preview-todos',JSON.stringify(todos));}
 function battery(){return 68}
+function sdSpace(){
+  const used = notes.length * 1.2;
+  const total = 29.8 * 1024;
+  const free = total - used;
+  return {used: used.toFixed(1), free: free.toFixed(1), total: (total/1024).toFixed(1), pct: Math.min(30, notes.length*4)};
+}
 function drawHome(){
   $s.innerHTML=`<div class="battery"><div class="fill" style="width:${battery()}%"></div></div><div class="home"><div><div class="title">mono note</div><div class="small">tap to wake</div></div></div>`;
   $s.onclick=()=>{state='menu';drawMenu();};
+  $s.onscroll=null;
 }
 function drawMenu(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px 0 4px;border-bottom:2px solid var(--ink)">mono note mini</div>
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px 0 4px;border-bottom:2px solid var(--ink);flex-shrink:0">mono note mini</div>
+  <div style="flex:1;overflow:auto;padding:4px 0">
   <div class="row" data-a="view">VIEW NOTES</div>
   <div class="row" data-a="make">MAKE NOTE</div>
   <div class="row" data-a="todo">TO-DO</div>
-  <div class="row" data-a="settings">SETTINGS</div>`;
+  <div class="row" data-a="settings">SETTINGS</div>
+  </div>`;
   $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{
     const a=r.dataset.a;
     if(a==='view'){viewTag=null;drawViewTags();}
@@ -71,13 +85,13 @@ function drawMenu(){
 }
 function startRec(){
   state='rec'; recSec=0;
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">RECORDING</div>
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">RECORDING</div>
   <div style="text-align:center;padding:14px 0 6px;font-size:1.4rem;font-weight:800" id="tm">0:00</div>
   <div class="wave" id="wave">${Array(12).fill(0).map(_=>`<div class="bar" style="height:6px"></div>`).join('')}</div>
   <div class="small" style="text-align:center">tap to stop</div>`;
   $s.onclick=stopRec;
   recTimer=setInterval(()=>{
-    recSec++; document.getElementById('tm').textContent=`${Math.floor(recSec/60)}:${String(recSec%60).padStart(2,'0')}`;
+    recSec++; const el=document.getElementById('tm'); if(el) el.textContent=`${Math.floor(recSec/60)}:${String(recSec%60).padStart(2,'0')}`;
     document.querySelectorAll('.bar').forEach(b=>b.style.height=(4+Math.random()*18|0)+'px');
   },500);
 }
@@ -88,68 +102,99 @@ function stopRec(){
   state='tag'; drawTag(name);
 }
 function drawTag(name){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">SORT IT — ${name.slice(0,18)}</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px">
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">SORT IT — ${name.slice(0,18)}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px;overflow:auto;flex:1">
   ${TAGS.map(t=>`<div class="row" style="margin:0" data-t="${t}">${t}</div>`).join('')}
-  </div><div class="small" style="text-align:center">tap a tag (or here to skip)</div>`;
+  </div><div class="small" style="text-align:center;flex-shrink:0">tap a tag (or here to skip)</div>`;
   $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{
-    notes.unshift({name,tag:r.dataset.t,dur:recSec,txt:"(transcript pending — sync will fill it)"});
+    notes.unshift({name,tag:r.dataset.t,dur:recSec,txt:"(transcript pending — sync will fill it)",plays:0,last:0});
     save(); state='home'; drawHome();
   });
-  $s.onclick=(e)=>{ if(e.target===$s) { notes.unshift({name,tag:"Random",dur:recSec,txt:"(transcript pending)"}); save(); state='home'; drawHome(); }};
+  $s.onclick=(e)=>{ if(e.target===$s) { notes.unshift({name,tag:"Random",dur:recSec,txt:"(transcript pending)",plays:0,last:0}); save(); state='home'; drawHome(); }};
 }
 function drawViewTags(){
   const counts={}; TAGS.forEach(t=>counts[t]=notes.filter(n=>n.tag===t).length);
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">VIEW NOTES</div>
-  <div class="list" style="padding:6px">${TAGS.map(t=>`<div class="row" data-t="${t}">${t} <span style="opacity:.6">(${counts[t]})</span></div>`).join('')}</div>
-  <div class="small" style="text-align:center">hold 0.9s or tap here = back</div>`;
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">VIEW NOTES</div>
+  <div class="list">${TAGS.map(t=>`<div class="row" data-t="${t}">${t} <span style="opacity:.6">(${counts[t]})</span></div>`).join('')}</div>
+  <div class="small" style="text-align:center;flex-shrink:0">tap tag • hold 0.9s = back</div>`;
   $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{viewTag=r.dataset.t; viewList=notes.filter(n=>n.tag===viewTag); drawViewList();});
-  $s.onclick=(e)=>{ if(e.target.classList.contains('small')){state='menu';drawMenu();}};
   let down=0; $s.onpointerdown=()=>down=Date.now(); $s.onpointerup=()=>{ if(Date.now()-down>900){state='menu';drawMenu();}};
+  $s.onclick=(e)=>{ if(e.target.classList.contains('small') && e.target.textContent.includes('tap tag')){state='menu';drawMenu();}};
 }
 function drawViewList(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">${viewTag}</div>
-  <div class="list">${viewList.length?viewList.map((n,i)=>`<div class="item${i===noteIdx?' active':''}" data-i="${i}">${n.name.slice(0,22)} — ${n.dur}s</div>`).join(''):`<div class="small" style="padding:20px;text-align:center">nothing here</div>`}</div>
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">${viewTag} • ${viewList.length} clips</div>
+  <div class="list">${viewList.length?viewList.map((n,i)=>`<div class="item${i===noteIdx?' active':''}" data-i="${i}" style="display:flex;justify-content:space-between;gap:6px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.name.slice(0,18)}</span><span style="opacity:.6;flex-shrink:0">${n.dur}s • ${n.plays||0}×</span></div>`).join(''):`<div class="small" style="padding:20px;text-align:center">nothing here</div>`}</div>
   <div class="controls"><button id="back">BACK</button></div>`;
-  $s.querySelector('#back').onclick=()=>drawViewTags();
+  const b=$s.querySelector('#back'); if(b) b.onclick=()=>drawViewTags();
   $s.querySelectorAll('.item').forEach(el=>el.onclick=()=>{noteIdx=parseInt(el.dataset.i); drawViewNote();});
 }
 function drawViewNote(){
   const n=viewList[noteIdx];
-  $s.innerHTML=`<div class="small" style="padding:6px;border-bottom:2px solid var(--ink);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${n.name}</div>
-  <div style="flex:1;overflow:auto;padding:8px;font-size:.68rem;line-height:1.5;white-space:pre-wrap">${n.txt}</div>
+  if(!n) return drawViewList();
+  $s.innerHTML=`<div class="small" style="padding:6px;border-bottom:2px solid var(--ink);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0">${n.name}</div>
+  <div style="flex:1;overflow:auto;padding:8px;font-size:.68rem;line-height:1.5;white-space:pre-wrap;word-break:break-word">${n.txt}</div>
+  <div class="small" style="text-align:center;opacity:.6">played ${n.plays||0}× • ${n.last?new Date(n.last).toLocaleDateString():'never'}</div>
   <div class="controls"><button id="play">${playing?'STOP':'PLAY'}</button><button id="del">DELETE</button><button id="back2">BACK</button></div>`;
   document.getElementById('play').onclick=()=>{
     if(playing){playing=false;clearInterval(playTimer);drawViewNote();return;}
-    playing=true;drawViewNote();
+    playing=true; n.plays=(n.plays||0)+1; n.last=Date.now(); save();
+    drawViewNote();
     let p=0; playTimer=setInterval(()=>{p++; if(p>6){playing=false;clearInterval(playTimer);drawViewNote();}},400);
   };
   document.getElementById('del').onclick=()=>{
     if(!confirm('Delete '+n.name+' ?')) return;
     const idx=notes.indexOf(n); if(idx>=0) notes.splice(idx,1);
-    viewList.splice(noteIdx,1); save(); noteIdx=-1; drawViewList();
+    viewList.splice(noteIdx,1); save(); noteIdx=-1;
+    if(viewList.length===0) drawViewTags(); else drawViewList();
   };
   document.getElementById('back2').onclick=()=>drawViewList();
 }
 function drawTodo(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">TO-DO</div>
-  <div class="list">${todos.length?todos.map((t,i)=>`<div class="row" style="justify-content:space-between" data-i="${i}"><span style="text-decoration:${t.done?'line-through':'none'}">${t.text.slice(0,22)}</span><span style="border:1px solid var(--ink);width:14px;height:14px;display:grid;place-items:center;font-size:10px">${t.done?'✓':''}</span></div>`).join(''):`<div class="small" style="padding:20px;text-align:center">no jobs — add on the website</div>`}</div>
-  <div class="small" style="text-align:center">tap = check • hold = back</div>`;
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">TO-DO</div>
+  <div class="list">${todos.length?todos.map((t,i)=>`<div class="row" style="justify-content:space-between;align-items:center" data-i="${i}"><span style="text-decoration:${t.done?'line-through':'none'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:left">${t.text.slice(0,22)}</span><span style="border:1px solid var(--ink);width:14px;height:14px;display:grid;place-items:center;font-size:10px;flex-shrink:0">${t.done?'✓':''}</span></div>`).join(''):`<div class="small" style="padding:20px;text-align:center">no jobs — add on the website</div>`}</div>
+  <div class="small" style="text-align:center;flex-shrink:0">tap = check • hold = back</div>`;
   $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{const i=parseInt(r.dataset.i); todos[i].done=!todos[i].done; save(); drawTodo();});
   let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
 }
+function drawLeastUsed(){
+  const sorted=[...notes].sort((a,b)=> (a.plays||0)-(b.plays||0) || (a.last||a.dur||0)-(b.last||b.dur||0) || a.name.localeCompare(b.name));
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">LEAST PLAYED — tap to delete</div>
+  <div class="list">${sorted.length?sorted.map((n,i)=>`<div class="item" data-n="${notes.indexOf(n)}" style="display:flex;justify-content:space-between;gap:6px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${n.name.slice(0,16)} <span style="opacity:.6">(${n.plays||0}×)</span></span><span style="border:1px solid var(--ink);padding:1px 4px;font-size:.6rem">DEL</span></div>`).join(''):`<div class="small" style="padding:20px;text-align:center">no clips</div>`}</div>
+  <div class="controls"><button id="backL">BACK</button></div>`;
+  document.getElementById('backL').onclick=()=>drawStorage();
+  $s.querySelectorAll('.item').forEach(el=>el.onclick=()=>{
+    const idx=parseInt(el.dataset.n);
+    if(!confirm('Delete '+notes[idx].name+' ?')) return;
+    notes.splice(idx,1); save(); drawLeastUsed();
+  });
+}
+function drawStorage(){
+  const s=sdSpace();
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">STORAGE</div>
+  <div style="padding:10px;font-size:.68rem;line-height:1.6;flex:1;overflow:auto">
+  Total 29.8 GB<br>Used ${s.used} MB<br><span style="font-weight:800">Free ${s.free} MB</span><div style="border:1px solid var(--ink);height:12px;margin-top:8px"><div style="width:${s.pct}%;height:100%;background:var(--ink)"></div></div>
+  <div style="margin-top:10px;border:2px solid var(--ink);padding:6px;text-align:center;cursor:pointer" id="leastBtn">SHOW LEAST PLAYED →</div>
+  <div style="font-size:.58rem;opacity:.6;margin-top:6px;text-align:center">tap above to quickly clean old clips</div>
+  </div>
+  <div class="small" style="text-align:center;flex-shrink:0">tap outside = back</div>`;
+  document.getElementById('leastBtn').onclick=()=>drawLeastUsed();
+  $s.onclick=(e)=>{ if(e.target===$s || e.target.classList.contains('small')) drawSettings(); };
+  setTimeout(()=>{ const h=(ev)=>{ if(ev.target.closest && ev.target.closest('#leastBtn')) return; }; },0);
+  let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=(e)=>{ if(Date.now()-d>900 || e.target.classList.contains('small')){state='menu';drawSettings();}};
+}
 function drawSettings(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">SETTINGS</div>
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">SETTINGS</div>
+  <div style="flex:1;overflow:auto">
   <div class="row">1 Wi-Fi (hotspot)</div>
   <div class="row">2 Sync</div>
-  <div class="row">3 Storage — ${notes.length} clips</div>
+  <div class="row">3 Storage — ${sdSpace().free} MB free</div>
   <div class="row">4 IP — 192.168.1.42</div>
-  <div class="small" style="text-align:center">tap row • hold = back</div>`;
+  </div><div class="small" style="text-align:center;flex-shrink:0">tap row • hold = back</div>`;
   const rows=$s.querySelectorAll('.row');
-  rows[0].onclick=()=>{ $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">WI-FI</div><div style="padding:10px;font-size:.68rem;line-height:1.5">Join hotspot<br><b>MonoNote-XXXX</b><br>key: record123<br>→ 192.168.4.1</div><div class="small" style="text-align:center">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=()=>drawSettings(),0); };
-  rows[1].onclick=()=>{ $s.innerHTML=`<div style="padding:30px;text-align:center">SYNCING 1/2<br><span style="font-size:.68rem">tap to cancel</span></div>`; setTimeout(()=>drawSettings(),1200); };
-  rows[2].onclick=()=>{ const used=(notes.length*1.2).toFixed(1); $s.innerHTML=`<div style="padding:12px;font-size:.72rem">Total 29.8 GB<br>Used ${used} MB<br>Free ${(29800-used).toFixed(1)} MB<div style="border:1px solid var(--ink);height:12px;margin-top:8px"><div style="width:${Math.min(30,notes.length*5)}%;height:100%;background:var(--ink)"></div></div></div><div class="small" style="text-align:center">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=null,0); };
-  rows[3].onclick=()=>{ $s.innerHTML=`<div style="padding:12px;text-align:center">MY ADDRESS<br><b>192.168.1.42</b><br><span style="font-size:.68rem">your private site</span></div><div class="small" style="text-align:center">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=null,0); };
+  rows[0].onclick=()=>{ $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">WI-FI</div><div style="padding:10px;font-size:.68rem;line-height:1.5;flex:1;overflow:auto">Join hotspot<br><b>MonoNote-XXXX</b><br>key: record123<br>→ 192.168.4.1</div><div class="small" style="text-align:center;flex-shrink:0">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=()=>drawSettings(),0); };
+  rows[1].onclick=()=>{ $s.innerHTML=`<div style="padding:30px;text-align:center;flex:1;display:grid;place-items:center">SYNCING 1/2<br><span style="font-size:.68rem">tap to cancel</span></div>`; setTimeout(()=>drawSettings(),1200); };
+  rows[2].onclick=()=>drawStorage();
+  rows[3].onclick=()=>{ $s.innerHTML=`<div style="padding:12px;text-align:center;flex:1;display:grid;place-items:center"><div>MY ADDRESS<br><b>192.168.1.42</b><br><span style="font-size:.68rem">your private site</span></div></div><div class="small" style="text-align:center;flex-shrink:0">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=null,0); };
   let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
 }
 drawHome();
