@@ -63,7 +63,7 @@ static void sleepNow() {
   esp_deep_sleep_start();
 }
 
-static bool soundOn() { return netGet("sound", "1") == "1"; }
+static bool soundOn() { return netGet("sound", "0") == "1"; }
 
 static int batteryPct() {
   uint32_t raw = analogRead(BAT_ADC_PIN);
@@ -163,14 +163,26 @@ static void loadTranscript(const String& wavName) {
   }
 }
 
+static void drawFirstBoot() {
+  epd->EPD_Clear();
+  uiTextCentered(28, "welcome", 2);
+  uiTextCentered(52, "first boot", 1);
+  uiRect(0, 68, 200, 1);
+  uiText(8, 78, "TAP row = open", 1);
+  uiText(8, 94, "HOLD 0.9s = back", 1);
+  uiText(8, 110, "MAKE holds to rec", 1);
+  uiText(8, 126, "VIEW shows tags", 1);
+  uiTextCentered(168, "TAP TO BEGIN", 1);
+  uiFlushFull();
+}
 static void drawHome() {
   epd->EPD_Clear();
   drawBattery(158, 12);
-  uiTextCentered(72, "mono note", 2);
-  uiTextCentered(102, "TAP TO UNLOCK", 1);
-  uiTextCentered(122, "HOLD 0.9s = BACK", 1);
-  uiTextCentered(140, "TAP ROW = OPEN", 1);
-  uiTextCentered(184, "TAP ANYWHERE TO WAKE", 1);
+  uiTextCentered(56, "mono", 2);
+  uiTextCentered(76, "note mini", 1);
+  uiRect(80, 96, 40, 2);
+  uiTextCentered(116, "TAP TO UNLOCK", 1);
+  uiTextCentered(186, "HOLD = BACK", 1);
   uiFlushFull();
 }
 
@@ -609,6 +621,11 @@ void setup() {
   pwr.POWEER_Audio_ON();
   audioReady();
   countRecordings();
+  if (!netHasKey("first_boot_done")) {
+    drawFirstBoot();
+    while (true) { uint16_t x,y; if (touch->GetTouchPoint(&x,&y)) { delay(300); break; } delay(50); }
+    netSetBool("first_boot_done", true);
+  }
   drawHome();
   lastActivity = millis();
   maybeAutoSync();

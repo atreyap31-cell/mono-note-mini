@@ -21,6 +21,9 @@ String netGet(const char* key, const String& def) { return prefs.getString(key, 
 void netSet(const char* key, const String& value) { prefs.putString(key, value); }
 uint64_t netGetU64(const char* key, uint64_t def) { return prefs.getULong64(key, def); }
 void netSetU64(const char* key, uint64_t value) { prefs.putULong64(key, value); }
+bool netHasKey(const char* key){ return prefs.isKey(key); }
+void netSetBool(const char* key, bool v){ prefs.putBool(key, v); }
+bool netGetBool(const char* key, bool def){ return prefs.getBool(key, def); }
 
 bool staConnect(uint32_t timeoutMs) {
   String ssid = netGet("ssid");
@@ -91,7 +94,7 @@ static void handleApp() {
   page += "Password <input name=pass type=password value='" + netGet("pass") + "'><br>";
   page += "API base <input name=api value='" + netGet("api") + "'><br>";
   page += "Device password <input name=devpass type=password value='" + netGet("devpass","record123") + "'><br><small>Each device keeps its own — others on your Wi-Fi can't see your notes without it</small><br>";
-  page += "Button sounds <input type=checkbox name=sound " + String(netGet("sound", "1") == "1" ? "checked" : "") + "><br>";
+  page += "Button sounds <input type=checkbox name=sound " + String(netGet("sound", "0") == "1" ? "checked" : "") + "><br><small>Clean soft tick — off by default</small><br>";
   page += "<button>Save &amp; reboot</button></form></body>";
   server.send(200, "text/html", page);
 }

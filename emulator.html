@@ -63,11 +63,12 @@ function sdSpace(){
 }
 function drawHome(){
   $s.innerHTML=`<div class="battery"><div class="fill" style="width:${battery()}%"></div></div>
-  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:18px 10px 8px;text-align:center">
-    <div class="title">mono note</div>
-    <div style="font-size:.62rem;line-height:1.5;letter-spacing:.06em;opacity:.75">TAP TO UNLOCK<br><span style="opacity:.6">HOLD 0.9s = BACK • TAP ROW = OPEN</span></div>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:22px 10px 10px;text-align:center">
+    <div style="font-size:1.45rem;font-weight:800;letter-spacing:-.06em;line-height:0.85">mono<br>note<span style="font-weight:400;opacity:.65"> mini</span></div>
+    <div style="width:28px;height:2px;background:var(--ink);margin:2px 0"></div>
+    <div style="font-size:.58rem;letter-spacing:.14em;opacity:.55">TAP TO UNLOCK</div>
   </div>
-  <div class="small" style="text-align:center;padding:4px 6px;border-top:1px solid var(--ink);flex-shrink:0;font-size:.54rem;opacity:.5">TAP ANYWHERE TO WAKE</div>`;
+  <div class="small" style="text-align:center;padding:5px 6px;border-top:1px solid var(--ink);flex-shrink:0;font-size:.52rem;letter-spacing:.08em;opacity:.5">HOLD 0.9s = BACK • TAP ROW = OPEN</div>`;
   $s.onclick=()=>{state='menu';drawMenu();};
   $s.onscroll=null;
 }

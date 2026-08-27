@@ -238,6 +238,13 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <div id="todoItems"></div>
   <div class="dialog-actions"><button class="btn" id="clearDone">Clear completed</button></div>
 </dialog>
+<dialog class="dialog" id="firstRunDialog">
+  <h2>Welcome — first boot</h2>
+  <p>This looks like your very first time opening Mono Note Mini. Here's the 30-second tour — everything is black & white, paper-ruled, and yours alone.</p>
+  <p><b>1</b> Tap <b>+ New note</b> or hit the mic to record — it saves instantly and appears in the list.<br><b>2</b> Click any note to edit the Courier transcript — it autosaves and lines up on the ruled paper.<br><b>3</b> Tap a <b>bubbly tag</b> in the top bar to filter, or tap a chip in the reader to file a note.<br><b>4</b> Use the search box to find anything by name, text, or tag.<br><b>5</b> Settings → Speech speed to change how fast it reads aloud, and Typewriter sounds to make typing feel nice.</p>
+  <p style="padding:10px 12px;background:var(--paper);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink)">Tip: your notes sync with wav audio (<8 MB) to GitHub when you set owner/repo/token in Settings → GitHub sync. No server needed for speaking or live transcription.</p>
+  <div class="dialog-actions"><button class="btn primary" id="closeFirstRun">Got it — start writing</button></div>
+</dialog>
 <script>
 (() => {
 "use strict";
@@ -472,13 +479,12 @@ if(!prefs.typeSounds) return;
 try{
 if(!typeCtx) typeCtx=new (window.AudioContext||window.webkitAudioContext)();
 if(typeCtx.state==='suspended') typeCtx.resume();
-const o=typeCtx.createOscillator(), g=typeCtx.createGain(), f=typeCtx.createBiquadFilter();
-o.type='triangle'; o.frequency.value= kind==='enter'? 650 : kind==='back'? 380 : 820 + Math.random()*120;
-f.type='highpass'; f.frequency.value=1200;
-g.gain.value=0.035;
-o.connect(f); f.connect(g); g.connect(typeCtx.destination);
-o.start(); g.gain.exponentialRampToValueAtTime(0.0001, typeCtx.currentTime+0.045);
-o.stop(typeCtx.currentTime+0.05);
+const o=typeCtx.createOscillator(), g=typeCtx.createGain();
+o.type='sine'; o.frequency.value= kind==='enter'? 900 : kind==='back'? 520 : 1000;
+g.gain.value=0.032;
+o.connect(g); g.connect(typeCtx.destination);
+o.start(); g.gain.exponentialRampToValueAtTime(0.0001, typeCtx.currentTime+0.06);
+o.stop(typeCtx.currentTime+0.07);
 if(navigator.vibrate) navigator.vibrate(kind==='enter'?10:3);
 }catch(_){}
 }
@@ -978,6 +984,11 @@ setInterval(maybeAutoSync,30*60*1000);
 applyTheme(); applySounds();
 updateSyncLabels();
 renderTodos();
+if(!localStorage.getItem('mono-first-run-seen')){
+  setTimeout(()=>{ const d=$('#firstRunDialog'); if(d && !d.open) try{ d.showModal(); }catch(_){} }, 700);
+}
+const _frBtn=$('#closeFirstRun'); if(_frBtn) _frBtn.onclick=()=>{ localStorage.setItem('mono-first-run-seen','1'); $('#firstRunDialog').close(); };
+$('#firstRunDialog')?.addEventListener('click', e=>{ if(e.target.id==='firstRunDialog'){ localStorage.setItem('mono-first-run-seen','1'); e.target.close(); } });
 dbAll().then(list=>{
 items=list;
 render();

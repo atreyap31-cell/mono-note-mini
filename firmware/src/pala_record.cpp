@@ -29,12 +29,15 @@ void audioReady() {
 
 static void makeBeep() {
   if (beepBuf) return;
-  beepBuf = (int16_t*)heap_caps_malloc(480 * 2 * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+  const int N = 960;
+  beepBuf = (int16_t*)heap_caps_malloc(N * 2 * sizeof(int16_t), MALLOC_CAP_SPIRAM);
   if (!beepBuf) return;
-  for (int i = 0; i < 480; i++) {
-    int16_t s = (int16_t)(6000.0 * sin(2.0 * M_PI * 2000.0 * i / REC_SAMPLE_RATE) * (1.0 - i / 480.0));
-    beepBuf[2 * i] = s;
-    beepBuf[2 * i + 1] = s;
+  for (int i = 0; i < N; i++) {
+    double env = exp(-3.0 * i / N);
+    double s = 5000.0 * sin(2.0 * M_PI * 1000.0 * i / REC_SAMPLE_RATE) * env;
+    int16_t v = (int16_t)s;
+    beepBuf[2 * i] = v;
+    beepBuf[2 * i + 1] = v;
   }
 }
 
