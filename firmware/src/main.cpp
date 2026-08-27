@@ -305,11 +305,11 @@ static void drawTagScreen() {
   epd->EPD_Clear();
   uiTextCentered(8, "SORT IT", 2);
   const char* labels[5] = {"Work", "Projects", "Ideas", "Quotes", "Random"};
-  uiRect(10, 36, 86, 34);  uiTextCentered(47, labels[0], 1);
-  uiRect(104, 36, 86, 34); uiTextCentered(47, labels[1], 1);
-  uiRect(10, 78, 86, 34);  uiTextCentered(89, labels[2], 1);
-  uiRect(104, 78, 86, 34); uiTextCentered(89, labels[3], 1);
-  uiRect(10, 120, 180, 34); uiTextCentered(131, labels[4], 1);
+  uiRect(10, 36, 86, 34);   uiTextCenteredIn(10, 86, 47, labels[0]);
+  uiRect(104, 36, 86, 34);  uiTextCenteredIn(104, 86, 47, labels[1]);
+  uiRect(10, 78, 86, 34);   uiTextCenteredIn(10, 86, 89, labels[2]);
+  uiRect(104, 78, 86, 34);  uiTextCenteredIn(104, 86, 89, labels[3]);
+  uiRect(10, 120, 180, 34); uiTextCenteredIn(10, 180, 131, labels[4]);
   uiTextCentered(170, "tap a tag to file it", 1);
   uiTextCentered(186, "tap here to skip", 1);
   uiFlushFull();
@@ -513,8 +513,8 @@ static void drawTourStep(int step) {
   if (step == TOUR_SOUND) {
     uiTextCentered(30, "A soft tick on each tap.", 1);
     uiTextCentered(48, soundOn() ? "NOW: ON" : "NOW: OFF", 1);
-    uiRect(10, 66, 86, 34);  uiTextCentered(79, "ON", 2);
-    uiRect(104, 66, 86, 34); uiTextCentered(79, "OFF", 2);
+    uiRect(10, 66, 86, 34);  uiTextCenteredIn(10, 86, 79, "ON", 2);
+    uiRect(104, 66, 86, 34); uiTextCenteredIn(104, 86, 79, "OFF", 2);
     uiTextCentered(112, "Pick one to carry on.", 1);
   } else {
     for (int i = 0; i < 7; i++)

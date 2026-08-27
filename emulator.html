@@ -2,314 +2,949 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Mono Note Mini — Device Preview</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600;700&display=swap');
-:root{--bg:#F2F0EC;--paper:#FCFCFA;--ink:#0A0A0A;--line:#0A0A0A}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:24px}
-h1{font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:-.04em;margin:8px 0 4px;font-size:1.4rem}
-.sub{font-family:"IBM Plex Mono",monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;opacity:.6;margin-bottom:18px;text-align:center}
-.device{width:340px;background:#E8E6E1;border:2px solid var(--ink);border-radius:22px;padding:18px 18px 22px;box-shadow:6px 6px 0 var(--ink)}
-.bezel{background:var(--paper);border:2px solid var(--ink);border-radius:14px;padding:14px}
-.screen{width:200px;height:200px;margin:0 auto;background:var(--paper);border:2px solid var(--ink);position:relative;overflow:hidden;display:flex;flex-direction:column;font-family:"IBM Plex Mono",monospace;text-transform:uppercase;image-rendering:pixelated}
-.screen *{image-rendering:pixelated;scrollbar-width:thin}
-.screen::-webkit-scrollbar{width:4px;height:4px}
-.screen::-webkit-scrollbar-thumb{background:var(--ink)}
-.row{border:2px solid var(--ink);margin:6px 8px;padding:8px;text-align:center;font-size:.72rem;font-weight:700;letter-spacing:.06em;cursor:pointer;user-select:none;flex-shrink:0}
-.row:active{transform:translate(1px,1px)}
-.home{flex:1;display:grid;place-items:center;text-align:center;overflow:auto}
-.home .title{font-size:1.1rem;font-weight:800;letter-spacing:-.04em}
-.battery{position:absolute;top:8px;right:8px;width:26px;height:12px;border:2px solid var(--ink);display:flex;align-items:center;padding:1px;z-index:2;background:var(--paper)}
-.battery::after{content:"";position:absolute;right:-4px;top:3px;width:2px;height:6px;background:var(--ink)}
-.fill{height:100%;background:var(--ink);width:68%}
-.small{font-size:.62rem;letter-spacing:.1em;opacity:.7;flex-shrink:0}
-.wave{display:flex;gap:3px;justify-content:center;align-items:center;height:24px;margin:6px 0;flex-shrink:0}
-.bar{width:4px;background:var(--ink);transition:height .12s steps(2)}
-.list{flex:1;overflow:auto;padding:4px 6px;min-height:0}
-.item{border:1px solid var(--ink);padding:6px 8px;margin-bottom:6px;font-size:.68rem;cursor:pointer;word-break:break-word}
-.item.active{background:var(--ink);color:var(--paper)}
-.controls{display:flex;gap:6px;justify-content:center;margin-top:6px;flex-shrink:0;flex-wrap:wrap}
-.controls button{border:2px solid var(--ink);background:var(--paper);font-family:"IBM Plex Mono",monospace;font-size:.62rem;font-weight:700;padding:4px 8px;cursor:pointer;flex-shrink:0}
-.hint{font-family:"IBM Plex Mono",monospace;font-size:.58rem;letter-spacing:.08em;text-transform:uppercase;opacity:.5;text-align:center;margin-top:4px;flex-shrink:0;padding:2px 4px}
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap");
+:root{
+  --bg:#FFFFFF; --ink:#000000; --line:#000000; --soft:#F4F4F2;
+  --mono:"IBM Plex Mono",ui-monospace,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);
+  background-image:repeating-linear-gradient(0deg,transparent 0 27px,rgba(0,0,0,.06) 28px);
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1080px;margin:0 auto;padding:28px 20px 64px}
+h1{font-family:var(--mono);font-weight:700;text-transform:uppercase;letter-spacing:-.03em;font-size:1.5rem;margin:0 0 6px}
+.sub{font-family:var(--mono);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase;opacity:.6;margin:0 0 26px}
+.cols{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:28px;align-items:start}
+@media(max-width:860px){.cols{grid-template-columns:minmax(0,1fr)}}
+.stage{display:flex;flex-direction:column;align-items:center;gap:14px}
+
+/* device chassis */
+.device{background:#EDEBE6;border:2px solid var(--ink);box-shadow:6px 6px 0 var(--ink);padding:18px;display:inline-block}
+.brand{font-family:var(--mono);font-size:.55rem;letter-spacing:.18em;text-transform:uppercase;opacity:.55;text-align:center;margin-bottom:10px}
+.bezel{background:#111;border:2px solid var(--ink);padding:9px;display:inline-block;line-height:0}
+canvas#panel{display:block;image-rendering:pixelated;image-rendering:crisp-edges;cursor:crosshair;background:#fff;touch-action:none}
+.btnrow{display:flex;justify-content:space-between;margin-top:12px;gap:10px}
+.hwbtn{font-family:var(--mono);font-size:.58rem;font-weight:700;letter-spacing:.1em;border:2px solid var(--ink);background:#fff;padding:6px 12px;cursor:pointer}
+.hwbtn:active{transform:translate(1px,1px)}
+
+/* controls */
+.panelbox{border:2px solid var(--ink);padding:14px;background:#fff;margin-bottom:18px}
+.panelbox h2{font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:0 0 10px;font-weight:700}
+.row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+button.opt{font-family:var(--mono);font-size:.6rem;font-weight:600;border:2px solid var(--ink);background:#fff;padding:5px 9px;cursor:pointer}
+button.opt[aria-pressed="true"]{background:var(--ink);color:#fff}
+button.opt:active{transform:translate(1px,1px)}
+label.fld{display:block;font-family:var(--mono);font-size:.58rem;letter-spacing:.06em;text-transform:uppercase;opacity:.7;margin:8px 0 3px}
+input[type=text],select{width:100%;font:inherit;font-size:.78rem;border:2px solid var(--ink);border-radius:0;padding:5px 7px;background:#fff;color:var(--ink)}
+input[type=range]{width:100%}
+.note{font-size:.72rem;line-height:1.5;opacity:.75}
+.readout{font-family:var(--mono);font-size:.62rem;border:2px solid var(--ink);padding:8px;min-height:56px;background:var(--soft);white-space:pre-wrap;line-height:1.5}
+ul.feat{list-style:none;margin:0;padding:0;columns:1}
+ul.feat li{margin:0 0 3px}
+ul.feat button{font-family:var(--mono);font-size:.62rem;background:none;border:0;padding:2px 0;cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:2px;color:var(--ink)}
+ul.feat button:hover{background:var(--ink);color:#fff;text-decoration:none}
+.legend{font-family:var(--mono);font-size:.6rem;line-height:1.7;letter-spacing:.02em}
+.legend b{display:inline-block;min-width:104px}
+footer{margin-top:40px;font-size:.74rem;opacity:.7;line-height:1.6;border-top:2px solid var(--ink);padding-top:14px}
+code{font-family:var(--mono);font-size:.9em;border:1px solid var(--ink);padding:0 3px}
 a{color:var(--ink)}
-.walk-overlay{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);width:200px;max-height:88px;background:var(--paper);border:2px solid var(--ink);border-bottom:none;z-index:5;display:none;flex-direction:column;align-items:center;justify-content:center;padding:6px 8px;box-shadow:2px 2px 0 var(--ink);overflow:hidden}
-.walk-card{background:transparent;border:0;padding:0;max-width:100%;text-align:center;font-family:"IBM Plex Mono",monospace}
-.walk-card h3{font-size:.62rem;margin:0 0 3px;text-transform:uppercase;letter-spacing:.06em;line-height:1.2}
-.walk-card p{font-size:.56rem;line-height:1.35;margin:3px 0;text-transform:none;letter-spacing:0}
-.walk-highlight{outline:2px solid var(--ink);outline-offset:1px;animation:walkPulse 0.9s steps(2) infinite;position:relative;z-index:2}
-@keyframes walkPulse{50%{outline-offset:3px}}
-.scroll{overflow:auto;flex:1;min-height:0}
 </style></head>
 <body>
-<h1>Mono Note Mini — PC Preview</h1>
-<div class="sub">200×200 1-bit e-paper • tap the screen • no hardware needed</div>
-<div class="device">
-  <div class="bezel" style="position:relative"><div id="screen" class="screen"></div><div id="emuWalk" class="walk-overlay" style="display:none"><div class="walk-card"><h3 id="emuWalkTitle"></h3><p id="emuWalkDesc" style="white-space:pre-wrap"></p><div class="small">tap the highlighted area to continue</div></div></div></div>
-  <div class="hint">click inside the screen • <a href="./">open full website</a> • scroll inside screen if needed</div>
-</div>
-<p class="small" style="max-width:520px;text-align:center;margin-top:16px">This is a clickable mock of the firmware you’ll flash to the Waveshare board. Recordings here are stored only in this browser tab. On the real device they live on the SD card and sync to your beautiful site at <code>mono-note-mini</code>.</p>
-<script>
-const $s=document.getElementById('screen');
-let state='home', recTimer=null, recSec=0;
-let viewTag=null, viewList=[], noteIdx=-1, playing=false, playTimer=null;
-const TAGS=["Work","Projects","Ideas","Quotes","Random"];
-let todos=JSON.parse(localStorage.getItem('mm-preview-todos')||'[]');
-let notes=JSON.parse(localStorage.getItem('mm-preview-notes')||'null')||[
-  {name:"rec_20260513_101200.wav",tag:"Ideas",dur:12,txt:"Midnight thought about a mono type system that only uses black and white.",plays:2,last:Date.now()-86400000*2},
-  {name:"rec_20260513_094410.wav",tag:"Work",dur:8,txt:"Remember to ask about per-device local IP so no one sees each other's notes.",plays:0,last:0},
-  {name:"rec_20260513_090015.wav",tag:"Random",dur:5,txt:"Buy more paper.",plays:5,last:Date.now()-100000},
-  {name:"rec_20260512_180000.wav",tag:"Work",dur:20,txt:"Old meeting that was never re-listened.",plays:0,last:0},
-  {name:"rec_20260510_120000.wav",tag:"Quotes",dur:15,txt:"A quote I loved but never opened again.",plays:1,last:Date.now()-86400000*5}
-];
-function save(){localStorage.setItem('mm-preview-notes',JSON.stringify(notes));localStorage.setItem('mm-preview-todos',JSON.stringify(todos));}
-function battery(){return 68}
-function sdSpace(){
-  const used = notes.length * 1.2;
-  const total = 29.8 * 1024;
-  const free = total - used;
-  return {used: used.toFixed(1), free: free.toFixed(1), total: (total/1024).toFixed(1), pct: Math.min(30, notes.length*4)};
-}
-function drawHome(){
-  $s.innerHTML=`<div class="battery"><div class="fill" style="width:${battery()}%"></div></div>
-  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;padding:22px 10px 10px;text-align:center">
-    <div style="font-size:1.45rem;font-weight:800;letter-spacing:-.06em;line-height:0.85">mono<br>note<span style="font-weight:400;opacity:.65"> mini</span></div>
-    <div style="width:28px;height:2px;background:var(--ink);margin:2px 0"></div>
-    <div style="font-size:.58rem;letter-spacing:.14em;opacity:.55">TAP TO UNLOCK</div>
+<div class="wrap">
+<h1>Mono Note Mini — device preview</h1>
+<p class="sub">200×200 1-bit e-paper · firmware drawing code, ported pixel for pixel · mouse instead of touch</p>
+
+<div class="cols">
+  <div class="stage">
+    <div class="device">
+      <div class="brand">Waveshare ESP32-S3 · 1.54&quot; e-paper</div>
+      <div class="bezel"><canvas id="panel" width="200" height="200"></canvas></div>
+      <div class="btnrow">
+        <button class="hwbtn" id="btnBoot">BOOT</button>
+        <button class="hwbtn" id="btnPwr">PWR</button>
+      </div>
+    </div>
+    <div class="legend" style="text-align:center">
+      <b>click</b> tap &nbsp;·&nbsp; <b style="min-width:0">hold 0.9s</b> back &nbsp;·&nbsp; <b style="min-width:0">drag up/down</b> swipe
+    </div>
   </div>
-  <div class="small" style="text-align:center;padding:5px 6px;border-top:1px solid var(--ink);flex-shrink:0;font-size:.52rem;letter-spacing:.08em;opacity:.5">HOLD 0.9s = BACK • TAP ROW = OPEN</div>`;
-  $s.onclick=()=>{state='menu';drawMenu();};
-  $s.onscroll=null;
+
+  <div>
+    <div class="panelbox">
+      <h2>Screen size</h2>
+      <div class="row" id="zoomRow">
+        <button class="opt" data-zoom="actual">Actual size</button>
+        <button class="opt" data-zoom="2">2×</button>
+        <button class="opt" data-zoom="3" aria-pressed="true">3×</button>
+        <button class="opt" data-zoom="4">4×</button>
+      </div>
+      <p class="note" id="sizeNote"></p>
+      <div class="row">
+        <button class="opt" id="flashToggle" aria-pressed="true">E-paper refresh flash</button>
+      </div>
+    </div>
+
+    <div class="panelbox">
+      <h2>Last gesture</h2>
+      <div class="readout" id="readout">—</div>
+    </div>
+
+    <div class="panelbox">
+      <h2>Jump to a feature</h2>
+      <ul class="feat" id="featList"></ul>
+    </div>
+
+    <div class="panelbox">
+      <h2>Web portal <span style="font-weight:400;text-transform:none;letter-spacing:0;opacity:.6">(192.168.4.1)</span></h2>
+      <p class="note" style="margin-top:0">What you'd fill in from a browser after joining the device hotspot.</p>
+      <label class="fld" for="pSsid">Wi-Fi SSID</label>
+      <input type="text" id="pSsid" placeholder="home-network">
+      <label class="fld" for="pApi">API base</label>
+      <input type="text" id="pApi" placeholder="https://whisper.local">
+      <label class="fld" for="pSync">Auto-sync</label>
+      <select id="pSync">
+        <option value="0">Off</option><option value="1">Every 1 h</option>
+        <option value="2">Every 2 h</option><option value="4">Every 4 h</option>
+        <option value="8">Every 8 h</option><option value="24">Every 24 h</option>
+      </select>
+      <label class="fld" for="pTodo">To-do list (one per line, [x] = done)</label>
+      <input type="text" id="pTodo" placeholder="add a job...">
+      <div class="row" style="margin-top:10px">
+        <button class="opt" id="pSave">Save</button>
+        <button class="opt" id="pReset">Factory reset</button>
+      </div>
+    </div>
+
+    <div class="panelbox">
+      <h2>Battery</h2>
+      <input type="range" id="batt" min="0" max="100" value="68">
+      <p class="note" id="battNote">68%</p>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <p><strong>This is the firmware, not a mock-up.</strong> The 5×8 glyph table, every <code>uiRect</code> / <code>uiText</code> coordinate and the whole state machine are ported from <code>firmware/src/</code>, so a misplaced label here is a misplaced label on the panel. Recordings are simulated and live only in this browser tab.</p>
+  <p>Actual size assumes the 1.54&quot; panel's 27.5 mm active area. Accuracy depends on your display's real DPI, so treat it as close rather than exact.</p>
+</footer>
+</div>
+
+<script>
+/* ------------------------------------------------------------------ font */
+const FONT_B64 = "AAAAAAA+W09bPj5rT2s+HD58PhwYPH48GBxXfVccHF5/XhwAGDwYAP/nw+f/ABgkGAD/59vn/zBIOgYOJil5KSZAfwUFB0B/BSU/WjznPFp/PhwcCAgcHD5/FCJ/IhRfXwBfXwYJfwF/AGaJlWpgYGBgYJSi/6KUCAR+BAgQIH4gEAgIKhwICBwqCAgeEBAQEAweDB4MMDg+ODAGDj4OBgAAAAAAAABfAAAABwAHABR/FH8UJCp/KhIjEwhkYjZJViBQAAgHAwAAHCJBAABBIhwAKhx/HCoICD4ICACAcDAACAgICAgAAGBgACAQCAQCPlFJRT4AQn9AAHJJSUlGIUFJTTMYFBJ/ECdFRUU5PEpJSTFBIREJBzZJSUk2RklJKR4AABQAAABANAAAAAgUIkEUFBQUFABBIhQIAgFZCQY+QV1ZTnwSERJ8f0lJSTY+QUFBIn9BQUE+f0lJSUF/CQkJAT5BQVFzfwgICH8AQX9BACBAQT8BfwgUIkF/QEBAQH8CHAJ/fwQIEH8+QUFBPn8JCQkGPkFRIV5/CRkpRiZJSUkyAwF/AQM/QEBAPx8gQCAfP0A4QD9jFAgUYwMEeAQDYVlJTUMAf0FBQQIECBAgAEFBQX8EAgECBEBAQEBAAAMHCAAgVFR4QH8oREQ4OERERCg4REQofzhUVFQYAAh+CQIYpKSceH8IBAR4AER9QAAgQEA9AH8QKEQAAEF/QAB8BHgEeHwIBAR4OERERDj8GCQkGBgkJBj8fAgEBAhIVFRUJAQEP0QkPEBAIHwcIEAgHDxAMEA8RCgQKERMkJCQfERkVExEAAg2QQAAAHcAAABBNggAAgECBAI8JiMmPB6hoWESOkBAIHo4VFRVWSFVVXlBIlRUeEIhVVR4QCBUVXlADB5SchI5VVVVWTlUVFRZOVVUVFgAAEV8QQACRX1CAAFFfEB9EhESffAoJSjwfFRVRQAgVFR8VHwKCX9JMklJSTI6REREOjJKSEgwOkFBIXo6QkAgeACdoKB9PUJCQj09QEBAPTwk/yQkSH5JQ2YrL/wvK/8JKfYgwIh+CQMgVFR5QQAARH1BMEhISjI4QEAiegB6CgpyfQ0ZMX0mKSkvKCYpKSkmMEhNQCA4CAgICAgICAg4LxDIrLovECg0+gAAewAACBQqFCIiFCoUCFUAVQBVqlWqVar/Vf9V/wAAAP8AEBAQ/wAUFBT/ABAQ/wD/EBDwEPAUFBT8ABQU9wD/AAD/AP8UFPQE/BQUFxAfEBAfEB8UFBQfABAQEPAAAAAAHxAQEBAfEBAQEPAQAAAA/xAQEBAQEBAQEP8QAAAA/xQAAP8A/wAAHxAXAAD8BPQUFBcQFxQU9AT0AAD/APcUFBQUFBQU9wD3FBQUFxQQEB8QHxQUFPQUEBDwEPAAAB8QHwAAAB8UAAAA/BQAAPAQ8BAQ/xD/FBQU/xQQEBAfAAAAAPAQ///////w8PDw8P///wAAAAAA//8PDw8PDzhERDhE/EpKSjR+AgIGBgJ+An4CY1VJQWM4REQ8BEB+IB4gBgJ+AgKZpeelmRwqSSocTHIBckwwSk1NMDBIeEgwvGJaRj0+SUlJAH4BAQF+KioqKipERF9EREBRSkRAQERKUUAAAP8BA+CA/wAACAhrawg2EjYkNgYPCQ8GAAAYGAAAABAQADBA/wEBAB8BAR4AGR0XEgA8PDw8AAAAAAA=";
+const FONT = Uint8Array.from(atob(FONT_B64), c => c.charCodeAt(0));
+
+/* --------------------------------------------------------------- surface */
+const W = 200, H = 200;
+const buf = new Uint8Array(W * H);          /* 0 = black, 255 = white */
+const cv = document.getElementById('panel');
+const ctx = cv.getContext('2d');
+const img = ctx.createImageData(W, H);
+
+function clear(){ buf.fill(255); }
+function px(x, y, c){ if(x>=0 && x<W && y>=0 && y<H) buf[y*W+x] = c; }
+function fillRect(x, y, w, h, c=0){ for(let j=0;j<h;j++) for(let i=0;i<w;i++) px(x+i, y+j, c); }
+function rect(x, y, w, h, c=0){
+  fillRect(x, y, w, 1, c); fillRect(x, y+h-1, w, 1, c);
+  fillRect(x, y, 1, h, c); fillRect(x+w-1, y, 1, h, c);
+}
+/* mirrors uiText(): 5 columns per glyph, top pixel in bit 0, 6px advance */
+function text(x, y, s, scale=1, c=0){
+  s = String(s);
+  for(let n=0;n<s.length;n++){
+    let code = s.charCodeAt(n);
+    if(code < 0x20 || code > 0x7E) code = 63;
+    for(let col=0;col<5;col++){
+      const bits = FONT[code*5+col];
+      for(let row=0;row<8;row++){
+        if(bits & (1<<row)){
+          for(let sy=0;sy<scale;sy++) for(let sx=0;sx<scale;sx++)
+            px(x + n*6*scale + col*scale + sx, y + row*scale + sy, c);
+        }
+      }
+    }
+  }
+}
+function textWidth(s, scale=1){ return String(s).length*6*scale - scale; }
+function textCentered(y, s, scale=1, c=0){
+  let x = Math.floor((W - textWidth(s, scale))/2); if(x<0) x=0;
+  text(x, y, s, scale, c);
+}
+function textCenteredIn(x, w, y, s, scale=1, c=0){
+  let tx = x + Math.floor((w - textWidth(s, scale))/2); if(tx<x) tx = x;
+  text(tx, y, s, scale, c);
+}
+
+let flashOn = true;
+function blit(invert){
+  const d = img.data;
+  for(let i=0;i<buf.length;i++){
+    let v = buf[i]; if(invert) v = 255 - v;
+    d[i*4] = d[i*4+1] = d[i*4+2] = v; d[i*4+3] = 255;
+  }
+  ctx.putImageData(img, 0, 0);
+}
+let flushTimer = null;
+function flushFull(){
+  if(flashOn){
+    blit(true);
+    clearTimeout(flushTimer);
+    flushTimer = setTimeout(()=>blit(false), 110);
+  } else blit(false);
+}
+function flushPartial(){ clearTimeout(flushTimer); blit(false); }
+
+/* ------------------------------------------------------------ simulated SD */
+const TAGS = ["Work","Projects","Ideas","Quotes","Random"];
+const CANNED = [
+  "A notebook you talk to should never ask you to look at it.",
+  "The tag picker has to appear before the thought is gone.",
+  "Black and white is not a limitation, it is the whole point.",
+  "Ask whether the audio is worth keeping once the words exist.",
+  "Every file on the card should be readable without this device."
+];
+const DEFAULTS = () => ({
+  prefs:{ sound:"0", syncHrs:4, ssid:"", api:"", firstBootDone:false, lastSync:0 },
+  notes:[
+    {base:"rec_20260812_101200", tag:"Ideas",  dur:12, txt:"Midnight thought about a type system that only uses black and white."},
+    {base:"rec_20260812_094410", tag:"Work",   dur:8,  txt:""},
+    {base:"rec_20260811_090015", tag:"Random", dur:5,  txt:"Buy more paper."},
+    {base:"rec_20260810_180000", tag:"Work",   dur:20, txt:""},
+    {base:"rec_20260809_120000", tag:"Quotes", dur:15, txt:"A quote I loved but never opened again."}
+  ],
+  todos:[{text:"Solder the battery lead",done:false},{text:"Order a spare panel",done:true},{text:"Write the flashing guide",done:false}]
+});
+let sd;
+function load(){
+  try{ sd = JSON.parse(localStorage.getItem('mnm-sim')) || DEFAULTS(); }
+  catch(e){ sd = DEFAULTS(); }
+  if(!sd.prefs || !sd.notes || !sd.todos) sd = DEFAULTS();
+}
+function save(){ try{ localStorage.setItem('mnm-sim', JSON.stringify(sd)); }catch(e){} }
+load();
+
+const soundOn = () => sd.prefs.sound === "1";
+const SYNC_OPTS = [0,1,2,4,8,24];
+const syncHours = () => SYNC_OPTS.includes(sd.prefs.syncHrs) ? sd.prefs.syncHrs : 4;
+const syncRateLabel = () => syncHours() === 0 ? "off" : "every " + syncHours() + "h";
+
+/* --------------------------------------------------------------- machine */
+let st = "HOME";
+let battPct = 68;
+let asleep = false;
+
+let recSec = 0, recTimerId = null, wave = new Array(16).fill(2), waveIdx = 0;
+let makeArmed = false, makeLatched = false, makeDownAt = 0;
+let lastSavedBase = "";
+
+let viewTag = "", noteList = [], listTop = 0, noteRow = -1;
+let confirmDelete = false, transcriptLines = [], transcriptPage = 0;
+let playing = false, playTimerId = null;
+let todoTop = 0;
+let confirmFree = false, factoryStage = 0;
+let walkStep = 0, tourFromExtra = false;
+let syncDone = 0, syncTotal = 0, syncName = "", syncTimerId = null, syncCancel = false;
+let errMsg = null, errReturn = null;
+
+const TOUR_STEPS = 17, TOUR_SOUND = 15;
+
+function refreshNoteList(){
+  noteList = sd.notes.filter(n => n.tag === viewTag).slice().reverse();
+}
+function loadTranscript(n){
+  transcriptPage = 0;
+  transcriptLines = [];
+  if(!n.txt) return;
+  /* the device reads pre-wrapped lines off the card; wrap to the same width */
+  const words = n.txt.split(/\s+/); let line = "";
+  for(const wd of words){
+    if((line + " " + wd).trim().length > 30){ transcriptLines.push(line.trim()); line = wd; }
+    else line = (line + " " + wd).trim();
+  }
+  if(line) transcriptLines.push(line);
+}
+function reclaimable(){
+  const list = sd.notes.filter(n => n.txt && n.dur > 0);
+  return { count:list.length, mb:Math.max(1, Math.round(list.reduce((a,n)=>a+n.dur*32000,0)/1048576)) };
+}
+function cardUsed(){
+  return sd.notes.reduce((a,n)=>a + (n.dur>0 ? n.dur*32000 : 0) + (n.txt?n.txt.length:0), 0);
+}
+
+/* ----------------------------------------------------------------- screens */
+function drawBattery(x, y){
+  rect(x, y, 26, 13); fillRect(x+26, y+3, 2, 7);
+  if(battPct < 0){ text(x+4, y+3, "?"); return; }
+  let w = Math.floor(22*battPct/100); if(w<2) w=2;
+  fillRect(x+2, y+2, w, 9);
+}
+function bottomBar(label){ fillRect(0,184,200,16,0); textCentered(188, label, 1, 255); }
+
+function drawHome(){
+  clear(); drawBattery(158,12);
+  textCentered(56,"mono",2); textCentered(76,"note mini",1);
+  rect(80,96,40,2);
+  textCentered(116,"TAP TO UNLOCK",1);
+  textCentered(186,"HOLD = BACK",1);
 }
 function drawMenu(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px 0 4px;border-bottom:2px solid var(--ink);flex-shrink:0">mono note mini</div>
-  <div style="flex:1;overflow:auto;padding:4px 0">
-  <div class="row" data-a="view">VIEW NOTES</div>
-  <div class="row" data-a="make">MAKE NOTE</div>
-  <div class="row" data-a="todo">TO-DO</div>
-  <div class="row" data-a="settings">SETTINGS</div>
-  </div>`;
-  $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{
-    const a=r.dataset.a;
-    if(a==='view'){viewTag=null;drawViewTags();}
-    else if(a==='make') startRec();
-    else if(a==='todo') drawTodo();
-    else if(a==='settings') drawSettings();
-  });
-  $s.onclick=null;
+  clear();
+  textCentered(10,"mono note mini",1); rect(0,26,200,1);
+  rect(10,36,180,36);  textCentered(48,"VIEW NOTES",1);
+  rect(10,76,180,36);  textCentered(88,"MAKE NOTE",1);
+  rect(10,116,180,36); textCentered(128,"TO-DO",1);
+  rect(10,156,180,36); textCentered(168,"SETTINGS",1);
 }
-function startRec(){
-  state='rec'; recSec=0;
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">RECORDING</div>
-  <div style="text-align:center;padding:14px 0 6px;font-size:1.4rem;font-weight:800" id="tm">0:00</div>
-  <div class="wave" id="wave">${Array(12).fill(0).map(_=>`<div class="bar" style="height:6px"></div>`).join('')}</div>
-  <div class="small" style="text-align:center">tap to stop</div>`;
-  $s.onclick=stopRec;
-  recTimer=setInterval(()=>{
-    recSec++; const el=document.getElementById('tm'); if(el) el.textContent=`${Math.floor(recSec/60)}:${String(recSec%60).padStart(2,'0')}`;
-    document.querySelectorAll('.bar').forEach(b=>b.style.height=(4+Math.random()*18|0)+'px');
-  },500);
+function paintMakeBody(){
+  const s = recSec;
+  const t = Math.floor(s/60) + ":" + (s%60<10?"0":"") + (s%60);
+  fillRect(10,44,180,60,0); textCentered(66,t,3,255);
+  fillRect(0,118,200,44,255);
+  for(let i=0;i<16;i++){
+    const h = Math.floor(wave[i]*6/10)+2;
+    fillRect(24+i*10, 150-Math.floor(h/2), 6, h, 0);
+  }
+  fillRect(0,164,200,24,255);
+  textCentered(166, makeLatched ? "tap timer to stop" : "release to stop", 1);
+  textCentered(178, (120-s) + "s left", 1);
 }
-function stopRec(){
-  clearInterval(recTimer);
-  $s.onclick=null;
-  const name=`rec_${new Date().toISOString().slice(0,19).replace(/[-:T]/g,'')}.wav`;
-  state='tag'; drawTag(name);
-}
-function drawTag(name){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">SORT IT — ${name.slice(0,18)}</div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px;overflow:auto;flex:1">
-  ${TAGS.map(t=>`<div class="row" style="margin:0" data-t="${t}">${t}</div>`).join('')}
-  </div><div class="small" style="text-align:center;flex-shrink:0">tap a tag (or here to skip)</div>`;
-  $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{
-    notes.unshift({name,tag:r.dataset.t,dur:recSec,txt:"(transcript pending — sync will fill it)",plays:0,last:0});
-    save(); state='home'; drawHome();
-  });
-  $s.onclick=(e)=>{ if(e.target===$s) { notes.unshift({name,tag:"Random",dur:recSec,txt:"(transcript pending)",plays:0,last:0}); save(); state='home'; drawHome(); }};
-}
-function drawViewTags(){
-  const counts={}; TAGS.forEach(t=>counts[t]=notes.filter(n=>n.tag===t).length);
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">VIEW NOTES</div>
-  <div class="list">${TAGS.map(t=>`<div class="row" data-t="${t}">${t} <span style="opacity:.6">(${counts[t]})</span></div>`).join('')}</div>
-  <div class="small" style="text-align:center;flex-shrink:0">tap tag • hold 0.9s = back</div>`;
-  $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{viewTag=r.dataset.t; viewList=notes.filter(n=>n.tag===viewTag); drawViewList();});
-  let down=0; $s.onpointerdown=()=>down=Date.now(); $s.onpointerup=()=>{ if(Date.now()-down>900){state='menu';drawMenu();}};
-  $s.onclick=(e)=>{ if(e.target.classList.contains('small') && e.target.textContent.includes('tap tag')){state='menu';drawMenu();}};
-}
-function drawViewList(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">${viewTag} • ${viewList.length} clips</div>
-  <div class="list">${viewList.length?viewList.map((n,i)=>`<div class="item${i===noteIdx?' active':''}" data-i="${i}" style="display:flex;justify-content:space-between;gap:6px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${n.name.slice(0,18)}</span><span style="opacity:.6;flex-shrink:0">${n.dur}s • ${n.plays||0}×</span></div>`).join(''):`<div class="small" style="padding:20px;text-align:center">nothing here</div>`}</div>
-  <div class="controls"><button id="back">BACK</button></div>`;
-  const b=$s.querySelector('#back'); if(b) b.onclick=()=>drawViewTags();
-  $s.querySelectorAll('.item').forEach(el=>el.onclick=()=>{noteIdx=parseInt(el.dataset.i); drawViewNote();});
-}
-function drawViewNote(){
-  const n=viewList[noteIdx];
-  if(!n) return drawViewList();
-  $s.innerHTML=`<div class="small" style="padding:6px;border-bottom:2px solid var(--ink);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0">${n.name}</div>
-  <div style="flex:1;overflow:auto;padding:8px;font-size:.68rem;line-height:1.5;white-space:pre-wrap;word-break:break-word">${n.txt}</div>
-  <div class="small" style="text-align:center;opacity:.6">played ${n.plays||0}× • ${n.last?new Date(n.last).toLocaleDateString():'never'}</div>
-  <div class="controls"><button id="play">${playing?'STOP':'PLAY'}</button><button id="del">DELETE</button><button id="back2">BACK</button></div>`;
-  document.getElementById('play').onclick=()=>{
-    if(playing){playing=false;clearInterval(playTimer);drawViewNote();return;}
-    playing=true; n.plays=(n.plays||0)+1; n.last=Date.now(); save();
-    drawViewNote();
-    let p=0; playTimer=setInterval(()=>{p++; if(p>6){playing=false;clearInterval(playTimer);drawViewNote();}},400);
-  };
-  document.getElementById('del').onclick=()=>{
-    if(!confirm('Delete '+n.name+' ?')) return;
-    const idx=notes.indexOf(n); if(idx>=0) notes.splice(idx,1);
-    viewList.splice(noteIdx,1); save(); noteIdx=-1;
-    if(viewList.length===0) drawViewTags(); else drawViewList();
-  };
-  document.getElementById('back2').onclick=()=>drawViewList();
+function drawMake(){ clear(); textCentered(14,"MAKE NOTE",1); rect(0,30,200,1); paintMakeBody(); }
+function drawTag(){
+  clear(); textCentered(8,"SORT IT",2);
+  rect(10,36,86,34);   textCenteredIn(10,86,47,TAGS[0]);
+  rect(104,36,86,34);  textCenteredIn(104,86,47,TAGS[1]);
+  rect(10,78,86,34);   textCenteredIn(10,86,89,TAGS[2]);
+  rect(104,78,86,34);  textCenteredIn(104,86,89,TAGS[3]);
+  rect(10,120,180,34); textCenteredIn(10,180,131,TAGS[4]);
+  textCentered(170,"tap a tag to file it",1);
+  textCentered(186,"tap here to skip",1);
 }
 function drawTodo(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">TO-DO</div>
-  <div class="list">${todos.length?todos.map((t,i)=>`<div class="row" style="justify-content:space-between;align-items:center" data-i="${i}"><span style="text-decoration:${t.done?'line-through':'none'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;text-align:left">${t.text.slice(0,22)}</span><span style="border:1px solid var(--ink);width:14px;height:14px;display:grid;place-items:center;font-size:10px;flex-shrink:0">${t.done?'✓':''}</span></div>`).join(''):`<div class="small" style="padding:20px;text-align:center">no jobs — add on the website</div>`}</div>
-  <div class="small" style="text-align:center;flex-shrink:0">tap = check • hold = back</div>`;
-  $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{const i=parseInt(r.dataset.i); todos[i].done=!todos[i].done; save(); drawTodo();});
-  let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
-}
-function drawLeastUsed(){
-  const sorted=[...notes].sort((a,b)=> (a.plays||0)-(b.plays||0) || (a.last||a.dur||0)-(b.last||b.dur||0) || a.name.localeCompare(b.name));
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">LEAST PLAYED — tap to delete</div>
-  <div class="list">${sorted.length?sorted.map((n,i)=>`<div class="item" data-n="${notes.indexOf(n)}" style="display:flex;justify-content:space-between;gap:6px"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">${n.name.slice(0,16)} <span style="opacity:.6">(${n.plays||0}×)</span></span><span style="border:1px solid var(--ink);padding:1px 4px;font-size:.6rem">DEL</span></div>`).join(''):`<div class="small" style="padding:20px;text-align:center">no clips</div>`}</div>
-  <div class="controls"><button id="backL">BACK</button></div>`;
-  document.getElementById('backL').onclick=()=>drawStorage();
-  $s.querySelectorAll('.item').forEach(el=>el.onclick=()=>{
-    const idx=parseInt(el.dataset.n);
-    if(!confirm('Delete '+notes[idx].name+' ?')) return;
-    notes.splice(idx,1); save(); drawLeastUsed();
-  });
-}
-function drawStorage(){
-  const s=sdSpace();
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">STORAGE</div>
-  <div style="padding:10px;font-size:.68rem;line-height:1.6;flex:1;overflow:auto">
-  Total 29.8 GB<br>Used ${s.used} MB<br><span style="font-weight:800">Free ${s.free} MB</span><div style="border:1px solid var(--ink);height:12px;margin-top:8px"><div style="width:${s.pct}%;height:100%;background:var(--ink)"></div></div>
-  <div style="margin-top:10px;border:2px solid var(--ink);padding:6px;text-align:center;cursor:pointer" id="leastBtn">SHOW LEAST PLAYED →</div>
-  <div style="font-size:.58rem;opacity:.6;margin-top:6px;text-align:center">tap above to quickly clean old clips</div>
-  </div>
-  <div class="small" style="text-align:center;flex-shrink:0">tap outside = back</div>`;
-  document.getElementById('leastBtn').onclick=()=>drawLeastUsed();
-  $s.onclick=(e)=>{ if(e.target===$s || e.target.classList.contains('small')) drawSettings(); };
-  setTimeout(()=>{ const h=(ev)=>{ if(ev.target.closest && ev.target.closest('#leastBtn')) return; }; },0);
-  let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=(e)=>{ if(Date.now()-d>900 || e.target.classList.contains('small')){state='menu';drawSettings();}};
-}
-function drawHowTo(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">HOW TO USE & CREDITS</div>
-  <div style="flex:1;overflow:auto;padding:10px;font-size:.64rem;line-height:1.6;text-align:left;white-space:pre-wrap;word-break:break-word">HOW TO USE
-1. TAP home to unlock → menu
-2. MAKE NOTE: tap → speak (wave animates + timer) → tap to stop → pick tag (Work/Projects/Ideas/Quotes/Random) → returns home
-3. VIEW NOTES: pick tag → list → tap note → PLAY/STOP, DELETE, swipe pages for transcript
-4. HOLD 0.9s anywhere = BACK
-5. SETTINGS: Wi-Fi = join MonoNote hotspot to set network, Sync = transcribe via your server, Storage = see free space → tap to clean least-played, IP = local address for your private site
-6. TO-DO: tap row = check, hold = back
-
-TIPS
-• Recordings save as 16k mono WAV on SD
-• Transcripts save as .txt next to wav
-• Hold home 0.9s = deep sleep, press BOOT/PWR/touch to wake
-
-────────
-CREDITS
-Made by Atreya Patil
-with inspiration from PALA NOTE
-© 2026 — All rights reserved
-</div>
-  <div class="small" style="text-align:center;flex-shrink:0">tap = back • scroll to read</div>`;
-  $s.onclick=()=>drawSettings();
-  let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){drawSettings();} };
+  clear(); textCentered(10,"TO-DO",2); rect(0,28,200,1);
+  if(!sd.todos.length) textCentered(100,"no jobs - add via web",1);
+  for(let i=0;i<6 && todoTop+i<sd.todos.length;i++){
+    const it = sd.todos[todoTop+i], y = 36+i*24;
+    rect(8,y+4,14,14);
+    if(it.done){ fillRect(10,y+6,10,10,0); fillRect(11,y+11,8,2,255); }
+    text(30,y+6,it.text.slice(0,24),1);
+  }
+  bottomBar("< back   (tap = check off)");
 }
 function drawSettings(){
-  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">SETTINGS</div>
-  <div style="flex:1;overflow:auto">
-  <div class="row">1 Wi-Fi (hotspot)</div>
-  <div class="row">2 Sync</div>
-  <div class="row">3 Storage — ${sdSpace().free} MB free</div>
-  <div class="row">4 IP — 192.168.1.42</div>
-  <div class="row">5 How to use & Credits</div>
-  </div>`;
-  const rows=$s.querySelectorAll('.row');
-  rows[0].onclick=()=>{ $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">WI-FI</div><div style="padding:10px;font-size:.68rem;line-height:1.5;flex:1;overflow:auto">Join hotspot<br><b>MonoNote-XXXX</b><br>key: record123<br>→ 192.168.4.1</div><div class="small" style="text-align:center;flex-shrink:0">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=()=>drawSettings(),0); };
-  rows[1].onclick=()=>{ $s.innerHTML=`<div style="padding:30px;text-align:center;flex:1;display:grid;place-items:center">SYNCING 1/2<br><span style="font-size:.68rem">tap to cancel</span></div>`; setTimeout(()=>drawSettings(),1200); };
-  rows[2].onclick=()=>drawStorage();
-  rows[3].onclick=()=>{ $s.innerHTML=`<div style="padding:12px;text-align:center;flex:1;display:grid;place-items:center"><div>MY ADDRESS<br><b>192.168.1.42</b><br><span style="font-size:.68rem">your private site</span></div></div><div class="small" style="text-align:center;flex-shrink:0">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=null,0); };
-  rows[4].onclick=(e)=>{ e.stopPropagation(); drawHowTo(); };
-  // fallback delegation in case direct handler is missed
-  $s.addEventListener('click', (e)=>{
-    const t=e.target.closest('.row');
-    if(t && t.textContent.includes('How to use')) { e.stopPropagation(); drawHowTo(); }
-  }, {once:true});
-  let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
+  clear(); textCentered(8,"SETTINGS",2); rect(0,26,200,1);
+  const rows = ["1  Wi-Fi","2  Sync now","3  Storage","4  IP","5  How to & Credits","6  Extra"];
+  for(let i=0;i<6;i++){ const y = 32+i*25; rect(10,y,180,23); text(18,y+8,rows[i],1); }
+  bottomBar("< back");
 }
-let emuWalkActive = !localStorage.getItem('mm-walkthrough-done');
-let emuWalkIdx = 0;
-const emuWalkSteps = [
-  {t:"Welcome — first boot", d:"This guided tour shows every feature. You'll tap each highlighted button.\nTap Next to begin.", sel:null},
-  {t:"Make Note", d:"Tap MAKE NOTE — hold to record, see the wave, then pick a tag.", sel:'.row[data-a="make"]'},
-  {t:"View Notes", d:"Your tapes live here, sorted by tag. Tap it.", sel:'.row[data-a="view"]'},
-  {t:"To-Do", d:"Check off jobs you added on the website.", sel:'.row[data-a="todo"]'},
-  {t:"Settings", d:"All controls live here. Tap to open.", sel:'.row[data-a="settings"]'},
-  {t:"Wi-Fi Setup", d:"Tap Wi-Fi — join hotspot MonoNote-XXXX / record123 → 192.168.4.1 to set your home network.", sel:'.row:nth-child(1)'},
-  {t:"Sound", d:"Choose your tick — clean and soft. Tap ON or OFF.", sel:null, isSound:true},
-  {t:"You're set!", d:"Tour done — explore freely. Replay anytime from Settings → How to use.", sel:null}
+function drawExtra(){
+  clear(); textCentered(8,"EXTRA",2); rect(0,26,200,1);
+  rect(10,36,180,36);  text(18,48,"1  Redo tutorial",1);  text(18,60,"   see every feature",1);
+  rect(10,80,180,36);  text(18,92,"2  Auto-sync rate",1); text(18,104,"   now: " + syncRateLabel(),1);
+  rect(10,124,180,36); text(18,136,"3  Factory reset",1); text(18,148,"   erases everything",1);
+  bottomBar("< back");
+}
+function drawSyncRate(){
+  const cur = syncHours();
+  clear(); textCentered(6,"AUTO-SYNC",2);
+  textCentered(28,"now: " + syncRateLabel(),1); rect(0,40,200,1);
+  const labels = ["Off","1h","2h","4h","8h","24h"];
+  for(let i=0;i<6;i++){
+    const x = (i%2===0) ? 10 : 104, y = 46 + Math.floor(i/2)*34;
+    if(SYNC_OPTS[i] === cur){ fillRect(x,y,86,30,0); textCenteredIn(x,86,y+12,labels[i],1,255); }
+    else { rect(x,y,86,30); textCenteredIn(x,86,y+12,labels[i],1,0); }
+  }
+  textCentered(154,"Syncing more often",1);
+  textCentered(168,"drains the battery faster",1);
+  bottomBar("< back");
+}
+function drawFactory(){
+  clear();
+  if(factoryStage === 0){
+    textCentered(8,"FACTORY RESET",1); rect(0,20,200,1);
+    text(4,28,"Erases the whole card:",1);
+    text(4,44,"every note, transcript,",1);
+    text(4,56,"tag and the to-do list.",1);
+    text(4,72,"Also clears Wi-Fi, your",1);
+    text(4,84,"server address, sound",1);
+    text(4,96,"and the sync rate.",1);
+    text(4,112,"This cannot be undone.",1);
+    rect(10,132,86,30);  textCenteredIn(10,86,144,"CANCEL");
+    rect(104,132,86,30); textCenteredIn(104,86,144,"ERASE");
+  } else {
+    textCentered(24,"ARE YOU",2); textCentered(46,"SURE?",2); rect(0,72,200,1);
+    textCentered(84,"Last chance.",1);
+    textCentered(100,"Everything on the card",1);
+    textCentered(112,"goes, out of the box.",1);
+    rect(10,132,86,30); textCenteredIn(10,86,144,"KEEP IT");
+    fillRect(104,132,86,30,0); textCenteredIn(104,86,144,"ERASE ALL",1,255);
+  }
+  bottomBar("< back");
+}
+function drawStorage(){
+  const totalMB = 7580;                       /* a plausible 8 GB card */
+  const usedMB = Math.max(1, Math.round(cardUsed()/1048576) + 12);
+  const freeMB = Math.max(0, totalMB - usedMB);
+  const rc = reclaimable();
+  clear(); textCentered(8,"STORAGE",2); rect(0,26,200,1);
+  text(16,34,"Total:  " + totalMB + " MB",1);
+  text(16,50,"Used:   " + usedMB + " MB",1);
+  text(16,66,"Free:   " + freeMB + " MB",1);
+  const pct = Math.round(usedMB*100/totalMB);
+  rect(20,86,160,12); fillRect(22,88,Math.floor(156*pct/100),8,0);
+  textCentered(106, pct + "% used",1);
+  rect(0,122,200,1);
+  if(rc.count > 0){
+    textCentered(130, rc.count + " clips already synced",1);
+    textCentered(144, "audio frees " + rc.mb + " MB",1);
+    if(confirmFree){ fillRect(10,158,180,22,0); textCenteredIn(10,180,165,"TAP AGAIN TO FREE",1,255); }
+    else { rect(10,158,180,22); textCenteredIn(10,180,165,"FREE SPACE"); }
+  } else {
+    textCentered(140,"nothing to free yet",1);
+    textCentered(158,"transcripts are kept",1);
+    textCentered(170,"when audio is removed",1);
+  }
+  bottomBar("< back");
+}
+function drawWifi(){
+  clear(); textCentered(14,"WI-FI SETUP",2); rect(0,34,200,1);
+  textCentered(56,"join this hotspot",1);
+  textCentered(80,"MonoNote-A4F2",1);
+  textCentered(100,"key: record123",1);
+  textCentered(128,"192.168.4.1",2);
+  textCentered(156,"enter network + password",1);
+  bottomBar("< back");
+}
+function drawIp(){
+  clear(); textCentered(14,"MY ADDRESS",2); rect(0,34,200,1);
+  textCentered(60,"type this in a browser",1);
+  textCentered(92,"192.168.1.24",2);
+  textCentered(130,"your notes, on the web",1);
+  bottomBar("< back");
+}
+function drawViewTags(){
+  clear(); textCentered(10,"VIEW NOTES",2); rect(0,28,200,1);
+  for(let i=0;i<5;i++){
+    const y = 38+i*27;
+    const count = sd.notes.filter(n=>n.tag===TAGS[i]).length;
+    rect(10,y,180,23); text(20,y+7,TAGS[i],1); text(170,y+7,String(count),1);
+  }
+  bottomBar("< back");
+}
+function drawViewList(){
+  clear(); textCentered(10,viewTag,2); rect(0,28,200,1);
+  if(!noteList.length) textCentered(100,"nothing here yet",1);
+  for(let i=0;i<6 && listTop+i<noteList.length;i++){
+    const idx = listTop+i;
+    let n = noteList[idx].base; if(n.length>22) n = n.slice(0,22);
+    if(idx === noteRow){ fillRect(4,34+i*24,192,24,0); text(8,40+i*24,n,1,255); }
+    else text(8,40+i*24,n,1);
+  }
+  bottomBar("< back   (swipe to scroll)");
+}
+function drawViewNote(){
+  clear();
+  const note = noteList[noteRow];
+  let n = note.base; if(n.length>24) n = n.slice(0,24);
+  text(4,6,n,1); rect(0,20,200,1);
+  if(!transcriptLines.length) textCentered(80,"not transcribed yet",1);
+  else{
+    const pages = Math.ceil(transcriptLines.length/6), start = transcriptPage*6;
+    for(let i=0;i<6 && start+i<transcriptLines.length;i++) text(4,26+i*14,transcriptLines[start+i],1);
+    if(pages>1) textCentered(122,(transcriptPage+1)+"/"+pages,1);
+  }
+  rect(10,134,180,22); textCentered(139, playing ? "STOP" : "PLAY", 1);
+  rect(10,160,180,22); textCentered(165, confirmDelete ? "TAP AGAIN TO DELETE" : "DELETE", 1);
+  bottomBar("< back  (swipe = pages)");
+}
+function drawSync(){
+  clear(); textCentered(20,"SYNCING",2); rect(0,48,200,1);
+  textCentered(80, syncDone + " / " + syncTotal, 2);
+  let s = syncName; if(s.length>24) s = "..." + s.slice(-21);
+  textCentered(110,s,1);
+  textCentered(170,"tap to cancel",1);
+}
+function drawHowTo(){
+  clear(); textCentered(8,"HOW TO USE",1); rect(0,20,200,1);
+  text(4,26,"1 Tap home to unlock",1);
+  text(4,40,"2 MAKE: hold to record,",1);
+  text(4,52,"  release saves. Or tap",1);
+  text(4,64,"  once, tap timer to end",1);
+  text(4,78,"3 VIEW: tag > note > PLAY",1);
+  text(4,92,"4 Hold 0.9s = back",1);
+  text(4,106,"5 Sync now needs Wi-Fi",1);
+  text(4,120,"6 Extra: redo this tour",1);
+  rect(0,134,200,1);
+  textCentered(140,"CREDITS",1);
+  textCentered(154,"Made by Atreya Patil",1);
+  textCentered(168,"insp. PALA NOTE",1);
+  textCentered(182,"(c) 2026",1);
+}
+function drawError(){
+  clear(); textCentered(60,"ERROR",2); textCentered(100,errMsg,1); textCentered(150,"tap = continue",1);
+}
+function drawSleep(){ clear(); textCentered(90,"mono note",2); }
+
+const TOUR = [
+  ["WELCOME",["Mono Note Mini","","A notebook you talk to.","","This tour shows every","feature. Tap NEXT to","walk through it."]],
+  ["GESTURES",["Three moves, everywhere:","","TAP        choose","HOLD 0.9s  go back","SWIPE      scroll"]],
+  ["HOME & SLEEP",["Tap the home screen to","unlock it.","","It sleeps by itself when","idle. A touch or either","button wakes it again."]],
+  ["THE MENU",["Four rows:","","VIEW NOTES   your notes","MAKE NOTE    record","TO-DO        checklist","SETTINGS     the rest"]],
+  ["MAKE A NOTE",["HOLD MAKE NOTE to record,","let go and it saves.","","Or tap it once and it","keeps going until you","tap the timer.","Two minutes per note."]],
+  ["TAG IT",["Every note gets filed","the moment you save it:","","Work      Projects","Ideas     Quotes","Random","or skip at the bottom."]],
+  ["VIEW NOTES",["Browse by tag. Each tag","shows how many notes","are filed under it.","","Swipe to scroll,","tap a note to open it."]],
+  ["PLAY & READ",["PLAY hears the note on","the speaker.","","Swipe to page through","the transcript.","","DELETE asks twice."]],
+  ["TO-DO",["A checklist kept on the","card as plain text.","","Tap a row to check it","off. Add or edit jobs","from the web page."]],
+  ["WI-FI",["Settings > Wi-Fi opens a","hotspot from the device:","","  MonoNote-XXXX","  key: record123","","Join it, browse the IP."]],
+  ["SYNC NOW",["Settings > Sync now","sends every clip that","has no transcript yet","to your own server.","","Tap the screen while it","runs to stop early."]],
+  ["AUTO-SYNC",["It also syncs on its own","every 4 hours.","","Change the rate, or turn","it off, in","Settings > Extra."]],
+  ["STORAGE",["Shows how much card is","left.","","FREE SPACE deletes the","audio of notes already","transcribed. The text","is always kept."]],
+  ["MY ADDRESS",["Settings > IP joins your","home Wi-Fi and shows the","address to type in a","browser.","","Drop your own site in","/www on the card."]],
+  ["EXTRA",["Settings > Extra holds:","","Redo tutorial","Auto-sync rate","Factory reset","","Redo brings you here."]],
+  ["SOUND",[]],
+  ["READY",["That is every feature.","","Your notes live on the","card as plain files.","Nothing leaves the","device unless you point","it at your own server."]]
 ];
-function showEmuWalk(n){
-  const s=emuWalkSteps[n];
-  document.getElementById('emuWalkTitle').textContent=s.t;
-  document.getElementById('emuWalkDesc').textContent=s.d;
-  document.getElementById('emuWalk').style.display='flex';
-  document.querySelectorAll('.walk-highlight').forEach(e=>e.classList.remove('walk-highlight'));
-  if(s.sel){
-    setTimeout(()=>{
-      const el=document.querySelector(s.sel) || document.getElementById('screen').querySelector(s.sel);
-      if(el) el.classList.add('walk-highlight');
-    },80);
+function drawTour(){
+  const [title, lines] = TOUR[walkStep];
+  clear();
+  textCentered(6,title,1); rect(0,18,200,1);
+  if(walkStep === TOUR_SOUND){
+    textCentered(30,"A soft tick on each tap.",1);
+    textCentered(48, soundOn() ? "NOW: ON" : "NOW: OFF", 1);
+    rect(10,66,86,34);  textCenteredIn(10,86,79,"ON",2);
+    rect(104,66,86,34); textCenteredIn(104,86,79,"OFF",2);
+    textCentered(112,"Pick one to carry on.",1);
+  } else {
+    for(let i=0;i<lines.length;i++) if(lines[i]) text(4, 26+i*14, lines[i], 1);
   }
-  // sound choice screen
-  if(s.isSound){
-    const screen=document.getElementById('screen');
-    screen.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">SOUND</div><div style="flex:1;display:flex;flex-direction:column;gap:8px;padding:12px;justify-content:center"><div class="row" data-sound="on">SOUND ON — clean tick</div><div class="row" data-sound="off">SOUND OFF — silent</div></div><div class="small" style="text-align:center;flex-shrink:0">tap to choose</div>`;
-    screen.querySelectorAll('.row').forEach(r=>r.onclick=()=>{
-      localStorage.setItem('mm-sound', r.dataset.sound);
-      document.querySelectorAll('.walk-highlight').forEach(e=>e.classList.remove('walk-highlight'));
-      advanceEmuWalk();
-    });
+  textCentered(140,"STEP " + (walkStep+1) + " / " + TOUR_STEPS, 1);
+  if(walkStep !== TOUR_SOUND){
+    if(walkStep > 0){ rect(6,156,52,26); textCenteredIn(6,52,165,"BACK"); }
+    fillRect(64,156,130,26,0);
+    textCenteredIn(64,130,165, walkStep === TOUR_STEPS-1 ? "FINISH" : "NEXT >", 1, 255);
   }
 }
-function hideEmuWalk(){ document.getElementById('emuWalk').style.display='none'; document.querySelectorAll('.walk-highlight').forEach(e=>e.classList.remove('walk-highlight')); }
-function advanceEmuWalk(){
-  // special: if we were on Wi-Fi step and screen shows Wi-Fi hotspot, go back first
-  if(emuWalkSteps[emuWalkIdx].t==="Wi-Fi Setup" && document.getElementById('screen').innerHTML.includes("MonoNote-XXXX")){
-    drawSettings();
-  }
-  emuWalkIdx++;
-  if(emuWalkIdx>=emuWalkSteps.length){ hideEmuWalk(); localStorage.setItem('mm-walkthrough-done','1'); emuWalkActive=false; return; }
-  const step=emuWalkSteps[emuWalkIdx];
-  // if step expects settings screen, ensure we're in settings
-  if(step.t==="Wi-Fi Setup" || step.t==="Sound"){
-    if(!document.getElementById('screen').innerHTML.includes("Wi-Fi (hotspot)")){ drawSettings(); }
-  }
-  showEmuWalk(emuWalkIdx);
+
+const SCREENS = {
+  HOME:drawHome, MENU:drawMenu, MAKE:drawMake, TAG:drawTag, TODO:drawTodo,
+  SETTINGS:drawSettings, EXTRA:drawExtra, SYNCRATE:drawSyncRate, FACTORY:drawFactory,
+  STORAGE:drawStorage, SET_WIFI:drawWifi, SET_IP:drawIp, VIEW_TAGS:drawViewTags,
+  VIEW_LIST:drawViewList, VIEW_NOTE:drawViewNote, SYNC:drawSync, HOWTO:drawHowTo,
+  WALKTHROUGH:drawTour, ERROR:drawError, SLEEP:drawSleep
+};
+function draw(partial){
+  (SCREENS[st] || drawHome)();
+  partial ? flushPartial() : flushFull();
+  updateReadout();
 }
-document.getElementById('emuWalk').addEventListener('click', (e)=>{
-  const step=emuWalkSteps[emuWalkIdx];
-  if(!step.sel) advanceEmuWalk();
+function go(next){ st = next; draw(); }
+function showError(msg, back){ errMsg = msg; errReturn = back; go("ERROR"); }
+function beep(){ /* silent by design in the preview */ }
+</script>
+<script>
+/* ------------------------------------------------------------- interaction */
+let downAt = 0, downPt = null, lastSwipeY = 0, longFired = false, isDown = false, longTimer = null;
+
+function toPanel(ev){
+  const r = cv.getBoundingClientRect();
+  return {
+    x: Math.floor((ev.clientX - r.left) / r.width * W),
+    y: Math.floor((ev.clientY - r.top) / r.height * H)
+  };
+}
+cv.addEventListener('pointerdown', ev => {
+  cv.setPointerCapture(ev.pointerId);
+  const p = toPanel(ev);
+  isDown = true; downAt = Date.now(); downPt = p; lastSwipeY = p.y; longFired = false;
+  onDown(p.x, p.y);
+  clearTimeout(longTimer);
+  longTimer = setTimeout(()=>{ if(isDown){ longFired = true; note("hold 0.9s → back"); onLongPress(); } }, 900);
 });
-document.getElementById('screen').addEventListener('click', (e)=>{
-  if(!emuWalkActive) return;
-  const step=emuWalkSteps[emuWalkIdx];
-  if(!step.sel) return;
-  const target=document.querySelector(step.sel) || document.getElementById('screen').querySelector(step.sel);
-  if(target && (target===e.target || target.contains(e.target))){
-    // let normal handler run, then advance
-    setTimeout(()=>advanceEmuWalk(),180);
+cv.addEventListener('pointermove', ev => {
+  if(!isDown) return;
+  const p = toPanel(ev);
+  if(Math.abs(p.y - lastSwipeY) > 55){
+    const dir = p.y < lastSwipeY ? -1 : 1;
+    lastSwipeY = p.y;
+    note("swipe " + (dir<0 ? "up" : "down"));
+    onSwipe(dir);
   }
 });
-if(emuWalkActive){
-  drawHome();
-  setTimeout(()=>showEmuWalk(0), 500);
-} else {
-  drawHome();
+cv.addEventListener('pointerup', ev => {
+  if(!isDown) return;
+  clearTimeout(longTimer);
+  isDown = false;
+  const p = toPanel(ev);
+  const held = Date.now() - downAt;
+  const moved = Math.abs(p.x - downPt.x) + Math.abs(p.y - downPt.y);
+  onRelease();
+  if(!longFired && held < 600 && moved < 40){
+    note("tap (" + downPt.x + "," + downPt.y + ")");
+    onTap(downPt.x, downPt.y);
+  }
+});
+cv.addEventListener('pointercancel', ()=>{ clearTimeout(longTimer); isDown = false; onRelease(); });
+
+function note(s){
+  document.getElementById('readout').textContent = s + "\nscreen: " + st;
 }
+function updateReadout(){
+  const r = document.getElementById('readout');
+  const cur = r.textContent.split("\n")[0] || "—";
+  r.textContent = cur + "\nscreen: " + st;
+}
+
+/* --------------------------------------------------------------- recording */
+function startRecording(){
+  recSec = 0; wave = new Array(16).fill(2); waveIdx = 0;
+  makeArmed = true; makeLatched = false; makeDownAt = Date.now();
+  st = "MAKE"; draw();
+  clearInterval(recTimerId);
+  recTimerId = setInterval(()=>{
+    recSec++;
+    wave[waveIdx] = 8 + Math.floor(Math.random()*90);
+    waveIdx = (waveIdx+1) % 16;
+    if(recSec >= 120){ finishRecording(); return; }
+    paintMakeBody(); flushPartial();
+  }, 1000);
+}
+function finishRecording(){
+  clearInterval(recTimerId); recTimerId = null;
+  makeArmed = false; makeLatched = false;
+  if(recSec === 0){ go("MENU"); return; }
+  const d = new Date();
+  const p = n => String(n).padStart(2,'0');
+  lastSavedBase = "rec_" + d.getFullYear() + p(d.getMonth()+1) + p(d.getDate()) + "_" +
+                  p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  sd.notes.push({ base:lastSavedBase, tag:"", dur:recSec, txt:"" });
+  save();
+  go("TAG");
+}
+
+/* ---------------------------------------------------------------- playback */
+function togglePlay(){
+  if(playing){ playing = false; clearTimeout(playTimerId); }
+  else {
+    playing = true;
+    const secs = noteList[noteRow].dur || 3;
+    playTimerId = setTimeout(()=>{ playing = false; draw(); }, Math.min(secs,6)*1000);
+  }
+  draw();
+}
+
+/* -------------------------------------------------------------------- sync */
+function syncAll(){
+  if(!sd.prefs.api){ showError("set API in Wi-Fi page","SETTINGS"); return; }
+  const pending = sd.notes.filter(n => !n.txt);
+  if(!pending.length){ showError("up to date","SETTINGS"); return; }
+  syncCancel = false; syncDone = 0; syncTotal = pending.length; syncName = "connecting wifi...";
+  st = "SYNC"; draw();
+  let i = 0;
+  const step = () => {
+    if(syncCancel || i >= pending.length){
+      sd.prefs.lastSync = Date.now(); save();
+      go("SETTINGS"); return;
+    }
+    syncName = pending[i].base + ".wav"; draw();
+    syncTimerId = setTimeout(()=>{
+      pending[i].txt = CANNED[i % CANNED.length];
+      syncDone++; i++; save(); step();
+    }, 900);
+  };
+  setTimeout(step, 700);
+}
+
+/* ------------------------------------------------------------------ events */
+function onDown(x, y){
+  if(st === "MENU" && y >= 76 && y < 112){ if(soundOn()) beep(); startRecording(); }
+}
+function onRelease(){
+  if(st === "MAKE" && makeArmed){
+    makeArmed = false;
+    if(Date.now() - makeDownAt < 600){ makeLatched = true; paintMakeBody(); flushPartial(); }
+    else finishRecording();
+  }
+}
+function onLongPress(){
+  switch(st){
+    case "MENU": sleep(); break;
+    case "MAKE": if(makeLatched) finishRecording(); break;
+    case "TODO": case "SETTINGS": go(st === "TODO" ? "MENU" : "HOME"); break;
+    case "EXTRA": go("SETTINGS"); break;
+    case "SYNCRATE": case "FACTORY": go("EXTRA"); break;
+    case "STORAGE": confirmFree = false; go("SETTINGS"); break;
+    case "SET_WIFI": case "SET_IP": go("SETTINGS"); break;
+    case "HOWTO": go("SETTINGS"); break;
+    case "VIEW_TAGS": go("HOME"); break;
+    case "VIEW_LIST": go("VIEW_TAGS"); break;
+    case "VIEW_NOTE": playing = false; clearTimeout(playTimerId); go("VIEW_LIST"); break;
+  }
+}
+function onSwipe(dir){
+  if(st === "TODO"){
+    if(dir === -1 && todoTop > 0){ todoTop--; draw(); }
+    if(dir === 1 && todoTop+6 < sd.todos.length){ todoTop++; draw(); }
+  } else if(st === "VIEW_LIST"){
+    if(dir === -1 && listTop > 0){ listTop--; draw(); }
+    if(dir === 1 && listTop+6 < noteList.length){ listTop++; draw(); }
+  } else if(st === "VIEW_NOTE"){
+    const pages = Math.ceil(transcriptLines.length/6);
+    if(dir === 1 && transcriptPage < pages-1){ transcriptPage++; draw(); }
+    if(dir === -1 && transcriptPage > 0){ transcriptPage--; draw(); }
+  }
+}
+function sleep(){ clearInterval(recTimerId); st = "SLEEP"; asleep = true; draw(); }
+function wake(){ if(!asleep) return; asleep = false; go("HOME"); }
+
+function onTap(x, y){
+  if(asleep){ wake(); return; }
+  switch(st){
+    case "ERROR": go(errReturn || "HOME"); break;
+
+    case "HOME": go("MENU"); break;
+
+    case "MENU":
+      if(y > 184){ sleep(); break; }
+      if(y >= 36 && y < 72){ viewTag = ""; go("VIEW_TAGS"); }
+      else if(y >= 116 && y < 152){ todoTop = 0; go("TODO"); }
+      else if(y >= 156 && y < 192){ go("SETTINGS"); }
+      break;
+
+    case "MAKE":
+      if(makeLatched && y >= 44 && y <= 104) finishRecording();
+      break;
+
+    case "TAG": {
+      let pick = null;
+      if(y >= 36 && y < 70) pick = x < 100 ? TAGS[0] : TAGS[1];
+      else if(y >= 78 && y < 112) pick = x < 100 ? TAGS[2] : TAGS[3];
+      else if(y >= 120 && y < 154) pick = TAGS[4];
+      const n = sd.notes.find(v => v.base === lastSavedBase);
+      if(n) n.tag = pick || "";
+      save();
+      go("HOME");
+      break;
+    }
+
+    case "TODO": {
+      if(y > 184){ go("MENU"); break; }
+      const row = Math.floor((y-36)/24);
+      if(row >= 0 && row < 6 && todoTop+row < sd.todos.length){
+        sd.todos[todoTop+row].done = !sd.todos[todoTop+row].done;
+        save(); draw();
+      }
+      break;
+    }
+
+    case "SETTINGS": {
+      if(y > 184){ go("HOME"); break; }
+      if(y < 32 || y >= 180) break;
+      const row = Math.floor((y-32)/25);
+      if(row === 0) go("SET_WIFI");
+      else if(row === 1) syncAll();
+      else if(row === 2){ confirmFree = false; go("STORAGE"); }
+      else if(row === 3) go("SET_IP");
+      else if(row === 4) go("HOWTO");
+      else if(row === 5) go("EXTRA");
+      break;
+    }
+
+    case "EXTRA":
+      if(y > 184){ go("SETTINGS"); break; }
+      if(y >= 36 && y < 72){ tourFromExtra = true; walkStep = 0; go("WALKTHROUGH"); }
+      else if(y >= 80 && y < 116) go("SYNCRATE");
+      else if(y >= 124 && y < 160){ factoryStage = 0; go("FACTORY"); }
+      break;
+
+    case "SYNCRATE": {
+      if(y > 184){ go("EXTRA"); break; }
+      let rowIdx = -1;
+      if(y >= 46 && y < 76) rowIdx = 0;
+      else if(y >= 80 && y < 110) rowIdx = 1;
+      else if(y >= 114 && y < 144) rowIdx = 2;
+      if(rowIdx >= 0){
+        sd.prefs.syncHrs = SYNC_OPTS[rowIdx*2 + (x < 100 ? 0 : 1)];
+        save(); syncPortal(); draw();
+      }
+      break;
+    }
+
+    case "FACTORY":
+      if(y > 184){ go("EXTRA"); break; }
+      if(y >= 132 && y < 162){
+        if(x < 100) go("EXTRA");
+        else if(factoryStage === 0){ factoryStage = 1; draw(); }
+        else doFactoryReset();
+      }
+      break;
+
+    case "STORAGE": {
+      if(y > 184){ confirmFree = false; go("SETTINGS"); break; }
+      if(y >= 158 && y < 180 && reclaimable().count > 0){
+        if(confirmFree){
+          sd.notes.forEach(n => { if(n.txt) n.dur = 0; });
+          confirmFree = false; save(); draw();
+        } else { confirmFree = true; draw(); }
+      } else { confirmFree = false; draw(); }
+      break;
+    }
+
+    case "SET_WIFI": case "SET_IP": if(y > 184) go("SETTINGS"); break;
+    case "HOWTO": go("SETTINGS"); break;
+
+    case "VIEW_TAGS": {
+      if(y > 184){ go("HOME"); break; }
+      const row = Math.floor((y-38)/27);
+      if(row >= 0 && row < 5){
+        viewTag = TAGS[row]; refreshNoteList();
+        listTop = 0; noteRow = -1; go("VIEW_LIST");
+      }
+      break;
+    }
+
+    case "VIEW_LIST": {
+      if(y > 184){ go("VIEW_TAGS"); break; }
+      const row = Math.floor((y-34)/24);
+      if(row >= 0 && row < 6 && listTop+row < noteList.length){
+        noteRow = listTop+row; confirmDelete = false;
+        loadTranscript(noteList[noteRow]);
+        go("VIEW_NOTE");
+      }
+      break;
+    }
+
+    case "VIEW_NOTE":
+      if(y >= 134 && y <= 156) togglePlay();
+      else if(y >= 160 && y <= 182){
+        if(confirmDelete){
+          const base = noteList[noteRow].base;
+          sd.notes = sd.notes.filter(n => n.base !== base);
+          save(); refreshNoteList(); noteRow = -1; confirmDelete = false;
+          listTop = 0; go("VIEW_LIST");
+        } else { confirmDelete = true; draw(); }
+      }
+      else if(y > 184){ playing = false; go("VIEW_LIST"); }
+      else { confirmDelete = false; draw(); }
+      break;
+
+    case "SYNC": syncCancel = true; clearTimeout(syncTimerId); go("SETTINGS"); break;
+
+    case "WALKTHROUGH":
+      if(walkStep === TOUR_SOUND){
+        if(y >= 66 && y < 100){
+          sd.prefs.sound = x < 100 ? "1" : "0"; save();
+          walkStep++; draw();
+        }
+      } else if(y >= 156 && y < 182){
+        if(x >= 64){
+          walkStep++;
+          if(walkStep >= TOUR_STEPS){
+            sd.prefs.firstBootDone = true; save();
+            if(tourFromExtra){ tourFromExtra = false; go("EXTRA"); }
+            else go("HOME");
+          } else draw();
+        } else if(x < 60 && walkStep > 0){ walkStep--; draw(); }
+      }
+      break;
+  }
+}
+
+function doFactoryReset(){
+  clear(); textCentered(80,"ERASING",2); textCentered(110,"do not unplug",1); flushFull();
+  setTimeout(()=>{
+    localStorage.removeItem('mnm-sim');
+    sd = DEFAULTS(); sd.prefs.firstBootDone = false; save();
+    clear(); textCentered(70,"ERASED",2); textCentered(104,"out of the box again",1);
+    textCentered(124,"restarting...",1); flushFull();
+    setTimeout(boot, 1600);
+  }, 1200);
+}
+
+/* ------------------------------------------------------------------- chrome */
+function syncPortal(){
+  document.getElementById('pSsid').value = sd.prefs.ssid || "";
+  document.getElementById('pApi').value  = sd.prefs.api || "";
+  document.getElementById('pSync').value = String(syncHours());
+}
+document.getElementById('pSave').addEventListener('click', ()=>{
+  sd.prefs.ssid = document.getElementById('pSsid').value.trim();
+  sd.prefs.api  = document.getElementById('pApi').value.trim();
+  sd.prefs.syncHrs = parseInt(document.getElementById('pSync').value, 10);
+  const t = document.getElementById('pTodo').value.trim();
+  if(t){ sd.todos.push({text:t, done:false}); document.getElementById('pTodo').value = ""; }
+  save(); draw();
+  note("portal settings saved");
+});
+document.getElementById('pReset').addEventListener('click', doFactoryReset);
+
+document.getElementById('batt').addEventListener('input', e => {
+  battPct = parseInt(e.target.value, 10);
+  document.getElementById('battNote').textContent = battPct + "%";
+  if(st === "HOME") draw();
+});
+document.getElementById('btnBoot').addEventListener('click', ()=>{ asleep ? wake() : boot(); });
+document.getElementById('btnPwr').addEventListener('click', ()=>{ asleep ? wake() : sleep(); });
+document.getElementById('flashToggle').addEventListener('click', e => {
+  flashOn = !flashOn; e.target.setAttribute('aria-pressed', String(flashOn));
+});
+
+const MM = 27.5;
+function setZoom(z){
+  document.querySelectorAll('#zoomRow .opt').forEach(b =>
+    b.setAttribute('aria-pressed', String(b.dataset.zoom === z)));
+  const nte = document.getElementById('sizeNote');
+  if(z === 'actual'){
+    cv.style.width = MM + "mm"; cv.style.height = MM + "mm";
+    nte.textContent = "True to life: the 1.54\" panel's active area is 27.5 × 27.5 mm. Hold a coin up to it.";
+  } else {
+    const n = parseInt(z, 10);
+    cv.style.width = (W*n) + "px"; cv.style.height = (H*n) + "px";
+    nte.textContent = n + "× magnified — " + (W*n) + " × " + (H*n) + " px on screen, still 200 × 200 real pixels.";
+  }
+}
+document.querySelectorAll('#zoomRow .opt').forEach(b =>
+  b.addEventListener('click', ()=>setZoom(b.dataset.zoom)));
+
+const FEATURES = [
+  ["First-boot tour", ()=>{ walkStep=0; tourFromExtra=false; go("WALKTHROUGH"); }],
+  ["Home / lock screen", ()=>go("HOME")],
+  ["Main menu", ()=>go("MENU")],
+  ["Recording", ()=>startRecording()],
+  ["Tag picker", ()=>go("TAG")],
+  ["Browse by tag", ()=>go("VIEW_TAGS")],
+  ["Note + transcript", ()=>{ viewTag="Ideas"; refreshNoteList(); if(noteList.length){ noteRow=0; loadTranscript(noteList[0]); go("VIEW_NOTE"); } else go("VIEW_TAGS"); }],
+  ["To-do list", ()=>{ todoTop=0; go("TODO"); }],
+  ["Settings", ()=>go("SETTINGS")],
+  ["Wi-Fi hotspot", ()=>go("SET_WIFI")],
+  ["Sync now", ()=>syncAll()],
+  ["Storage + free space", ()=>{ confirmFree=false; go("STORAGE"); }],
+  ["My address (IP)", ()=>go("SET_IP")],
+  ["How to & credits", ()=>go("HOWTO")],
+  ["Extra tab", ()=>go("EXTRA")],
+  ["Auto-sync rate", ()=>go("SYNCRATE")],
+  ["Factory reset", ()=>{ factoryStage=0; go("FACTORY"); }],
+  ["Deep sleep", ()=>sleep()]
+];
+const fl = document.getElementById('featList');
+FEATURES.forEach(([label, fn])=>{
+  const li = document.createElement('li');
+  const b = document.createElement('button');
+  b.textContent = label; b.addEventListener('click', ()=>{ note("jumped to " + label); fn(); });
+  li.appendChild(b); fl.appendChild(li);
+});
+
+function boot(){
+  load();
+  asleep = false;
+  clearInterval(recTimerId); clearTimeout(syncTimerId); clearTimeout(playTimerId);
+  playing = false; confirmFree = false; factoryStage = 0;
+  syncPortal();
+  if(!sd.prefs.firstBootDone){ tourFromExtra = false; walkStep = 0; go("WALKTHROUGH"); }
+  else go("HOME");
+}
+setZoom('3');
+boot();
 </script>
 </body></html>
