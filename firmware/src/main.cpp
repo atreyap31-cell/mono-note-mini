@@ -869,7 +869,10 @@ static void showError(const String& msg) {
 
 static bool startRecording() {
   if (!recBegin()) {
+    /* Almost always PSRAM: the 3.8 MB buffer is the only big allocation. */
     showError("no record buffer");
+    state = ST_MENU;
+    drawMenu();
     return false;
   }
   for (int i = 0; i < 16; i++) wave[i] = 2;
@@ -945,10 +948,13 @@ static void syncAll(bool autoRun) {
   if (prev == ST_SETTINGS) drawSettings();
   else drawHome();
   if (!syncCancel && done == 0 && !autoRun) {
+    /* full refresh: a partial one here has no base image behind it, which on
+       the real panel leaves ghosting rather than text */
     uiTextCentered(188, "up to date", 1);
-    uiFlushPartial();
-    delay(2000);
+    uiFlushFull();
+    delay(1500);
     if (prev == ST_SETTINGS) drawSettings();
+    else drawHome();
   }
 }
 
@@ -986,6 +992,10 @@ static void pollTouch(bool& tap, bool& longPress, bool& releaseEvent, int& tx, i
     lastActivity = millis();
     downEvent = true;
     tx = downX; ty = downY;
+    /* First thing to check on a fresh board: touch axes. If these numbers do
+       not match where you pressed, the panel and digitiser disagree and every
+       hit zone will be wrong. 115200 baud. */
+    Serial.printf("touch %d,%d state=%d\n", downX, downY, (int)state);
   } else if (down && pressed) {
     lastActivity = millis();
     if (!longFired && millis() - touchDownAt > 900) {
@@ -1102,7 +1112,6 @@ void loop() {
       break;
 
     case ST_MAKE:
-      recPoll();
       {
         static uint32_t lastTick = 0;
         if (millis() - lastTick > 500) {

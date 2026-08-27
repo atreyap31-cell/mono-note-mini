@@ -133,8 +133,26 @@ Note that TLS certificates are **not** verified on this upload (`setInsecure`), 
 - Button sounds are a soft 1 kHz tick, **off by default**
 - The companion web app (`index.html` at the repo root) imports these WAVs for reading aloud, tagging, and GitHub sync
 
+## First bring-up
+
+Open the PlatformIO serial monitor at 115200 before you start. Every touch prints `touch x,y state=n`, which is the fastest way to catch the one thing that cannot be checked without hardware.
+
+Work through these in order:
+
+1. **Does text render?** The panel should read cleanly. Solid blocks or scrambled shapes mean the glyph renderer and `PALA_FONT` disagree — see `uiText()` in `pala_ui.cpp`, which indexes the table from `0x00` with the top pixel in bit 0.
+2. **Do the touch coordinates match?** Press the four corners and read the serial output. Top-left should be near `0,0` and bottom-right near `199,199`. If the axes are swapped or mirrored, every hit zone is wrong and the fix belongs in `ft6336_bsp`, not in the screen layouts.
+3. **Record something.** Hold MAKE NOTE, speak, release. It should land on the tag picker. `save failed - SD?` means the write failed; `no record buffer` means the 3.8 MB PSRAM allocation failed, which usually means `board_build.arduino.memory_type` does not match the PSRAM on your board.
+4. **Play it back.** Audio should be continuous. Capture runs in its own task specifically so the e-paper refresh cannot starve it — if playback is choppy, suspect the codec configuration rather than the UI.
+5. **Check the clock.** Before the first sync the clock is unset and notes are named `rec_<millis>.wav`. After one successful sync they get real timestamps.
+
 ## Troubleshooting
 
 - **"no SD card"** -> card must be FAT32, inserted before power-on
 - **"wifi failed"** -> check SSID/password on the settings page; API URL must be live
+- **"save failed - SD?"** -> card write failed; check it is FAT32 and not write-protected
+- **"no record buffer"** -> PSRAM did not allocate; check the `memory_type` build flag
 - **Upload fails** -> data cable, hold BOOT during connect, try another USB port
+
+## Not verified on hardware
+
+Everything here compiles clean and the logic has been exercised in the browser preview and against a mock of the HTTP API, but no part of it has run on a board. The audio path, touch orientation, e-paper timing and PSRAM allocation are the four things that can only be confirmed by flashing it.

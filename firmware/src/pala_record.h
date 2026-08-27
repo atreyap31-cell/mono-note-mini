@@ -2,8 +2,7 @@
 #define PALA_RECORD_H
 #include <Arduino.h>
 
-bool recBegin();
-void recPoll();
+bool recBegin();   /* capture then runs in its own task until recSave/recDiscard */
 uint32_t recSeconds();
 int recLevel();
 bool recSave(const String& wavPath);

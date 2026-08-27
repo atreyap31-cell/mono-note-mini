@@ -9,10 +9,15 @@
 #define REC_MAX_SECONDS 120
 #define PLAY_FRAMES 1024
 
+#define REC_CAP ((size_t)REC_SAMPLE_RATE * REC_MAX_SECONDS)
+#define REC_FRAMES 256            /* 256 stereo frames = 16 ms at 16 kHz */
+
 static int16_t* monoBuf = nullptr;
-static size_t monoLen = 0;
+static volatile size_t monoLen = 0;
 static bool recording = false;
-static int lastLevel = 0;
+static volatile int lastLevel = 0;
+static volatile bool recRun = false;
+static TaskHandle_t recTaskH = nullptr;
 
 static File playHandle;
 static bool playing = false;
@@ -46,28 +51,58 @@ void beep() {
   if (beepBuf && !recording && !playing) audio_playback_write(beepBuf, 480 * 2 * sizeof(int16_t));
 }
 
-bool recBegin() {
-  if (playing) playStop();
-  monoBuf = (int16_t*)heap_caps_malloc(REC_SAMPLE_RATE * sizeof(int16_t) * REC_MAX_SECONDS, MALLOC_CAP_SPIRAM);
-  monoLen = 0;
-  recording = (monoBuf != nullptr);
-  return recording;
+/* Capture runs in its own task, and it has to. esp_codec_dev_read() only
+   returns as fast as the microphone fills its DMA ring, while a partial
+   e-paper refresh parks the Arduino loop inside read_busy() for a few hundred
+   milliseconds at a time. Polled from loop(), the ring overflows during every
+   meter update and the note comes back full of holes. Pinned to core 0 so the
+   panel's SPI traffic on core 1 cannot stall it either. */
+static void recTaskFn(void*) {
+  int16_t stereo[REC_FRAMES * 2];
+  while (recRun) {
+    size_t at = monoLen;
+    if (at + REC_FRAMES > REC_CAP) break;      /* full - stop before overrunning */
+    audio_playback_read(stereo, sizeof(stereo));
+    int64_t sumSq = 0;
+    for (int i = 0; i < REC_FRAMES; i++) {
+      int16_t m = (int16_t)(((int32_t)stereo[2 * i] + stereo[2 * i + 1]) >> 1);
+      monoBuf[at + i] = m;
+      sumSq += (int32_t)m * m;
+    }
+    monoLen = at + REC_FRAMES;                 /* publish only once written */
+    int rms = (int)sqrt((double)(sumSq / REC_FRAMES));
+    lastLevel = rms > 3000 ? 100 : rms / 30;
+  }
+  recRun = false;
+  recTaskH = nullptr;
+  vTaskDelete(NULL);
 }
 
-void recPoll() {
-  if (!recording || !monoBuf) return;
-  if (monoLen >= REC_SAMPLE_RATE * REC_MAX_SECONDS) return;
-  int16_t stereo[512];
-  audio_playback_read(stereo, sizeof(stereo));
-  const int frames = sizeof(stereo) / (2 * sizeof(int16_t));
-  int64_t sumSq = 0;
-  for (int i = 0; i < frames; i++) {
-    int16_t m = (int16_t)(((int32_t)stereo[2 * i] + stereo[2 * i + 1]) >> 1);
-    monoBuf[monoLen++] = m;
-    sumSq += (int32_t)m * m;
+/* Ask the task to finish and wait for it, so nothing is still writing into
+   monoBuf when the caller saves or frees it. */
+static void recStopTask() {
+  recRun = false;
+  for (int i = 0; i < 300 && recTaskH; i++) delay(5);
+}
+
+bool recBegin() {
+  if (playing) playStop();
+  if (recRun || recTaskH) return false;
+  monoBuf = (int16_t*)heap_caps_malloc(REC_CAP * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+  monoLen = 0;
+  lastLevel = 0;
+  if (!monoBuf) return false;
+  recording = true;
+  recRun = true;
+  /* 6 KB: 1 KB of that is the stereo staging buffer, plus double maths */
+  if (xTaskCreatePinnedToCore(recTaskFn, "palarec", 6144, NULL, 5, &recTaskH, 0) != pdPASS) {
+    recRun = false;
+    recording = false;
+    heap_caps_free(monoBuf);
+    monoBuf = nullptr;
+    return false;
   }
-  int rms = (int)sqrt((double)(sumSq / frames));
-  lastLevel = rms > 3000 ? 100 : rms / 30;
+  return true;
 }
 
 int recLevel() { return recording ? lastLevel : 0; }
@@ -75,25 +110,38 @@ int recLevel() { return recording ? lastLevel : 0; }
 uint32_t recSeconds() { return monoLen / REC_SAMPLE_RATE; }
 
 bool recSave(const String& wavPath) {
-  if (!monoBuf || monoLen == 0) return false;
+  recStopTask();
   recording = false;
-  FILE* f = fopen(wavPath.c_str(), "wb");
+  if (!monoBuf || monoLen == 0) return false;
+  /* Written through SD_MMC, not fopen(): the card is mounted at /sdcard, so a
+     bare "/recordings/..." is a valid Arduino path but not a valid VFS one -
+     fopen() on it fails and the note is lost. */
+  File f = SD_MMC.open(wavPath, FILE_WRITE);
   if (!f) return false;
-  uint32_t dataBytes = monoLen * sizeof(int16_t);
-  fwrite("RIFF", 1, 4, f);
-  uint32_t v32 = 36 + dataBytes; fwrite(&v32, 4, 1, f);
-  fwrite("WAVEfmt ", 1, 8, f);
-  v32 = 16; fwrite(&v32, 4, 1, f);
-  uint16_t v16 = 1; fwrite(&v16, 2, 1, f);
-  fwrite(&v16, 2, 1, f);
-  v32 = REC_SAMPLE_RATE; fwrite(&v32, 4, 1, f);
-  v32 = REC_SAMPLE_RATE * 2; fwrite(&v32, 4, 1, f);
-  v16 = 2; fwrite(&v16, 2, 1, f);
-  v16 = 16; fwrite(&v16, 2, 1, f);
-  fwrite("data", 1, 4, f);
-  fwrite(&dataBytes, 4, 1, f);
-  fwrite(monoBuf, sizeof(int16_t), monoLen, f);
-  fclose(f);
+
+  const uint32_t dataBytes = (uint32_t)monoLen * sizeof(int16_t);
+  uint8_t h[44];
+  auto put32 = [&](int at, uint32_t v){ h[at]=v; h[at+1]=v>>8; h[at+2]=v>>16; h[at+3]=v>>24; };
+  auto put16 = [&](int at, uint16_t v){ h[at]=v; h[at+1]=v>>8; };
+  memcpy(h, "RIFF", 4);          put32(4, 36 + dataBytes);
+  memcpy(h + 8, "WAVE", 4);      memcpy(h + 12, "fmt ", 4);
+  put32(16, 16);                 put16(20, 1);                 /* PCM */
+  put16(22, 1);                  put32(24, REC_SAMPLE_RATE);   /* mono */
+  put32(28, REC_SAMPLE_RATE * 2);put16(32, 2);
+  put16(34, 16);                 memcpy(h + 36, "data", 4);
+  put32(40, dataBytes);
+  if (f.write(h, sizeof(h)) != sizeof(h)) { f.close(); return false; }
+
+  /* chunked so a 3.8 MB PSRAM buffer never goes to the driver in one call */
+  const uint8_t* p = (const uint8_t*)monoBuf;
+  uint32_t left = dataBytes;
+  while (left) {
+    size_t n = left > 8192 ? 8192 : left;
+    if (f.write(p, n) != n) { f.close(); return false; }
+    p += n; left -= n;
+  }
+  f.close();
+
   heap_caps_free(monoBuf);
   monoBuf = nullptr;
   monoLen = 0;
@@ -101,6 +149,7 @@ bool recSave(const String& wavPath) {
 }
 
 void recDiscard() {
+  recStopTask();
   recording = false;
   if (monoBuf) { heap_caps_free(monoBuf); monoBuf = nullptr; }
   monoLen = 0;
