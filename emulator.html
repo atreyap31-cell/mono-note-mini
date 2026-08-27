@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mono Note Mini — Device Preview</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600;700&display=swap');
+:root{--bg:#F2F0EC;--paper:#FCFCFA;--ink:#0A0A0A;--line:#0A0A0A}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font-family:Inter,sans-serif;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:24px}
+h1{font-family:"IBM Plex Mono",monospace;text-transform:uppercase;letter-spacing:-.04em;margin:8px 0 4px}
+.sub{font-family:"IBM Plex Mono",monospace;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;opacity:.6;margin-bottom:18px}
+.device{width:340px;background:#E8E6E1;border:2px solid var(--ink);border-radius:22px;padding:18px 18px 22px;box-shadow:6px 6px 0 var(--ink)}
+.bezel{background:var(--paper);border:2px solid var(--ink);border-radius:14px;padding:14px}
+.screen{width:200px;height:200px;margin:0 auto;background:var(--paper);border:2px solid var(--ink);position:relative;overflow:hidden;display:flex;flex-direction:column;font-family:"IBM Plex Mono",monospace;text-transform:uppercase;image-rendering:pixelated}
+.screen *{image-rendering:pixelated}
+.row{border:2px solid var(--ink);margin:6px 8px;padding:8px;text-align:center;font-size:.72rem;font-weight:700;letter-spacing:.06em;cursor:pointer;user-select:none}
+.row:active{transform:translate(1px,1px)}
+.home{flex:1;display:grid;place-items:center;text-align:center}
+.home .title{font-size:1.1rem;font-weight:800;letter-spacing:-.04em}
+.battery{position:absolute;top:8px;right:8px;width:26px;height:12px;border:2px solid var(--ink);display:flex;align-items:center;padding:1px}
+.battery::after{content:"";position:absolute;right:-4px;top:3px;width:2px;height:6px;background:var(--ink)}
+.fill{height:100%;background:var(--ink);width:68%}
+.small{font-size:.62rem;letter-spacing:.1em;opacity:.7}
+.wave{display:flex;gap:3px;justify-content:center;align-items:center;height:24px;margin:6px 0}
+.bar{width:4px;background:var(--ink);transition:height .12s steps(2)}
+.list{flex:1;overflow:auto;padding:4px 6px}
+.item{border:1px solid var(--ink);padding:6px 8px;margin-bottom:6px;font-size:.68rem;cursor:pointer}
+.item.active{background:var(--ink);color:var(--paper)}
+.controls{display:flex;gap:6px;justify-content:center;margin-top:6px}
+.controls button{border:2px solid var(--ink);background:var(--paper);font-family:"IBM Plex Mono",monospace;font-size:.62rem;font-weight:700;padding:4px 8px;cursor:pointer}
+.hint{font-family:"IBM Plex Mono",monospace;font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;opacity:.5;text-align:center;margin-top:6px}
+a{color:var(--ink)}
+</style></head>
+<body>
+<h1>Mono Note Mini — PC Preview</h1>
+<div class="sub">200×200 1-bit e-paper • tap the screen • no hardware needed</div>
+<div class="device">
+  <div class="bezel"><div id="screen" class="screen"></div></div>
+  <div class="hint">click inside the screen • <a href="./">open full website</a></div>
+</div>
+<p class="small" style="max-width:520px;text-align:center;margin-top:16px">This is a clickable mock of the firmware you’ll flash to the Waveshare board. Recordings here are stored only in this browser tab. On the real device they live on the SD card and sync to your beautiful site at <code>mono-note-mini</code>.</p>
+<script>
+const $s=document.getElementById('screen');
+let state='home', recTimer=null, recSec=0, selectTag=null;
+let viewTag=null, viewList=[], noteIdx=-1, playing=false, playTimer=null;
+const TAGS=["Work","Projects","Ideas","Quotes","Random"];
+let todos=JSON.parse(localStorage.getItem('mm-preview-todos')||'[]');
+let notes=JSON.parse(localStorage.getItem('mm-preview-notes')||'null')||[
+  {name:"rec_20260513_101200.wav",tag:"Ideas",dur:12,txt:"Midnight thought about a mono type system that only uses black and white."},
+  {name:"rec_20260513_094410.wav",tag:"Work",dur:8,txt:"Remember to ask about per-device local IP so no one sees each other's notes."},
+  {name:"rec_20260513_090015.wav",tag:"Random",dur:5,txt:"Buy more paper."}
+];
+function save(){localStorage.setItem('mm-preview-notes',JSON.stringify(notes));localStorage.setItem('mm-preview-todos',JSON.stringify(todos));}
+function battery(){return 68}
+function drawHome(){
+  $s.innerHTML=`<div class="battery"><div class="fill" style="width:${battery()}%"></div></div><div class="home"><div><div class="title">mono note</div><div class="small">tap to wake</div></div></div>`;
+  $s.onclick=()=>{state='menu';drawMenu();};
+}
+function drawMenu(){
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px 0 4px;border-bottom:2px solid var(--ink)">mono note mini</div>
+  <div class="row" data-a="view">VIEW NOTES</div>
+  <div class="row" data-a="make">MAKE NOTE</div>
+  <div class="row" data-a="todo">TO-DO</div>
+  <div class="row" data-a="settings">SETTINGS</div>`;
+  $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{
+    const a=r.dataset.a;
+    if(a==='view'){viewTag=null;drawViewTags();}
+    else if(a==='make') startRec();
+    else if(a==='todo') drawTodo();
+    else if(a==='settings') drawSettings();
+  });
+  $s.onclick=null;
+}
+function startRec(){
+  state='rec'; recSec=0;
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">RECORDING</div>
+  <div style="text-align:center;padding:14px 0 6px;font-size:1.4rem;font-weight:800" id="tm">0:00</div>
+  <div class="wave" id="wave">${Array(12).fill(0).map(_=>`<div class="bar" style="height:6px"></div>`).join('')}</div>
+  <div class="small" style="text-align:center">tap to stop</div>`;
+  $s.onclick=stopRec;
+  recTimer=setInterval(()=>{
+    recSec++; document.getElementById('tm').textContent=`${Math.floor(recSec/60)}:${String(recSec%60).padStart(2,'0')}`;
+    document.querySelectorAll('.bar').forEach(b=>b.style.height=(4+Math.random()*18|0)+'px');
+  },500);
+}
+function stopRec(){
+  clearInterval(recTimer);
+  $s.onclick=null;
+  const name=`rec_${new Date().toISOString().slice(0,19).replace(/[-:T]/g,'')}.wav`;
+  state='tag'; drawTag(name);
+}
+function drawTag(name){
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">SORT IT — ${name.slice(0,18)}</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px">
+  ${TAGS.map(t=>`<div class="row" style="margin:0" data-t="${t}">${t}</div>`).join('')}
+  </div><div class="small" style="text-align:center">tap a tag (or here to skip)</div>`;
+  $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{
+    notes.unshift({name,tag:r.dataset.t,dur:recSec,txt:"(transcript pending — sync will fill it)"});
+    save(); state='home'; drawHome();
+  });
+  $s.onclick=(e)=>{ if(e.target===$s) { notes.unshift({name,tag:"Random",dur:recSec,txt:"(transcript pending)"}); save(); state='home'; drawHome(); }};
+}
+function drawViewTags(){
+  const counts={}; TAGS.forEach(t=>counts[t]=notes.filter(n=>n.tag===t).length);
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">VIEW NOTES</div>
+  <div class="list" style="padding:6px">${TAGS.map(t=>`<div class="row" data-t="${t}">${t} <span style="opacity:.6">(${counts[t]})</span></div>`).join('')}</div>
+  <div class="small" style="text-align:center">hold 0.9s or tap here = back</div>`;
+  $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{viewTag=r.dataset.t; viewList=notes.filter(n=>n.tag===viewTag); drawViewList();});
+  $s.onclick=(e)=>{ if(e.target.classList.contains('small')){state='menu';drawMenu();}};
+  let down=0; $s.onpointerdown=()=>down=Date.now(); $s.onpointerup=()=>{ if(Date.now()-down>900){state='menu';drawMenu();}};
+}
+function drawViewList(){
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">${viewTag}</div>
+  <div class="list">${viewList.length?viewList.map((n,i)=>`<div class="item${i===noteIdx?' active':''}" data-i="${i}">${n.name.slice(0,22)} — ${n.dur}s</div>`).join(''):`<div class="small" style="padding:20px;text-align:center">nothing here</div>`}</div>
+  <div class="controls"><button id="back">BACK</button></div>`;
+  $s.querySelector('#back').onclick=()=>drawViewTags();
+  $s.querySelectorAll('.item').forEach(el=>el.onclick=()=>{noteIdx=parseInt(el.dataset.i); drawViewNote();});
+}
+function drawViewNote(){
+  const n=viewList[noteIdx];
+  $s.innerHTML=`<div class="small" style="padding:6px;border-bottom:2px solid var(--ink);text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${n.name}</div>
+  <div style="flex:1;overflow:auto;padding:8px;font-size:.68rem;line-height:1.5;white-space:pre-wrap">${n.txt}</div>
+  <div class="controls"><button id="play">${playing?'STOP':'PLAY'}</button><button id="del">DELETE</button><button id="back2">BACK</button></div>`;
+  document.getElementById('play').onclick=()=>{
+    if(playing){playing=false;clearInterval(playTimer);drawViewNote();return;}
+    playing=true;drawViewNote();
+    let p=0; playTimer=setInterval(()=>{p++; if(p>6){playing=false;clearInterval(playTimer);drawViewNote();}},400);
+  };
+  document.getElementById('del').onclick=()=>{
+    if(!confirm('Delete '+n.name+' ?')) return;
+    const idx=notes.indexOf(n); if(idx>=0) notes.splice(idx,1);
+    viewList.splice(noteIdx,1); save(); noteIdx=-1; drawViewList();
+  };
+  document.getElementById('back2').onclick=()=>drawViewList();
+}
+function drawTodo(){
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">TO-DO</div>
+  <div class="list">${todos.length?todos.map((t,i)=>`<div class="row" style="justify-content:space-between" data-i="${i}"><span style="text-decoration:${t.done?'line-through':'none'}">${t.text.slice(0,22)}</span><span style="border:1px solid var(--ink);width:14px;height:14px;display:grid;place-items:center;font-size:10px">${t.done?'✓':''}</span></div>`).join(''):`<div class="small" style="padding:20px;text-align:center">no jobs — add on the website</div>`}</div>
+  <div class="small" style="text-align:center">tap = check • hold = back</div>`;
+  $s.querySelectorAll('.row').forEach(r=>r.onclick=()=>{const i=parseInt(r.dataset.i); todos[i].done=!todos[i].done; save(); drawTodo();});
+  let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
+}
+function drawSettings(){
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">SETTINGS</div>
+  <div class="row">1 Wi-Fi (hotspot)</div>
+  <div class="row">2 Sync</div>
+  <div class="row">3 Storage — ${notes.length} clips</div>
+  <div class="row">4 IP — 192.168.1.42</div>
+  <div class="small" style="text-align:center">tap row • hold = back</div>`;
+  const rows=$s.querySelectorAll('.row');
+  rows[0].onclick=()=>{ $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink)">WI-FI</div><div style="padding:10px;font-size:.68rem;line-height:1.5">Join hotspot<br><b>MonoNote-XXXX</b><br>key: record123<br>→ 192.168.4.1</div><div class="small" style="text-align:center">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=()=>drawSettings(),0); };
+  rows[1].onclick=()=>{ $s.innerHTML=`<div style="padding:30px;text-align:center">SYNCING 1/2<br><span style="font-size:.68rem">tap to cancel</span></div>`; setTimeout(()=>drawSettings(),1200); };
+  rows[2].onclick=()=>{ const used=(notes.length*1.2).toFixed(1); $s.innerHTML=`<div style="padding:12px;font-size:.72rem">Total 29.8 GB<br>Used ${used} MB<br>Free ${(29800-used).toFixed(1)} MB<div style="border:1px solid var(--ink);height:12px;margin-top:8px"><div style="width:${Math.min(30,notes.length*5)}%;height:100%;background:var(--ink)"></div></div></div><div class="small" style="text-align:center">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=null,0); };
+  rows[3].onclick=()=>{ $s.innerHTML=`<div style="padding:12px;text-align:center">MY ADDRESS<br><b>192.168.1.42</b><br><span style="font-size:.68rem">your private site</span></div><div class="small" style="text-align:center">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=null,0); };
+  let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
+}
+drawHome();
+</script>
+</body></html>
