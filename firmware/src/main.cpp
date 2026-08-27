@@ -23,7 +23,7 @@ static I2cMasterBus* i2c = nullptr;
 static I2cFt6336Dev* touch = nullptr;
 static epaper_driver_display* epd = nullptr;
 
-enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE };
+enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO };
 static State state = ST_HOME;
 static State syncReturnTo = ST_HOME;
 
@@ -166,7 +166,11 @@ static void loadTranscript(const String& wavName) {
 static void drawHome() {
   epd->EPD_Clear();
   drawBattery(158, 12);
-  uiTextCentered(88, "mono note", 2);
+  uiTextCentered(72, "mono note", 2);
+  uiTextCentered(102, "TAP TO UNLOCK", 1);
+  uiTextCentered(122, "HOLD 0.9s = BACK", 1);
+  uiTextCentered(140, "TAP ROW = OPEN", 1);
+  uiTextCentered(184, "TAP ANYWHERE TO WAKE", 1);
   uiFlushFull();
 }
 
@@ -276,14 +280,32 @@ static void drawTagScreen() {
   uiFlushFull();
 }
 
+static void drawHowTo() {
+  epd->EPD_Clear();
+  uiTextCentered(10, "HOW TO USE", 1);
+  uiRect(0, 22, 200, 1);
+  uiText(4, 30, "1 TAP home=unlock", 1);
+  uiText(4, 46, "2 MAKE: tap speak", 1);
+  uiText(4, 62, "  tap stop, pick tag", 1);
+  uiText(4, 78, "3 VIEW: tag>list>PLAY", 1);
+  uiText(4, 94, "4 HOLD 0.9s = BACK", 1);
+  uiText(4, 110, "5 SYNC needs Wi-Fi", 1);
+  uiText(4, 126, "6 STORAGE shows free", 1);
+  uiTextCentered(148, "CREDITS", 1);
+  uiTextCentered(162, "Made by Atreya Patil", 1);
+  uiTextCentered(176, "insp. PALA NOTE", 1);
+  uiTextCentered(188, "© 2026", 1);
+  uiFlushFull();
+}
 static void drawSettings() {
   epd->EPD_Clear();
   uiTextCentered(10, "SETTINGS", 2);
   uiRect(0, 28, 200, 1);
-  uiRect(10, 38, 180, 30);  uiText(18, 47, "1  Wi-Fi", 1);
-  uiRect(10, 74, 180, 30);  uiText(18, 83, "2  Sync", 1);
-  uiRect(10, 110, 180, 30); uiText(18, 119, "3  Storage", 1);
-  uiRect(10, 146, 180, 30); uiText(18, 155, "4  IP", 1);
+  uiRect(10, 36, 180, 26);  uiText(18, 43, "1  Wi-Fi", 1);
+  uiRect(10, 66, 180, 26);  uiText(18, 73, "2  Sync", 1);
+  uiRect(10, 96, 180, 26);  uiText(18, 103, "3  Storage", 1);
+  uiRect(10, 126, 180, 26); uiText(18, 133, "4  IP", 1);
+  uiRect(10, 156, 180, 26); uiText(18, 163, "5  How to & Credits", 1);
   uiFillRect(0, 184, 200, 16, 0x00);
   uiTextCentered(188, "< back", 1, 0xff);
   uiFlushFull();
@@ -680,15 +702,15 @@ void loop() {
       if (longPress || (tap && ty > 184)) { state = ST_HOME; drawHome(); break; }
       if (tap) {
         if (soundOn()) beep();
-        if (ty >= 38 && ty < 68) {
+        if (ty >= 36 && ty < 62) {
           state = ST_SET_WIFI;
           drawWifiScreen(portalStart());
-        } else if (ty >= 74 && ty < 104) {
+        } else if (ty >= 66 && ty < 92) {
           syncAll(false);
-        } else if (ty >= 110 && ty < 140) {
+        } else if (ty >= 96 && ty < 122) {
           state = ST_STORAGE;
           drawStorage();
-        } else if (ty >= 146 && ty < 176) {
+        } else if (ty >= 126 && ty < 152) {
           drawSyncScreen(0, 0, "connecting wifi...");
           if (staConnect(20000)) {
             String ip = serverStartSta();
@@ -697,8 +719,14 @@ void loop() {
           } else {
             showError("wifi failed");
           }
+        } else if (ty >= 156 && ty < 182) {
+          state = ST_HOWTO;
+          drawHowTo();
         }
       }
+      break;
+    case ST_HOWTO:
+      if (tap || longPress) { state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_SET_WIFI:
