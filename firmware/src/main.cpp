@@ -126,12 +126,28 @@ static String timestampName() {
   return "rec_" + String(millis()) + ".wav";
 }
 
-static String tagFilePath(const String& wavFile) {
-  return "/recordings/" + wavFile.substring(1, wavFile.length() - 4) + ".tag";
+/* A note is a base name - rec_20260812_101200 - and up to three files beside
+   it: .wav, .txt, .tag. Once FREE SPACE drops the audio the transcript still
+   has to be readable, so nothing here may key on the .wav existing. */
+static String notePath(const String& base, const char* ext) {
+  return "/recordings/" + base + ext;
 }
 
-static String tagOf(const String& wavName) {
-  String t = tagFilePath(wavName);
+/* Cores disagree about whether name() is a basename or a full path, so reduce
+   whatever came back to the last segment with the extension removed. */
+static String baseOf(const String& fileName) {
+  String n = fileName;
+  int slash = n.lastIndexOf('/');
+  if (slash >= 0) n = n.substring(slash + 1);
+  int dot = n.lastIndexOf('.');
+  if (dot > 0) n = n.substring(0, dot);
+  return n;
+}
+
+static bool noteHasAudio(const String& base) { return SD_MMC.exists(notePath(base, ".wav")); }
+
+static String tagOf(const String& base) {
+  String t = notePath(base, ".tag");
   if (!SD_MMC.exists(t)) return "";
   File f = SD_MMC.open(t, "r");
   String v = f.readStringUntil('\n');
@@ -141,40 +157,48 @@ static String tagOf(const String& wavName) {
 }
 
 static void saveTag(const char* tag) {
-  File f = SD_MMC.open(tagFilePath(lastSavedName), "w");
+  File f = SD_MMC.open(notePath(baseOf(lastSavedName), ".tag"), "w");
   if (f) { f.println(tag); f.close(); }
 }
 
-static void countRecordings() {
-  recCount = 0;
+/* Distinct notes in directory order, counting a clip whose audio has been
+   freed exactly once, via its surviving .txt. */
+static void collectBases(std::vector<String>& out) {
+  out.clear();
   File dir = SD_MMC.open("/recordings");
+  if (!dir) return;
   File f;
   while ((f = dir.openNextFile())) {
     String n = String(f.name());
-    if (!n.startsWith("/")) n = "/" + n;
-    if (n.endsWith(".wav")) recCount++;
     f.close();
+    String lower = n; lower.toLowerCase();
+    if (!lower.endsWith(".wav") && !lower.endsWith(".txt")) continue;
+    String b = baseOf(n);
+    bool seen = false;
+    for (size_t i = 0; i < out.size(); i++) if (out[i] == b) { seen = true; break; }
+    if (!seen) out.push_back(b);
   }
+  dir.close();
+}
+
+static void countRecordings() {
+  std::vector<String> bases;
+  collectBases(bases);
+  recCount = bases.size();
 }
 
 static void refreshNoteList() {
   noteList.clear();
-  File dir = SD_MMC.open("/recordings");
-  File f;
-  std::vector<String> all;
-  while ((f = dir.openNextFile())) {
-    String n = String(f.name());
-    if (!n.startsWith("/")) n = "/" + n;
-    if (n.endsWith(".wav") && tagOf(n) == viewTag) all.push_back(n);
-    f.close();
-  }
-  for (int i = all.size() - 1; i >= 0; i--) noteList.push_back(all[i]);
+  std::vector<String> bases;
+  collectBases(bases);
+  for (int i = (int)bases.size() - 1; i >= 0; i--)
+    if (tagOf(bases[i]) == viewTag) noteList.push_back(bases[i]);
 }
 
-static void loadTranscript(const String& wavName) {
+static void loadTranscript(const String& base) {
   transcriptLines.clear();
   transcriptPage = 0;
-  String t = "/recordings/" + wavName.substring(1, wavName.length() - 4) + ".txt";
+  String t = notePath(base, ".txt");
   if (!SD_MMC.exists(t)) return;
   File f = SD_MMC.open(t, "r");
   String content = f.readString();
@@ -629,34 +653,22 @@ static void drawFactory() {
 static void reclaimableStats(int& count, uint64_t& bytes) {
   count = 0;
   bytes = 0;
-  File dir = SD_MMC.open("/recordings");
-  File f;
-  while ((f = dir.openNextFile())) {
-    String n = String(f.name());
-    if (!n.startsWith("/")) n = "/" + n;
-    if (n.endsWith(".wav")) {
-      String txt = "/recordings" + n.substring(0, n.length() - 4) + ".txt";
-      if (SD_MMC.exists(txt)) { count++; bytes += f.size(); }
-    }
-    f.close();
+  std::vector<String> bases;
+  collectBases(bases);
+  for (size_t i = 0; i < bases.size(); i++) {
+    if (!noteHasAudio(bases[i])) continue;
+    if (!SD_MMC.exists(notePath(bases[i], ".txt"))) continue;
+    File w = SD_MMC.open(notePath(bases[i], ".wav"), "r");
+    if (w) { count++; bytes += w.size(); w.close(); }
   }
-  dir.close();
 }
 
 static int freeTranscribedAudio() {
-  std::vector<String> doomed;
-  File dir = SD_MMC.open("/recordings");
-  File f;
-  while ((f = dir.openNextFile())) {
-    String n = String(f.name());
-    if (!n.startsWith("/")) n = "/" + n;
-    if (n.endsWith(".wav")) {
-      String txt = "/recordings" + n.substring(0, n.length() - 4) + ".txt";
-      if (SD_MMC.exists(txt)) doomed.push_back("/recordings" + n);
-    }
-    f.close();
-  }
-  dir.close();
+  std::vector<String> bases, doomed;
+  collectBases(bases);
+  for (size_t i = 0; i < bases.size(); i++)
+    if (noteHasAudio(bases[i]) && SD_MMC.exists(notePath(bases[i], ".txt")))
+      doomed.push_back(notePath(bases[i], ".wav"));
   for (auto& p : doomed) SD_MMC.remove(p);
   countRecordings();
   return doomed.size();
@@ -767,17 +779,12 @@ static void drawViewTags() {
   epd->EPD_Clear();
   uiTextCentered(10, "VIEW NOTES", 2);
   uiRect(0, 28, 200, 1);
+  std::vector<String> bases;
+  collectBases(bases);
   for (int i = 0; i < 5; i++) {
     int y = 38 + i * 27;
     int count = 0;
-    File dir = SD_MMC.open("/recordings");
-    File f;
-    while ((f = dir.openNextFile())) {
-      String n = String(f.name());
-      if (!n.startsWith("/")) n = "/" + n;
-      if (n.endsWith(".wav") && tagOf(n) == TAGS[i]) count++;
-      f.close();
-    }
+    for (size_t b = 0; b < bases.size(); b++) if (tagOf(bases[b]) == TAGS[i]) count++;
     uiRect(10, y, 180, 23);
     uiText(20, y + 7, String(TAGS[i]), 1);
     String c = String(count);
@@ -795,7 +802,8 @@ static void drawViewList() {
   if (noteList.empty()) uiTextCentered(100, "nothing here yet", 1);
   for (int i = 0; i < 6 && listTop + i < (int)noteList.size(); i++) {
     int idx = listTop + i;
-    String n = noteList[idx].substring(1, noteList[idx].length() - 4);
+    String n = noteList[idx];
+    if (!noteHasAudio(n)) n = "* " + n;   /* text-only, audio was freed */
     if ((int)n.length() > 22) n = n.substring(0, 22);
     if (idx == noteRow) {
       uiFillRect(4, 34 + i * 24, 192, 24, 0x00);
@@ -811,7 +819,9 @@ static void drawViewList() {
 
 static void drawViewNote() {
   epd->EPD_Clear();
-  String n = noteList[noteRow].substring(1, noteList[noteRow].length() - 4);
+  const String base = noteList[noteRow];
+  const bool hasAudio = noteHasAudio(base);
+  String n = base;
   if ((int)n.length() > 24) n = n.substring(0, 24);
   uiText(4, 6, n, 1);
   uiRect(0, 20, 200, 1);
@@ -825,7 +835,7 @@ static void drawViewNote() {
     if (pages > 1) uiTextCentered(122, String(transcriptPage + 1) + "/" + String(pages), 1);
   }
   uiRect(10, 134, 180, 22);
-  uiTextCentered(139, playActive() ? "STOP" : "PLAY", 1);
+  uiTextCentered(139, !hasAudio ? "AUDIO FREED" : (playActive() ? "STOP" : "PLAY"), 1);
   uiRect(10, 160, 180, 22);
   uiTextCentered(165, confirmDelete ? "TAP AGAIN TO DELETE" : "DELETE", 1);
   uiFillRect(0, 184, 200, 16, 0x00);
@@ -911,26 +921,18 @@ static void syncAll(bool autoRun) {
     if (!autoRun) showError("wifi failed");
     return;
   }
-  std::vector<String> wavs;
-  File dir = SD_MMC.open("/recordings");
-  File f;
-  while ((f = dir.openNextFile())) {
-    String n = String(f.name());
-    if (!n.startsWith("/")) n = "/" + n;
-    if (n.endsWith(".wav")) {
-      String txt = n.substring(0, n.length() - 4) + ".txt";
-      if (!SD_MMC.exists("/recordings" + txt)) wavs.push_back(n);
-    }
-    f.close();
-  }
+  std::vector<String> bases, pending;
+  collectBases(bases);
+  for (size_t i = 0; i < bases.size(); i++)
+    if (noteHasAudio(bases[i]) && !SD_MMC.exists(notePath(bases[i], ".txt")))
+      pending.push_back(bases[i]);
   int done = 0;
-  for (auto& n : wavs) {
+  for (auto& base : pending) {
     if (syncCancel) break;
-    drawSyncScreen(done, wavs.size(), n);
+    drawSyncScreen(done, pending.size(), base);
     String text;
-    if (transcribeFile("/recordings" + n, text)) {
-      String txt = "/recordings/" + n.substring(1, n.length() - 4) + ".txt";
-      File out = SD_MMC.open(txt, "w");
+    if (transcribeFile(notePath(base, ".wav"), text)) {
+      File out = SD_MMC.open(notePath(base, ".txt"), "w");
       if (out) { out.print(text); out.close(); }
       done++;
     }
@@ -1007,10 +1009,11 @@ static void pollTouch(bool& tap, bool& longPress, bool& releaseEvent, int& tx, i
 }
 
 static void deleteCurrentNote() {
-  String base = noteList[noteRow].substring(1, noteList[noteRow].length() - 4);
-  SD_MMC.remove("/recordings/" + base + ".wav");
-  SD_MMC.remove("/recordings/" + base + ".txt");
-  SD_MMC.remove("/recordings/" + base + ".tag");
+  const String base = noteList[noteRow];
+  SD_MMC.remove(notePath(base, ".wav"));
+  SD_MMC.remove(notePath(base, ".txt"));
+  SD_MMC.remove(notePath(base, ".tag"));
+  countRecordings();
   refreshNoteList();
   noteRow = -1;
   confirmDelete = false;
@@ -1389,7 +1392,8 @@ void loop() {
           if (playActive()) {
             playStop();
             if (soundOn()) beep();
-          } else if (playFile("/recordings" + noteList[noteRow])) {
+          } else if (noteHasAudio(noteList[noteRow]) &&
+                     playFile(notePath(noteList[noteRow], ".wav"))) {
             if (soundOn()) beep();
           }
           drawViewNote();

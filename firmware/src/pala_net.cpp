@@ -7,6 +7,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
+#include <vector>
 
 static Preferences prefs;
 static WebServer server(80);
@@ -116,6 +117,121 @@ static void handleApp() {
   server.send(200, "text/html", page);
 }
 
+static String jsonEscape(const String& s) {
+  String o; o.reserve(s.length() + 8);
+  for (unsigned int i = 0; i < s.length(); i++) {
+    char c = s[i];
+    if (c == '"') o += "\\\"";
+    else if (c == '\\') o += "\\\\";
+    else if (c == '\n') o += "\\n";
+    else if (c == '\r') continue;
+    else if (c == '\t') o += "\\t";
+    else if ((unsigned char)c < 0x20) { char b[8]; snprintf(b, sizeof(b), "\\u%04x", c); o += b; }
+    else o += c;
+  }
+  return o;
+}
+
+static String readSmall(const String& path) {
+  if (!SD_MMC.exists(path)) return "";
+  File f = SD_MMC.open(path, "r");
+  if (!f) return "";
+  String s = f.readString();
+  f.close();
+  if (s.length() > 6000) s = s.substring(0, 6000);
+  s.trim();
+  return s;
+}
+
+static String netBaseOf(const String& fileName) {
+  String n = fileName;
+  int slash = n.lastIndexOf('/');
+  if (slash >= 0) n = n.substring(slash + 1);
+  int dot = n.lastIndexOf('.');
+  if (dot > 0) n = n.substring(0, dot);
+  return n;
+}
+
+/* One note per entry, audio optional - FREE SPACE keeps the transcript after
+   dropping the .wav, and the page has to keep showing those. Streamed
+   chunk by chunk so a card full of transcripts never has to fit in RAM. */
+static void handleApiNotes() {
+  if (needAuth()) return;
+  std::vector<String> bases;
+  File dir = SD_MMC.open("/recordings");
+  if (dir) {
+    File f;
+    while ((f = dir.openNextFile())) {
+      String n = String(f.name());
+      f.close();
+      String lower = n; lower.toLowerCase();
+      if (!lower.endsWith(".wav") && !lower.endsWith(".txt")) continue;
+      String b = netBaseOf(n);
+      bool seen = false;
+      for (unsigned int i = 0; i < bases.size(); i++) if (bases[i] == b) { seen = true; break; }
+      if (!seen) bases.push_back(b);
+    }
+    dir.close();
+  }
+
+  server.setContentLength(CONTENT_LENGTH_UNKNOWN);
+  server.send(200, "application/json", "");
+  server.sendContent("[");
+  for (unsigned int i = 0; i < bases.size(); i++) {
+    const String& b = bases[i];
+    uint32_t wavBytes = 0;
+    File w = SD_MMC.open("/recordings/" + b + ".wav", "r");
+    if (w) { wavBytes = w.size(); w.close(); }
+    String chunk = (i ? "," : "");
+    chunk += "{\"base\":\"" + jsonEscape(b) + "\"";
+    chunk += ",\"bytes\":" + String(wavBytes);
+    chunk += ",\"secs\":" + String(wavBytes > 44 ? (wavBytes - 44) / 32000 : 0);
+    chunk += ",\"audio\":" + String(wavBytes ? "true" : "false");
+    chunk += ",\"tag\":\"" + jsonEscape(readSmall("/recordings/" + b + ".tag")) + "\"";
+    chunk += ",\"txt\":\"" + jsonEscape(readSmall("/recordings/" + b + ".txt")) + "\"}";
+    server.sendContent(chunk);
+  }
+  server.sendContent("]");
+  server.sendContent("");
+}
+
+/* Removes the whole note - audio, transcript and tag together. */
+static void handleApiDelete() {
+  if (needAuth()) return;
+  String b = server.arg("n");
+  b = netBaseOf(b);
+  if (!b.length() || b.indexOf("..") >= 0) { server.send(400, "text/plain", "bad name"); return; }
+  SD_MMC.remove("/recordings/" + b + ".wav");
+  SD_MMC.remove("/recordings/" + b + ".txt");
+  SD_MMC.remove("/recordings/" + b + ".tag");
+  server.send(200, "text/plain", "ok");
+}
+
+/* Re-file a note under a different tag, or clear it with an empty value. */
+static void handleApiTag() {
+  if (needAuth()) return;
+  String b = netBaseOf(server.arg("n"));
+  String tag = server.arg("tag");
+  if (!b.length() || b.indexOf("..") >= 0) { server.send(400, "text/plain", "bad name"); return; }
+  if (!tag.length()) SD_MMC.remove("/recordings/" + b + ".tag");
+  else {
+    File f = SD_MMC.open("/recordings/" + b + ".tag", "w");
+    if (f) { f.println(tag); f.close(); }
+  }
+  server.send(200, "text/plain", "ok");
+}
+
+static void handleApiInfo() {
+  if (needAuth()) return;
+  uint64_t total = SD_MMC.totalBytes(), used = SD_MMC.usedBytes();
+  String j = "{\"totalMB\":" + String((uint32_t)(total / 1048576ULL));
+  j += ",\"usedMB\":" + String((uint32_t)(used / 1048576ULL));
+  j += ",\"syncHrs\":" + String(netGetU32("syncHrs", SYNC_HOURS_DEFAULT));
+  j += ",\"api\":\"" + jsonEscape(netGet("api")) + "\"";
+  j += ",\"ssid\":\"" + jsonEscape(netGet("ssid")) + "\"}";
+  server.send(200, "application/json", j);
+}
+
 static void handleApiList() {
   if(needAuth()) return;
   String json = "[";
@@ -217,6 +333,10 @@ static void beginServerRoutes() {
   server.on("/", handleRoot);
   server.on("/app", handleApp);
   server.on("/api/list", handleApiList);
+  server.on("/api/notes", handleApiNotes);
+  server.on("/api/info", handleApiInfo);
+  server.on("/api/delete", HTTP_POST, handleApiDelete);
+  server.on("/api/tag", HTTP_POST, handleApiTag);
   server.on("/file", handleFile);
   server.on("/save", HTTP_POST, handleSave);
   server.on("/up", HTTP_POST, handleUpload, onUploadFile);

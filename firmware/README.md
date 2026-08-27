@@ -82,14 +82,26 @@ The device serves **`/www/index.html` from the SD card at the root URL** - desig
 
 | Route | What |
 |---|---|
-| `GET /api/list` | JSON `[{name, size}]` of `.wav`, `.txt` and `.tag` in `/recordings` |
+| `GET /api/notes` | **one note per entry**, merged: `[{base, bytes, secs, audio, tag, txt}]` |
+| `GET /api/info` | `{totalMB, usedMB, syncHrs, api, ssid}` |
+| `GET /api/list` | raw file listing `[{name, size}]` of `/recordings` |
 | `GET /file?n=rec_x.wav` | download any recording/transcript/tag |
 | `POST /up` | multipart upload of a `.wav`, `.txt` or `.tag` into `/recordings/` |
+| `POST /api/delete` | form `n=<base>` — removes audio, transcript and tag together |
+| `POST /api/tag` | form `n=<base>`, `tag=<name>` — re-file a note, empty clears it |
 | `GET /api/todo` | the to-do list as plain text |
 | `POST /api/todo` | replace the to-do list |
 | `POST /save` | form fields: `ssid`, `pass`, `api`, `devpass`, `sound`, `synchrs` |
 
+Prefer `/api/notes` over `/api/list`: it returns one entry per note with the tag and transcript already merged in, so a page needs a single request instead of three per note — which matters when the server is an ESP32. It is streamed chunk by chunk, so a card full of transcripts never has to fit in RAM. Notes whose audio was freed appear with `audio: false` and their text intact.
+
 If `/www/index.html` doesn't exist, `/` redirects to the built-in manager at `/app` (browse, filter, download, upload, to-do, settings).
+
+### Installing the full site
+
+The repo ships one at [`www/index.html`](../www/index.html). Copy that single file to `/www/index.html` on the SD card, then use **Settings > IP** to put the device on your home Wi-Fi and browse to the address it shows. You get search, tag filtering, in-page audio playback, re-filing, deletion and the to-do list — served by the device, off the card, over your own network. Nothing leaves the house and there is no account to create.
+
+Privacy here rests on the device password (Basic auth) and on your LAN, not on the URL being hard to guess. Change `devpass` from the default.
 
 **Every route is behind HTTP Basic auth.** The device password defaults to `record123` and is changed on the settings form - so others on your Wi-Fi can't read your notes.
 

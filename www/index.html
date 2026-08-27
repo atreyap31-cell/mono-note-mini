@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mono Note Mini</title>
+<style>
+:root{
+  --ink:#000; --paper:#fff; --soft:#F4F4F2;
+  --mono:ui-monospace,"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.5;
+  background-image:repeating-linear-gradient(0deg,transparent 0 27px,rgba(0,0,0,.055) 28px);
+}
+.wrap{max-width:760px;margin:0 auto;padding:20px 16px 64px}
+header{border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:16px}
+h1{font-family:var(--mono);font-size:1.25rem;font-weight:700;text-transform:uppercase;letter-spacing:-.03em;margin:0}
+.meta{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;opacity:.6;margin-top:4px}
+.bar{height:10px;border:2px solid var(--ink);margin-top:8px}
+.bar i{display:block;height:100%;background:var(--ink)}
+
+.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
+input[type=search],textarea,select{font:inherit;border:2px solid var(--ink);border-radius:0;background:var(--paper);color:var(--ink);padding:7px 9px}
+input[type=search]{flex:1;min-width:150px}
+textarea{width:100%;font-family:var(--mono);font-size:.82rem;resize:vertical}
+button{
+  font-family:var(--mono);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
+  border:2px solid var(--ink);background:var(--paper);color:var(--ink);padding:6px 10px;cursor:pointer;
+  box-shadow:3px 3px 0 var(--ink);
+}
+button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+button.flat{box-shadow:none;padding:4px 8px;font-size:.62rem}
+button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+
+.note{border:2px solid var(--ink);padding:12px;margin-bottom:12px;background:var(--paper);box-shadow:4px 4px 0 var(--ink)}
+.note h2{font-family:var(--mono);font-size:.78rem;font-weight:700;margin:0;letter-spacing:-.01em;word-break:break-all}
+.note .sub{font-family:var(--mono);font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;opacity:.6;margin:3px 0 8px}
+.note p{margin:0 0 10px;white-space:pre-wrap}
+.note p.none{font-family:var(--mono);font-size:.72rem;opacity:.55}
+.acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.acts select{font-size:.68rem;padding:4px 6px;font-family:var(--mono)}
+audio{width:100%;margin-bottom:10px;display:block}
+.empty{border:2px dashed var(--ink);padding:28px 16px;text-align:center;font-family:var(--mono);font-size:.76rem;opacity:.7}
+
+section{margin-top:30px;border-top:2px solid var(--ink);padding-top:16px}
+section h3{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;margin:0 0 10px}
+.todo{display:flex;align-items:flex-start;gap:8px;border:2px solid var(--ink);padding:8px 10px;margin-bottom:6px}
+.todo input{width:18px;height:18px;margin-top:2px;flex:0 0 auto;accent-color:#000}
+.todo span{flex:1}
+.todo.done span{text-decoration:line-through;opacity:.5}
+.addrow{display:flex;gap:8px;margin-top:10px}
+.addrow input{flex:1;font:inherit;border:2px solid var(--ink);padding:7px 9px;background:var(--paper);color:var(--ink)}
+footer{margin-top:34px;border-top:2px solid var(--ink);padding-top:12px;font-size:.76rem;opacity:.75}
+footer a{color:var(--ink)}
+.toast{
+  position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--paper);
+  font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;padding:8px 14px;
+  opacity:0;pointer-events:none;transition:opacity .18s
+}
+.toast.on{opacity:1}
+</style></head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>mono note mini</h1>
+  <div class="meta" id="meta">reading the card…</div>
+  <div class="bar"><i id="bar" style="width:0"></i></div>
+</header>
+
+<div class="tools">
+  <input type="search" id="q" placeholder="Search notes and transcripts…" autocomplete="off">
+  <button id="refresh">Refresh</button>
+</div>
+<div class="chips" id="chips"></div>
+
+<div id="list"></div>
+
+<section>
+  <h3>To-do</h3>
+  <div id="todos"></div>
+  <div class="addrow">
+    <input type="text" id="newTodo" placeholder="Add a job…" autocomplete="off">
+    <button id="addTodo">Add</button>
+  </div>
+</section>
+
+<footer>
+  <p>Served by the device itself, off the SD card. These notes never left your network to get here.</p>
+  <p><a href="https://atreyap31-cell.github.io/mono-note-mini/" target="_blank" rel="noopener">About this project ↗</a></p>
+</footer>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const TAGS = ["Work","Projects","Ideas","Quotes","Random"];
+const $ = s => document.querySelector(s);
+let notes = [], filter = "", query = "", todos = [];
+
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('on');
+  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('on'), 1600);
+}
+const esc = s => String(s).replace(/[&<>"']/g, c =>
+  ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+function mmss(s){
+  s = s|0; return Math.floor(s/60) + ":" + String(s%60).padStart(2,'0');
+}
+async function post(url, params){
+  const body = new URLSearchParams(params).toString();
+  const r = await fetch(url, {
+    method:'POST',
+    headers:{'Content-Type':'application/x-www-form-urlencoded'},
+    body
+  });
+  if(!r.ok) throw new Error(await r.text().catch(()=>r.status));
+  return r;
+}
+
+async function loadInfo(){
+  try{
+    const i = await (await fetch('/api/info')).json();
+    const pct = i.totalMB ? Math.round(i.usedMB*100/i.totalMB) : 0;
+    $('#bar').style.width = pct + "%";
+    $('#meta').textContent =
+      i.usedMB + " / " + i.totalMB + " MB used · auto-sync " +
+      (i.syncHrs ? "every " + i.syncHrs + "h" : "off") +
+      (i.api ? "" : " · no server set");
+  }catch(e){ $('#meta').textContent = "card info unavailable"; }
+}
+
+async function loadNotes(){
+  const r = await fetch('/api/notes');
+  notes = await r.json();
+  notes.reverse();                       /* newest first, as on the device */
+  render();
+}
+
+function chips(){
+  const counts = {};
+  notes.forEach(n => { const k = n.tag || "Untagged"; counts[k] = (counts[k]||0)+1; });
+  const all = [["", "All", notes.length]]
+    .concat(TAGS.map(t => [t, t, counts[t]||0]))
+    .concat([["Untagged","Untagged",counts["Untagged"]||0]]);
+  $('#chips').innerHTML = all.map(([v,label,c]) =>
+    `<button class="flat" data-tag="${esc(v)}" aria-pressed="${filter===v}">${esc(label)} ${c}</button>`
+  ).join('');
+  $('#chips').querySelectorAll('button').forEach(b =>
+    b.onclick = ()=>{ filter = b.dataset.tag; render(); });
+}
+
+function render(){
+  chips();
+  const q = query.toLowerCase();
+  const shown = notes.filter(n => {
+    const tagOk = !filter || (filter === "Untagged" ? !n.tag : n.tag === filter);
+    const qOk = !q || n.base.toLowerCase().includes(q) || (n.txt||"").toLowerCase().includes(q);
+    return tagOk && qOk;
+  });
+  if(!shown.length){
+    $('#list').innerHTML = `<div class="empty">${notes.length ? "Nothing matches." : "No notes on the card yet. Hold MAKE NOTE on the device."}</div>`;
+    return;
+  }
+  $('#list').innerHTML = shown.map(n => {
+    const opts = ['<option value="">— no tag —</option>']
+      .concat(TAGS.map(t => `<option value="${t}"${n.tag===t?' selected':''}>${t}</option>`)).join('');
+    return `<article class="note" data-base="${esc(n.base)}">
+      <h2>${esc(n.base)}</h2>
+      <div class="sub">${n.audio ? mmss(n.secs) + " · " + Math.max(1,Math.round(n.bytes/1024)) + " KB" : "audio freed"}${n.tag ? " · " + esc(n.tag) : ""}</div>
+      ${n.audio ? `<audio controls preload="none" src="/file?n=${encodeURIComponent(n.base)}.wav"></audio>` : ``}
+      ${n.txt ? `<p>${esc(n.txt)}</p>` : `<p class="none">Not transcribed yet.</p>`}
+      <div class="acts">
+        <select data-act="tag">${opts}</select>
+        <button class="flat" data-act="del">Delete</button>
+      </div>
+    </article>`;
+  }).join('');
+
+  $('#list').querySelectorAll('.note').forEach(el => {
+    const base = el.dataset.base;
+    el.querySelector('[data-act="tag"]').onchange = async e => {
+      try{
+        await post('/api/tag', {n:base, tag:e.target.value});
+        const n = notes.find(x => x.base === base); if(n) n.tag = e.target.value;
+        toast("filed"); render();
+      }catch(err){ toast("tag failed"); }
+    };
+    el.querySelector('[data-act="del"]').onclick = async () => {
+      if(!confirm("Delete " + base + "?\n\nRemoves the audio, transcript and tag together. This cannot be undone.")) return;
+      try{
+        await post('/api/delete', {n:base});
+        notes = notes.filter(x => x.base !== base);
+        toast("deleted"); render(); loadInfo();
+      }catch(err){ toast("delete failed"); }
+    };
+  });
+}
+
+/* ------------------------------------------------------------------ to-do */
+function parseTodos(text){
+  return text.split('\n').map(l => l.trim()).filter(Boolean).map(l =>
+    l.startsWith('[x] ') ? {text:l.slice(4), done:true}
+    : l.startsWith('[ ] ') ? {text:l.slice(4), done:false}
+    : {text:l, done:false});
+}
+const serialiseTodos = () => todos.map(t => (t.done ? "[x] " : "[ ] ") + t.text).join('\n') + '\n';
+
+async function loadTodos(){
+  try{
+    todos = parseTodos(await (await fetch('/api/todo')).text());
+  }catch(e){ todos = []; }
+  renderTodos();
+}
+function renderTodos(){
+  if(!todos.length){ $('#todos').innerHTML = `<div class="empty">No jobs yet.</div>`; return; }
+  $('#todos').innerHTML = todos.map((t,i) =>
+    `<label class="todo${t.done?' done':''}"><input type="checkbox" data-i="${i}"${t.done?' checked':''}><span>${esc(t.text)}</span></label>`
+  ).join('');
+  $('#todos').querySelectorAll('input').forEach(cb =>
+    cb.onchange = async () => {
+      todos[cb.dataset.i].done = cb.checked;
+      renderTodos(); await saveTodos();
+    });
+}
+async function saveTodos(){
+  try{
+    await fetch('/api/todo', {method:'POST', headers:{'Content-Type':'text/plain'}, body:serialiseTodos()});
+    toast("saved");
+  }catch(e){ toast("save failed"); }
+}
+$('#addTodo').onclick = async () => {
+  const v = $('#newTodo').value.trim(); if(!v) return;
+  todos.push({text:v, done:false}); $('#newTodo').value = "";
+  renderTodos(); await saveTodos();
+};
+$('#newTodo').addEventListener('keydown', e => { if(e.key === 'Enter') $('#addTodo').click(); });
+
+/* ------------------------------------------------------------------- boot */
+$('#q').addEventListener('input', e => { query = e.target.value; render(); });
+$('#refresh').onclick = () => { loadNotes(); loadInfo(); loadTodos(); toast("reloaded"); };
+
+(async () => {
+  try{ await loadNotes(); }
+  catch(e){ $('#list').innerHTML = `<div class="empty">Could not reach the device.<br>Is this page being served from it?</div>`; }
+  loadInfo(); loadTodos();
+})();
+</script>
+</body></html>
