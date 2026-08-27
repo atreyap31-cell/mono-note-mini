@@ -46,6 +46,8 @@ ul.feat{list-style:none;margin:0;padding:0;columns:1}
 ul.feat li{margin:0 0 3px}
 ul.feat button{font-family:var(--mono);font-size:.62rem;background:none;border:0;padding:2px 0;cursor:pointer;text-align:left;text-decoration:underline;text-underline-offset:2px;color:var(--ink)}
 ul.feat button:hover{background:var(--ink);color:#fff;text-decoration:none}
+.cardcal{border:2px solid var(--ink);height:34px;display:flex;align-items:center;justify-content:center;background:repeating-linear-gradient(45deg,transparent 0 6px,rgba(0,0,0,.06) 6px 12px);margin-bottom:8px}
+.cardcal span{font-family:var(--mono);font-size:.55rem;letter-spacing:.08em;text-transform:uppercase;opacity:.65;white-space:nowrap}
 .legend{font-family:var(--mono);font-size:.6rem;line-height:1.7;letter-spacing:.02em}
 .legend b{display:inline-block;min-width:104px}
 footer{margin-top:40px;font-size:.74rem;opacity:.7;line-height:1.6;border-top:2px solid var(--ink);padding-top:14px}
@@ -55,7 +57,7 @@ a{color:var(--ink)}
 <body>
 <div class="wrap">
 <h1>Mono Note Mini — device preview</h1>
-<p class="sub">200×200 1-bit e-paper · firmware drawing code, ported pixel for pixel · mouse instead of touch</p>
+<p class="sub">200×200 1-bit e-paper · 27.6 mm of glass, shown life size · firmware drawing code, ported pixel for pixel</p>
 
 <div class="cols">
   <div class="stage">
@@ -76,15 +78,24 @@ a{color:var(--ink)}
     <div class="panelbox">
       <h2>Screen size</h2>
       <div class="row" id="zoomRow">
-        <button class="opt" data-zoom="actual">Actual size</button>
+        <button class="opt" data-zoom="actual" aria-pressed="true">Actual size</button>
         <button class="opt" data-zoom="2">2×</button>
-        <button class="opt" data-zoom="3" aria-pressed="true">3×</button>
+        <button class="opt" data-zoom="3">3×</button>
         <button class="opt" data-zoom="4">4×</button>
       </div>
       <p class="note" id="sizeNote"></p>
       <div class="row">
         <button class="opt" id="flashToggle" aria-pressed="true">E-paper refresh flash</button>
       </div>
+    </div>
+
+    <div class="panelbox">
+      <h2>Calibrate actual size</h2>
+      <p class="note" style="margin-top:0">Browsers guess at physical size and usually get it wrong. Hold a bank card against the bar and drag until they match — then "actual size" really is.</p>
+      <div class="cardcal" id="cardCal"><span>85.6 mm — bank card</span></div>
+      <input type="range" id="calRange" min="2.2" max="7.5" step="0.01">
+      <p class="note" id="calNote"></p>
+      <button class="opt" id="calReset">Reset to browser default</button>
     </div>
 
     <div class="panelbox">
@@ -128,7 +139,7 @@ a{color:var(--ink)}
 
 <footer>
   <p><strong>This is the firmware, not a mock-up.</strong> The 5×8 glyph table, every <code>uiRect</code> / <code>uiText</code> coordinate and the whole state machine are ported from <code>firmware/src/</code>, so a misplaced label here is a misplaced label on the panel. Recordings are simulated and live only in this browser tab.</p>
-  <p>Actual size assumes the 1.54&quot; panel's 27.5 mm active area. Accuracy depends on your display's real DPI, so treat it as close rather than exact.</p>
+  <p>It opens at life size, which is genuinely small — 200 pixels at the panel's 0.138 mm pitch is 27.6 mm of glass, about the width of a postage stamp. Browsers only guess at physical size, so calibrate against a bank card once and every later visit remembers it. Use 2×–4× when you want to read the pixels rather than judge the scale.</p>
 </footer>
 </div>
 
@@ -890,22 +901,64 @@ document.getElementById('flashToggle').addEventListener('click', e => {
   flashOn = !flashOn; e.target.setAttribute('aria-pressed', String(flashOn));
 });
 
-const MM = 27.5;
-function setZoom(z){
+/* 200 pixels at the panel's 0.138 mm pitch is 27.6 mm of glass, which checks
+   out against the 1.54" diagonal. Bezel and board are proportional to that. */
+const PITCH_MM = 0.138, PANEL_MM = W * PITCH_MM;
+const BEZEL_MM = 3.4, BOARD_MM = 5.2, CARD_MM = 85.6;
+const DEFAULT_PX_PER_MM = 96 / 25.4;   /* what the browser assumes: 96dpi */
+
+let pxPerMm = parseFloat(localStorage.getItem('mnm-pxmm')) || DEFAULT_PX_PER_MM;
+let zoom = localStorage.getItem('mnm-zoom') || 'actual';
+
+const bezelEl = document.querySelector('.bezel');
+const deviceEl = document.querySelector('.device');
+const brandEl = document.querySelector('.brand');
+
+function applyScale(){
+  const cssW = (zoom === 'actual') ? PANEL_MM * pxPerMm : W * parseInt(zoom, 10);
+  cv.style.width = cssW + "px";
+  cv.style.height = cssW + "px";
+
+  const disp = cssW / PANEL_MM;              /* display px per real mm */
+  bezelEl.style.padding = (BEZEL_MM * disp).toFixed(1) + "px";
+  deviceEl.style.padding = (BOARD_MM * disp).toFixed(1) + "px";
+  brandEl.style.display = cssW < 190 ? "none" : "block";
+  brandEl.style.fontSize = Math.max(6, 1.5 * disp) + "px";
+
   document.querySelectorAll('#zoomRow .opt').forEach(b =>
-    b.setAttribute('aria-pressed', String(b.dataset.zoom === z)));
+    b.setAttribute('aria-pressed', String(b.dataset.zoom === zoom)));
+
   const nte = document.getElementById('sizeNote');
-  if(z === 'actual'){
-    cv.style.width = MM + "mm"; cv.style.height = MM + "mm";
-    nte.textContent = "True to life: the 1.54\" panel's active area is 27.5 × 27.5 mm. Hold a coin up to it.";
+  if(zoom === 'actual'){
+    nte.textContent = "Life size: " + PANEL_MM.toFixed(1) + " × " + PANEL_MM.toFixed(1) +
+      " mm of glass (200 px at 0.138 mm pitch). It really is this small — calibrate below if it looks off.";
   } else {
-    const n = parseInt(z, 10);
-    cv.style.width = (W*n) + "px"; cv.style.height = (H*n) + "px";
-    nte.textContent = n + "× magnified — " + (W*n) + " × " + (H*n) + " px on screen, still 200 × 200 real pixels.";
+    const n = parseInt(zoom, 10);
+    nte.textContent = n + "× magnified — " + (W*n) + " px on screen, still 200 real pixels.";
   }
+  localStorage.setItem('mnm-zoom', zoom);
 }
+function setZoom(z){ zoom = z; applyScale(); }
 document.querySelectorAll('#zoomRow .opt').forEach(b =>
   b.addEventListener('click', ()=>setZoom(b.dataset.zoom)));
+
+/* Calibration: match the bar to a real bank card so "actual" is actually actual. */
+const calBar = document.getElementById('cardCal');
+const calRange = document.getElementById('calRange');
+const calNote = document.getElementById('calNote');
+function applyCal(){
+  calBar.style.width = Math.round(CARD_MM * pxPerMm) + "px";
+  const dpi = (pxPerMm * 25.4).toFixed(0);
+  calNote.textContent = pxPerMm.toFixed(2) + " px/mm (~" + dpi + " CSS dpi)" +
+    (Math.abs(pxPerMm - DEFAULT_PX_PER_MM) < 0.01 ? " — browser default" : " — calibrated");
+  calRange.value = pxPerMm;
+  localStorage.setItem('mnm-pxmm', String(pxPerMm));
+  applyScale();
+}
+calRange.addEventListener('input', e => { pxPerMm = parseFloat(e.target.value); applyCal(); });
+document.getElementById('calReset').addEventListener('click', ()=>{
+  pxPerMm = DEFAULT_PX_PER_MM; applyCal();
+});
 
 const FEATURES = [
   ["First-boot tour", ()=>{ walkStep=0; tourFromExtra=false; go("WALKTHROUGH"); }],
@@ -944,7 +997,7 @@ function boot(){
   if(!sd.prefs.firstBootDone){ tourFromExtra = false; walkStep = 0; go("WALKTHROUGH"); }
   else go("HOME");
 }
-setZoom('3');
+applyCal();
 boot();
 </script>
 </body></html>
