@@ -61,10 +61,9 @@ static void handleRoot() {
 
 static void handleApp() {
   if(needAuth()) return;
-  String page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Mono Note Mini</title>";
-  page += "<body style='font-family:sans-serif;max-width:480px;margin:auto'>";
-  page += "<h2>Mono Note Mini</h2><p>Drop your own site at <code>/www/index.html</code> on the SD card and it replaces this page.</p>";
-  page += "<input id=q placeholder='filter...' oninput='f()' style='width:100%;padding:8px'>";
+  String page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Mono Note Mini</title><style>@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@600;700&display=swap');*{box-sizing:border-box}html,body{margin:0;background:#fff;color:#000;font-family:Inter,sans-serif}body{max-width:520px;margin:0 auto;padding:16px}h2,h3{font-family:'IBM Plex Mono',monospace;text-transform:uppercase;letter-spacing:-.02em}input,textarea,button,select{font:inherit;border:2px solid #000;border-radius:0;background:#fff;color:#000;padding:8px 10px}button{font-family:'IBM Plex Mono',monospace;font-weight:700;text-transform:uppercase;letter-spacing:.06em;cursor:pointer;box-shadow:3px 3px 0 #000}button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 #000}a{color:#000;text-decoration:underline;text-underline-offset:2px}ul{padding-left:18px}li{margin:4px 0}code{background:#fff;border:1px solid #000;padding:1px 4px}</style>";
+  page += "<body><h2>Mono Note Mini</h2><p>Drop your own site at <code>/www/index.html</code> on the SD card and it replaces this page. Everything here is black on white.</p>";
+  page += "<input id=q placeholder='filter...' oninput='f()' style='width:100%'>";
   page += "<ul id=list>";
   File dir = SD_MMC.open("/recordings");
   File f;
