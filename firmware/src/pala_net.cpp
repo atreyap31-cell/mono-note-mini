@@ -21,9 +21,15 @@ String netGet(const char* key, const String& def) { return prefs.getString(key, 
 void netSet(const char* key, const String& value) { prefs.putString(key, value); }
 uint64_t netGetU64(const char* key, uint64_t def) { return prefs.getULong64(key, def); }
 void netSetU64(const char* key, uint64_t value) { prefs.putULong64(key, value); }
+uint32_t netGetU32(const char* key, uint32_t def) { return prefs.getUInt(key, def); }
+void netSetU32(const char* key, uint32_t value) { prefs.putUInt(key, value); }
 bool netHasKey(const char* key){ return prefs.isKey(key); }
 void netSetBool(const char* key, bool v){ prefs.putBool(key, v); }
 bool netGetBool(const char* key, bool def){ return prefs.getBool(key, def); }
+
+/* Factory reset: drop every stored preference. Caller reboots afterwards, and
+   the missing first_boot_done key makes the next boot run the tour again. */
+void netClearAll() { prefs.clear(); }
 
 bool staConnect(uint32_t timeoutMs) {
   String ssid = netGet("ssid");
@@ -88,12 +94,23 @@ static void handleApp() {
   }
   page += "<textarea id=todo rows=6 style='width:100%'>" + htmlEscape(todoText) + "</textarea>";
   page += "<button onclick=\"fetch('/api/todo',{method:'POST',body:document.getElementById('todo').value}).then(()=>location.reload())\">Save to-do</button>";
-  page += "<h3>Upload transcript (.txt)</h3><form method=POST action=/up enctype=multipart/form-data><input type=file name=f accept='.txt'><button>Upload</button></form>";
+  page += "<h3>Upload</h3><p>Recordings (<code>.wav</code>), transcripts (<code>.txt</code>) or tags (<code>.tag</code>).</p><form method=POST action=/up enctype=multipart/form-data><input type=file name=f accept='.wav,.txt,.tag'><button>Upload</button></form>";
   page += "<h3>Settings</h3><form method=POST action=/save>";
   page += "SSID <input name=ssid value='" + netGet("ssid") + "'><br>";
   page += "Password <input name=pass type=password value='" + netGet("pass") + "'><br>";
   page += "API base <input name=api value='" + netGet("api") + "'><br>";
   page += "Device password <input name=devpass type=password value='" + netGet("devpass","record123") + "'><br><small>Each device keeps its own — others on your Wi-Fi can't see your notes without it</small><br>";
+  {
+    uint32_t hrs = netGetU32("syncHrs", SYNC_HOURS_DEFAULT);
+    const uint32_t opts[] = {0, 1, 2, 4, 8, 24};
+    page += "Auto-sync <select name=synchrs>";
+    for (int i = 0; i < 6; i++) {
+      page += "<option value=" + String(opts[i]) + (opts[i] == hrs ? " selected" : "") + ">";
+      page += opts[i] == 0 ? "Off" : ("Every " + String(opts[i]) + " h");
+      page += "</option>";
+    }
+    page += "</select><br><small>Syncing more often drains the battery faster — every 4 h is the default</small><br>";
+  }
   page += "Button sounds <input type=checkbox name=sound " + String(netGet("sound", "0") == "1" ? "checked" : "") + "><br><small>Clean soft tick — off by default</small><br>";
   page += "<button>Save &amp; reboot</button></form></body>";
   server.send(200, "text/html", page);
@@ -140,6 +157,10 @@ static void handleSave() {
   netSet("api", server.arg("api"));
   String dp=server.arg("devpass"); if(dp.length()) netSet("devpass", dp);
   netSet("sound", server.hasArg("sound") ? "1" : "0");
+  if (server.hasArg("synchrs")) {
+    uint32_t h = (uint32_t)server.arg("synchrs").toInt();
+    if (h == 0 || h == 1 || h == 2 || h == 4 || h == 8 || h == 24) netSetU32("syncHrs", h);
+  }
   server.send(200, "text/html", "<body>Saved. Rebooting...</body><script>setTimeout(()=>location='/',1500)</script>");
   delay(800);
   ESP.restart();
@@ -171,8 +192,17 @@ static void onUploadFile() {
   static File fh;
   if (up.status == UPLOAD_FILE_START) {
     String name = up.filename;
-    if (!name.endsWith(".txt")) name += ".txt";
-    if (name.startsWith("/")) name = name.substring(1);
+    /* keep only the basename so a crafted path can't escape /recordings */
+    int slash = name.lastIndexOf('/');
+    if (slash >= 0) name = name.substring(slash + 1);
+    slash = name.lastIndexOf('\\');
+    if (slash >= 0) name = name.substring(slash + 1);
+    if (name.indexOf("..") >= 0) name.replace("..", "_");
+    String lower = name; lower.toLowerCase();
+    if (!lower.endsWith(".wav") && !lower.endsWith(".txt") && !lower.endsWith(".tag")) {
+      fh = File();
+      return;
+    }
     fh = SD_MMC.open("/recordings/" + name, "w");
   } else if (up.status == UPLOAD_FILE_WRITE && fh) {
     fh.write(up.buf, up.currentSize);

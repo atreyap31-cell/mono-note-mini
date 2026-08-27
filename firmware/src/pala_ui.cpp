@@ -21,15 +21,18 @@ void uiRect(int x, int y, int w, int h, uint8_t color) {
   uiFillRect(x + w - 1, y, 1, h, color);
 }
 
+/* PALA_FONT is the standard 5x8 GLCD table: 256 glyphs from 0x00, five column
+   bytes each, top pixel in bit 0. Index and bit order both have to match that
+   or every glyph comes out as a fragment of some unrelated character. */
 void uiText(int x, int y, const String& text, int scale, uint8_t color) {
   for (unsigned int n = 0; n < text.length(); n++) {
     char ch = text[n];
-    if (ch < 0x20 || ch > 0x7F) ch = '?';
-    const unsigned char* glyph = &PALA_FONT[(ch - 0x20) * 5];
+    if (ch < 0x20 || ch > 0x7E) ch = '?';
+    const unsigned char* glyph = &PALA_FONT[(unsigned char)ch * 5];
     for (int col = 0; col < 5; col++) {
       unsigned char bits = pgm_read_byte(&glyph[col]);
-      for (int row = 0; row < 7; row++)
-        if (bits & (0x80 >> row))
+      for (int row = 0; row < 8; row++)
+        if (bits & (1 << row))
           for (int sy = 0; sy < scale; sy++)
             for (int sx = 0; sx < scale; sx++) {
               int px = x + n * 6 * scale + col * scale + sx;
@@ -46,6 +49,13 @@ void uiTextCentered(int y, const String& text, int scale, uint8_t color) {
   int x = (200 - uiTextWidth(text, scale)) / 2;
   if (x < 0) x = 0;
   uiText(x, y, text, scale, color);
+}
+
+/* Centre inside a box - used for button labels. */
+void uiTextCenteredIn(int x, int w, int y, const String& text, int scale, uint8_t color) {
+  int tx = x + (w - uiTextWidth(text, scale)) / 2;
+  if (tx < x) tx = x;
+  uiText(tx, y, text, scale, color);
 }
 
 void uiFlushFull() {
