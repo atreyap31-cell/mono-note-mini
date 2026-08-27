@@ -226,7 +226,12 @@ function drawSettings(){
   rows[1].onclick=()=>{ $s.innerHTML=`<div style="padding:30px;text-align:center;flex:1;display:grid;place-items:center">SYNCING 1/2<br><span style="font-size:.68rem">tap to cancel</span></div>`; setTimeout(()=>drawSettings(),1200); };
   rows[2].onclick=()=>drawStorage();
   rows[3].onclick=()=>{ $s.innerHTML=`<div style="padding:12px;text-align:center;flex:1;display:grid;place-items:center"><div>MY ADDRESS<br><b>192.168.1.42</b><br><span style="font-size:.68rem">your private site</span></div></div><div class="small" style="text-align:center;flex-shrink:0">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=null,0); };
-  rows[4].onclick=()=>drawHowTo();
+  rows[4].onclick=(e)=>{ e.stopPropagation(); drawHowTo(); };
+  // fallback delegation in case direct handler is missed
+  $s.addEventListener('click', (e)=>{
+    const t=e.target.closest('.row');
+    if(t && t.textContent.includes('How to use')) { e.stopPropagation(); drawHowTo(); }
+  }, {once:true});
   let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
 }
 drawHome();
