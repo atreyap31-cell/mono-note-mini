@@ -12,7 +12,10 @@ static Preferences prefs;
 static WebServer server(80);
 static bool portalUp = false;
 
-void netBegin() { prefs.begin("pala", false); }
+void netBegin() { prefs.begin("pala", false); if(!prefs.isKey("devpass")) prefs.putString("devpass","record123"); }
+String base64Encode(const String& s){ static const char tbl[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"; String out; out.reserve(((s.length()+2)/3)*4); for(size_t i=0;i<s.length();i+=3){ uint32_t v=(uint8_t)s[i]<<16 | (i+1<s.length()?(uint8_t)s[i+1]<<8:0) | (i+2<s.length()?(uint8_t)s[i+2]:0); out+=tbl[(v>>18)&63]; out+=tbl[(v>>12)&63]; out+=(i+1<s.length()?tbl[(v>>6)&63]:'='); out+=(i+2<s.length()?tbl[v&63]:'='); } return out; }
+bool isAuthenticated(){ String pass=netGet("devpass","record123"); if(pass.length()==0) return true; String h=server.header("Authorization"); if(!h.startsWith("Basic ")) return false; String b64=h.substring(6); b64.trim(); String e1=base64Encode("admin:"+pass), e2=base64Encode(":"+pass), e3=base64Encode("user:"+pass); return b64==e1||b64==e2||b64==e3; }
+bool needAuth(){ if(isAuthenticated()) return false; server.sendHeader("WWW-Authenticate","Basic realm=\"Mono Note Mini\""); server.send(401,"text/plain","Auth required"); return true; }
 
 String netGet(const char* key, const String& def) { return prefs.getString(key, def); }
 void netSet(const char* key, const String& value) { prefs.putString(key, value); }
@@ -45,6 +48,7 @@ static String htmlEscape(const String& s) {
 }
 
 static void handleRoot() {
+  if(needAuth()) return;
   if (SD_MMC.exists("/www/index.html")) {
     File f = SD_MMC.open("/www/index.html", "r");
     server.streamFile(f, "text/html");
@@ -56,6 +60,7 @@ static void handleRoot() {
 }
 
 static void handleApp() {
+  if(needAuth()) return;
   String page = "<!doctype html><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Mono Note Mini</title>";
   page += "<body style='font-family:sans-serif;max-width:480px;margin:auto'>";
   page += "<h2>Mono Note Mini</h2><p>Drop your own site at <code>/www/index.html</code> on the SD card and it replaces this page.</p>";
@@ -86,12 +91,14 @@ static void handleApp() {
   page += "SSID <input name=ssid value='" + netGet("ssid") + "'><br>";
   page += "Password <input name=pass type=password value='" + netGet("pass") + "'><br>";
   page += "API base <input name=api value='" + netGet("api") + "'><br>";
+  page += "Device password <input name=devpass type=password value='" + netGet("devpass","record123") + "'><br><small>Each device keeps its own — others on your Wi-Fi can't see your notes without it</small><br>";
   page += "Button sounds <input type=checkbox name=sound " + String(netGet("sound", "1") == "1" ? "checked" : "") + "><br>";
   page += "<button>Save &amp; reboot</button></form></body>";
   server.send(200, "text/html", page);
 }
 
 static void handleApiList() {
+  if(needAuth()) return;
   String json = "[";
   File dir = SD_MMC.open("/recordings");
   File f;
@@ -111,6 +118,7 @@ static void handleApiList() {
 }
 
 static void handleFile() {
+  if(needAuth()) return;
   String name = server.arg("n");
   if (name.length() && !name.startsWith("/")) name = "/" + name;
   if (!name.length() || name.indexOf("..") >= 0 || !SD_MMC.exists("/recordings" + name)) {
@@ -124,18 +132,21 @@ static void handleFile() {
 }
 
 static void handleSave() {
+  if(needAuth()) return;
   netSet("ssid", server.arg("ssid"));
   netSet("pass", server.arg("pass"));
   netSet("api", server.arg("api"));
+  String dp=server.arg("devpass"); if(dp.length()) netSet("devpass", dp);
   netSet("sound", server.hasArg("sound") ? "1" : "0");
   server.send(200, "text/html", "<body>Saved. Rebooting...</body><script>setTimeout(()=>location='/',1500)</script>");
   delay(800);
   ESP.restart();
 }
 
-static void handleUpload() { server.send(200, "text/plain", "ok"); }
+static void handleUpload() { if(needAuth()) return; server.send(200, "text/plain", "ok"); }
 
 static void handleTodoGet() {
+  if(needAuth()) return;
   String out = "";
   if (SD_MMC.exists("/todo.txt")) {
     File f = SD_MMC.open("/todo.txt", "r");
@@ -146,12 +157,14 @@ static void handleTodoGet() {
 }
 
 static void handleTodoPost() {
+  if(needAuth()) return;
   File f = SD_MMC.open("/todo.txt", "w");
   if (f) { f.print(server.arg("plain")); f.close(); }
   server.send(200, "text/plain", "ok");
 }
 
 static void onUploadFile() {
+  if(!isAuthenticated()) return;
   HTTPUpload& up = server.upload();
   static File fh;
   if (up.status == UPLOAD_FILE_START) {
@@ -167,6 +180,8 @@ static void onUploadFile() {
 }
 
 static void beginServerRoutes() {
+  const char* hdr[]={"Authorization"};
+  server.collectHeaders(hdr,1);
   server.on("/", handleRoot);
   server.on("/app", handleApp);
   server.on("/api/list", handleApiList);
