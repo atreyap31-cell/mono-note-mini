@@ -62,7 +62,12 @@ function sdSpace(){
   return {used: used.toFixed(1), free: free.toFixed(1), total: (total/1024).toFixed(1), pct: Math.min(30, notes.length*4)};
 }
 function drawHome(){
-  $s.innerHTML=`<div class="battery"><div class="fill" style="width:${battery()}%"></div></div><div class="home"><div><div class="title">mono note</div><div class="small">tap to wake</div></div></div>`;
+  $s.innerHTML=`<div class="battery"><div class="fill" style="width:${battery()}%"></div></div>
+  <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:18px 10px 8px;text-align:center">
+    <div class="title">mono note</div>
+    <div style="font-size:.62rem;line-height:1.5;letter-spacing:.06em;opacity:.75">TAP TO UNLOCK<br><span style="opacity:.6">HOLD 0.9s = BACK • TAP ROW = OPEN</span></div>
+  </div>
+  <div class="small" style="text-align:center;padding:4px 6px;border-top:1px solid var(--ink);flex-shrink:0;font-size:.54rem;opacity:.5">TAP ANYWHERE TO WAKE</div>`;
   $s.onclick=()=>{state='menu';drawMenu();};
   $s.onscroll=null;
 }
@@ -182,6 +187,31 @@ function drawStorage(){
   setTimeout(()=>{ const h=(ev)=>{ if(ev.target.closest && ev.target.closest('#leastBtn')) return; }; },0);
   let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=(e)=>{ if(Date.now()-d>900 || e.target.classList.contains('small')){state='menu';drawSettings();}};
 }
+function drawHowTo(){
+  $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">HOW TO USE & CREDITS</div>
+  <div style="flex:1;overflow:auto;padding:10px;font-size:.64rem;line-height:1.6;text-align:left;white-space:pre-wrap;word-break:break-word">HOW TO USE
+1. TAP home to unlock → menu
+2. MAKE NOTE: tap → speak (wave animates + timer) → tap to stop → pick tag (Work/Projects/Ideas/Quotes/Random) → returns home
+3. VIEW NOTES: pick tag → list → tap note → PLAY/STOP, DELETE, swipe pages for transcript
+4. HOLD 0.9s anywhere = BACK
+5. SETTINGS: Wi-Fi = join MonoNote hotspot to set network, Sync = transcribe via your server, Storage = see free space → tap to clean least-played, IP = local address for your private site
+6. TO-DO: tap row = check, hold = back
+
+TIPS
+• Recordings save as 16k mono WAV on SD
+• Transcripts save as .txt next to wav
+• Hold home 0.9s = deep sleep, press BOOT/PWR/touch to wake
+
+────────
+CREDITS
+Made by Atreya Patil
+with inspiration from PALA NOTE
+© 2026 — All rights reserved
+</div>
+  <div class="small" style="text-align:center;flex-shrink:0">tap = back • scroll to read</div>`;
+  $s.onclick=()=>drawSettings();
+  let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){drawSettings();} };
+}
 function drawSettings(){
   $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">SETTINGS</div>
   <div style="flex:1;overflow:auto">
@@ -189,12 +219,14 @@ function drawSettings(){
   <div class="row">2 Sync</div>
   <div class="row">3 Storage — ${sdSpace().free} MB free</div>
   <div class="row">4 IP — 192.168.1.42</div>
-  </div><div class="small" style="text-align:center;flex-shrink:0">tap row • hold = back</div>`;
+  <div class="row">5 How to use & Credits</div>
+  </div>`;
   const rows=$s.querySelectorAll('.row');
   rows[0].onclick=()=>{ $s.innerHTML=`<div class="small" style="text-align:center;padding:6px;border-bottom:2px solid var(--ink);flex-shrink:0">WI-FI</div><div style="padding:10px;font-size:.68rem;line-height:1.5;flex:1;overflow:auto">Join hotspot<br><b>MonoNote-XXXX</b><br>key: record123<br>→ 192.168.4.1</div><div class="small" style="text-align:center;flex-shrink:0">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=()=>drawSettings(),0); };
   rows[1].onclick=()=>{ $s.innerHTML=`<div style="padding:30px;text-align:center;flex:1;display:grid;place-items:center">SYNCING 1/2<br><span style="font-size:.68rem">tap to cancel</span></div>`; setTimeout(()=>drawSettings(),1200); };
   rows[2].onclick=()=>drawStorage();
   rows[3].onclick=()=>{ $s.innerHTML=`<div style="padding:12px;text-align:center;flex:1;display:grid;place-items:center"><div>MY ADDRESS<br><b>192.168.1.42</b><br><span style="font-size:.68rem">your private site</span></div></div><div class="small" style="text-align:center;flex-shrink:0">tap = back</div>`; $s.onclick=()=>drawSettings(); setTimeout(()=> $s.onclick=null,0); };
+  rows[4].onclick=()=>drawHowTo();
   let d=0; $s.onpointerdown=()=>d=Date.now(); $s.onpointerup=()=>{ if(Date.now()-d>900){state='menu';drawMenu();}};
 }
 drawHome();
