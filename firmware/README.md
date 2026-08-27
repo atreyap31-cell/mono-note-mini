@@ -103,6 +103,21 @@ The repo ships one at [`www/index.html`](../www/index.html). Copy that single fi
 
 Privacy here rests on the device password (Basic auth) and on your LAN, not on the URL being hard to guess. Change `devpass` from the default.
 
+### Reading your notes away from home
+
+The device page has an optional **Publish to your repo** panel. It copies your notes into a GitHub repo you own, in the same JSON the companion app at [`index.html`](../index.html) already reads — so the web app shows them from anywhere.
+
+The push happens from this page rather than from the firmware, deliberately:
+
+- The token stays in your browser. It is never stored on a device you carry around, where NVS holds it in plain text.
+- A page served over plain HTTP *may* call `https://api.github.com`; it is the reverse (an HTTPS page calling a `192.168.x.x` device) that browsers refuse. That single fact is why the device serves the page and the page talks to GitHub, and not the other way round.
+
+It reads the file before writing it, so notes another device published are merged rather than overwritten, and re-publishing updates notes in place instead of duplicating them.
+
+**Publish text only unless you have a reason not to.** GitHub's contents API only reads back files up to 1 MB, and base64 audio passes that almost immediately — four short clips measured 1.8 MB in testing, at which point the file can no longer be read back. Transcripts, tags and timestamps are a few KB. Audio belongs on the card, reachable over your own network.
+
+Use a fine-grained token scoped to that one private repo with Contents read and write, and give it an expiry. Anyone holding it can read those notes, so it — not the URL — is what keeps them yours.
+
 **Every route is behind HTTP Basic auth.** The device password defaults to `record123` and is changed on the settings form - so others on your Wi-Fi can't read your notes.
 
 ## Transcription backend

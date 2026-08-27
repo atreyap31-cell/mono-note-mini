@@ -52,6 +52,12 @@ section h3{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;let
 .todo.done span{text-decoration:line-through;opacity:.5}
 .addrow{display:flex;gap:8px;margin-top:10px}
 .addrow input{flex:1;font:inherit;border:2px solid var(--ink);padding:7px 9px;background:var(--paper);color:var(--ink)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
+.grid2 input,#ghToken{width:100%;font:inherit;border:2px solid var(--ink);padding:7px 9px;background:var(--paper);color:var(--ink)}
+#ghToken{margin-bottom:8px}
+.fine{font-size:.74rem;opacity:.72;margin:6px 0}
+.check{display:flex;align-items:center;gap:8px;font-size:.82rem;margin-top:4px}
+.check input{width:17px;height:17px;accent-color:#000}
 footer{margin-top:34px;border-top:2px solid var(--ink);padding-top:12px;font-size:.76rem;opacity:.75}
 footer a{color:var(--ink)}
 .toast{
@@ -85,6 +91,25 @@ footer a{color:var(--ink)}
     <input type="text" id="newTodo" placeholder="Add a job…" autocomplete="off">
     <button id="addTodo">Add</button>
   </div>
+</section>
+
+<section>
+  <h3>Publish to your repo</h3>
+  <p class="fine">Optional. Copies your notes into a GitHub repo you own, so the web app can read them when you're away from home. Everything above works without this.</p>
+  <div class="grid2">
+    <input type="text" id="ghOwner" placeholder="owner" autocomplete="off">
+    <input type="text" id="ghRepo" placeholder="repo" autocomplete="off">
+    <input type="text" id="ghBranch" placeholder="branch (main)" autocomplete="off">
+    <input type="text" id="ghPath" placeholder="path (data/notes.json)" autocomplete="off">
+  </div>
+  <input type="password" id="ghToken" placeholder="Personal access token — Contents: read and write" autocomplete="off">
+  <label class="check"><input type="checkbox" id="ghAudio"><span>Include audio (base64 WAV)</span></label>
+  <p class="fine" id="audioWarn"></p>
+  <div class="addrow" style="margin-top:10px">
+    <button id="ghPublish">Publish</button>
+    <button id="ghForget" class="flat">Forget token</button>
+  </div>
+  <p class="fine" id="ghStatus"></p>
 </section>
 
 <footer>
@@ -238,6 +263,159 @@ $('#addTodo').onclick = async () => {
 };
 $('#newTodo').addEventListener('keydown', e => { if(e.key === 'Enter') $('#addTodo').click(); });
 
+/* ------------------------------------------------------- publish to GitHub
+   This page is served over plain HTTP by the device, which is exactly why the
+   push happens here: an HTTP page may call https://api.github.com (the reverse
+   is what browsers block), and GitHub sends permissive CORS headers. The token
+   never touches the device - it lives in this browser only. */
+const GH_KEY = 'mnm-gh';
+const ghFields = ['ghOwner','ghRepo','ghBranch','ghPath','ghToken'];
+let gh = {};
+
+function loadGh(){
+  try{ gh = JSON.parse(localStorage.getItem(GH_KEY)) || {}; }catch(e){ gh = {}; }
+  $('#ghOwner').value  = gh.owner  || '';
+  $('#ghRepo').value   = gh.repo   || '';
+  $('#ghBranch').value = gh.branch || 'main';
+  $('#ghPath').value   = gh.path   || 'data/notes.json';
+  $('#ghToken').value  = gh.token  || '';
+  $('#ghAudio').checked = !!gh.audio;
+  audioWarn();
+  if(gh.lastPublish) ghSay("last published " + new Date(gh.lastPublish).toLocaleString());
+}
+function saveGh(){
+  gh = {
+    owner:$('#ghOwner').value.trim(), repo:$('#ghRepo').value.trim(),
+    branch:$('#ghBranch').value.trim() || 'main',
+    path:$('#ghPath').value.trim() || 'data/notes.json',
+    token:$('#ghToken').value.trim(), audio:$('#ghAudio').checked,
+    lastPublish: gh.lastPublish || 0
+  };
+  try{ localStorage.setItem(GH_KEY, JSON.stringify(gh)); }catch(e){}
+}
+const ghSay = m => { $('#ghStatus').textContent = m; };
+function audioWarn(){
+  $('#audioWarn').textContent = $('#ghAudio').checked
+    ? "Careful: GitHub's contents API only reads back files up to 1 MB, and base64 audio passes that after two or three clips. Text-only keeps it working."
+    : "Text only — transcripts, tags and timestamps. Audio stays on the card, reachable here on your network.";
+}
+ghFields.forEach(id => $('#' + id).addEventListener('change', saveGh));
+$('#ghAudio').addEventListener('change', ()=>{ audioWarn(); saveGh(); });
+$('#ghForget').onclick = () => {
+  $('#ghToken').value = ''; saveGh(); ghSay("token cleared from this browser");
+};
+
+const ghUrl = () => 'https://api.github.com/repos/' + encodeURIComponent(gh.owner) + '/' +
+  encodeURIComponent(gh.repo) + '/contents/' +
+  gh.path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+const ghHeaders = () => ({
+  'Accept':'application/vnd.github+json',
+  'X-GitHub-Api-Version':'2022-11-28',
+  'Authorization':'Bearer ' + gh.token
+});
+const b64ToUtf8 = b64 => {
+  const bin = atob(String(b64).replace(/\s+/g, ''));
+  const bytes = new Uint8Array(bin.length);
+  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+};
+const utf8ToB64 = str => {
+  const bytes = new TextEncoder().encode(str);
+  let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin);
+};
+/* rec_20260812_101200 -> epoch ms. Device clocks run on UTC (configTime(0,0)). */
+function createdFrom(base){
+  const m = /(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/.exec(base);
+  if(!m) return Date.now();
+  return Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]);
+}
+async function wavBase64(base){
+  const r = await fetch('/file?n=' + encodeURIComponent(base) + '.wav');
+  if(!r.ok) return null;
+  const bytes = new Uint8Array(await r.arrayBuffer());
+  let bin = '';
+  for(let i=0;i<bytes.length;i+=0x8000)
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i+0x8000));
+  return btoa(bin);
+}
+
+$('#ghPublish').onclick = async () => {
+  saveGh();
+  if(!gh.owner || !gh.repo){ ghSay("owner and repo are required"); return; }
+  if(!gh.token){ ghSay("a token is required to push"); return; }
+  const btn = $('#ghPublish'); btn.disabled = true; btn.textContent = 'Publishing…';
+  try{
+    /* read what's already there so nothing another device wrote is lost */
+    let sha = null, payload = null;
+    const got = await fetch(ghUrl() + '?ref=' + encodeURIComponent(gh.branch), {headers:ghHeaders()});
+    if(got.status === 404) payload = null;
+    else if(!got.ok){
+      let detail = ''; try{ detail = (await got.json()).message || ''; }catch(e){}
+      throw new Error('GitHub HTTP ' + got.status + (detail ? ' · ' + detail : ''));
+    } else {
+      const meta = await got.json();
+      sha = meta.sha;
+      if(!meta.content && meta.size > 1000000)
+        throw new Error('the existing file is ' + Math.round(meta.size/1024) +
+                        ' KB, past what the contents API will read back. Turn audio off and start a fresh path.');
+      try{ payload = JSON.parse(b64ToUtf8(meta.content)); }catch(e){ payload = null; }
+    }
+    if(!payload || typeof payload !== 'object') payload = {version:2, todos:[], notes:[]};
+    payload.version = 2;
+    payload.notes = Array.isArray(payload.notes) ? payload.notes : [];
+    payload.todos = Array.isArray(payload.todos) ? payload.todos : [];
+
+    const byId = new Map(payload.notes.map(n => [n.id, n]));
+    let audioCount = 0;
+    for(const n of notes){
+      const id = 'dev_' + n.base;
+      const prev = byId.get(id);
+      const entry = {
+        id, name:n.base, created:createdFrom(n.base), edited:Date.now(),
+        tags:n.tag ? [n.tag] : [], transcript:n.txt || '',
+        duration:n.secs || 0, kind:'recording'
+      };
+      if(gh.audio && n.audio){
+        try{ entry.wavData = await wavBase64(n.base); if(entry.wavData) audioCount++; }catch(e){}
+      }
+      /* never drop audio a previous publish already put there */
+      if(!entry.wavData && prev && prev.wavData) entry.wavData = prev.wavData;
+      byId.set(id, entry);
+    }
+    payload.notes = [...byId.values()];
+
+    const seen = new Set(payload.todos.map(t => t.text));
+    todos.forEach((t, i) => {
+      if(!seen.has(t.text)) payload.todos.push({id:'dev_todo_' + i + '_' + Date.now(), text:t.text, done:!!t.done});
+    });
+    payload.todosEdited = Date.now();
+    payload.exportedAt = new Date().toISOString();
+
+    const text = JSON.stringify(payload, null, 2);
+    const body = {
+      message:'Mono Note Mini publish ' + new Date().toISOString(),
+      content:utf8ToB64(text), branch:gh.branch
+    };
+    if(sha) body.sha = sha;
+    const put = await fetch(ghUrl(), {method:'PUT', headers:ghHeaders(), body:JSON.stringify(body)});
+    if(!put.ok){
+      let detail = ''; try{ detail = (await put.json()).message || ''; }catch(e){}
+      throw new Error('GitHub HTTP ' + put.status + (detail ? ' · ' + detail : ''));
+    }
+    gh.lastPublish = Date.now(); saveGh();
+    ghSay("published " + payload.notes.length + " notes" +
+          (audioCount ? " (" + audioCount + " with audio)" : " (text only)") +
+          ", " + payload.todos.length + " jobs · " + Math.round(text.length/1024) + " KB");
+    toast("published");
+  }catch(err){
+    ghSay("failed: " + (err.message || err));
+    toast("publish failed");
+  }finally{
+    btn.disabled = false; btn.textContent = 'Publish';
+  }
+};
+
 /* ------------------------------------------------------------------- boot */
 $('#q').addEventListener('input', e => { query = e.target.value; render(); });
 $('#refresh').onclick = () => { loadNotes(); loadInfo(); loadTodos(); toast("reloaded"); };
@@ -245,7 +423,7 @@ $('#refresh').onclick = () => { loadNotes(); loadInfo(); loadTodos(); toast("rel
 (async () => {
   try{ await loadNotes(); }
   catch(e){ $('#list').innerHTML = `<div class="empty">Could not reach the device.<br>Is this page being served from it?</div>`; }
-  loadInfo(); loadTodos();
+  loadInfo(); loadTodos(); loadGh();
 })();
 </script>
 </body></html>
