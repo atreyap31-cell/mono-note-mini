@@ -189,6 +189,17 @@ function textCenteredIn(x, w, y, s, scale=1, c=0){
   text(tx, y, s, scale, c);
 }
 
+/* Script 'mn' wordmark, the same 1bpp bytes the firmware blits. */
+const LOGO_B64 = "AAADgAB+AAAB+AAAAABgAAfgAAAAf4AB/wAAD/wAAAAP4AA/8AAAH/8AB/+AAB//AAAD/+AA//gAAD//AB//wAB//wAAD//AAf/8AAB//gA//+AA//+AAA//wAf//gAAf/4Af//gAf//gAAf/8AP//4AAP/+Af//4AP//4AAH/+AH//+AAD//AP//+AP///AAD//gH///gAA//wH///gH///wAA//4D///4AAf/8D///4D///8AAP/8B///+AAH/+B///+B////AAH//A////gAD//g////g////wAB//wf///4AA//4f///4f///8AA//4P4//+AAf/8P8f/+P4f//AAP/+H8H//gAH//H8H//n8H//gAD//j+B//wAB//z+B//78B//4AB//x/A//8AA//9/Af//+Af/+AAf/8/AP//AAP/+/gH///AH//gAH//fgD//wAD///wB///gB//4AD//34B//4AB///4Af//wA//8AA///8Af/+AAf//8AP//4AP//AAP//+AH//gAH//+AD//8AD//wAH///AD//wAD///AA//+AA//8AB///gA//8AA///gAP//gAf/+AAf//wAP//AAP//wAD//wAH//gAH//4AH//gAD//4AB//4AB//4AD//8AB//4AA//8AAf/+AA//8AA//+AA//+AAf//AAH//AAP//AAP//gAP//AAH//gAB//wAD//wAD//wAD//wAB//4AAf/8AB//4AA//8AB//4AAf/+AAP//AAf/+AAP/+AAf/+AAH//AAD//gAH//gAH//gAH//gAB//wAA//4AD//wAB//4AD//wABf/8AAP/+AA//8AA//8AA//8AA///AAH//gAP//AAf//AAP//AAP//wAB//wAD//gAP//wAD//gAH//4AAf/8AA//4AH//8AB//4AD//+AAH//AAf/+AD///AAf/+AB///gAD//wAH//gB///wAH//gA///4AA//4AB//4A///8AB//wAfv/+AAP/+AAf/+Af3/+AAf/8APz//gAD//gAH//gP5//gAP//gP4//4AB//4AB//4P8f/4AD//4H8P/+AAf/8AAf//P+H/+AA///H+D//gAH//AAH///+B//gAP////A//4AB//wAB////Af/4AD////gP/8AAf/8AAf///gH/+AAf///wD//AAP/+AAH///wB//gAH///4A//wAD//gAA///4Af/4AB///4AP/8AA//4AAP//4AH/+AAP//8AD//AAP/+AAB//8AB//gAD//8AA/+AAH/+AAAf/8AAf/AAAf/+AAH4AAB/gAAAB/8AAH8AAAD/8AABgAAAcAAAAAP8AABwAAAAP8AAA";
+const LOGO = Uint8Array.from(atob(LOGO_B64), c => c.charCodeAt(0));
+const LOGO_W = 152, LOGO_H = 54;
+function bitmap(x, y, w, h, data, c=0){
+  const stride = (w + 7) >> 3;
+  for(let j=0;j<h;j++)
+    for(let i=0;i<w;i++)
+      if(data[j*stride + (i>>3)] & (0x80 >> (i&7))) px(x+i, y+j, c);
+}
+
 let flashOn = true;
 function blit(invert){
   const d = img.data;
@@ -286,21 +297,22 @@ function cardUsed(){
 }
 
 /* ----------------------------------------------------------------- screens */
-function drawBattery(x, y){
-  rect(x, y, 26, 13); fillRect(x+26, y+3, 2, 7);
-  if(battPct < 0){ text(x+4, y+3, "?"); return; }
-  let w = Math.floor(22*battPct/100); if(w<2) w=2;
-  fillRect(x+2, y+2, w, 9);
-}
 function bottomBar(label){ fillRect(0,184,200,16,0); textCentered(188, label, 1, 255); }
 
-function drawHome(){
-  clear(); drawBattery(158,12);
-  textCentered(56,"mono",2); textCentered(76,"note mini",1);
-  rect(80,96,40,2);
-  textCentered(116,"TAP TO UNLOCK",1);
-  textCentered(186,"HOLD = BACK",1);
+function drawBatteryBar(){
+  let pct = battPct;
+  rect(20,10,160,12);
+  if(pct < 0) pct = 100;
+  let w = Math.floor(156*pct/100); if(w < 2) w = 2;
+  fillRect(22,12,w,8,0);
 }
+/* Home and deep sleep are the same picture: bar, wordmark, nothing else. */
+function drawResting(){
+  clear();
+  drawBatteryBar();
+  bitmap((200-LOGO_W)/2, 84, LOGO_W, LOGO_H, LOGO);
+}
+const drawHome = drawResting;
 function drawMenu(){
   clear();
   textCentered(10,"mono note mini",1); rect(0,26,200,1);
@@ -496,7 +508,7 @@ function drawHowTo(){
 function drawError(){
   clear(); textCentered(60,"ERROR",2); textCentered(100,errMsg,1); textCentered(150,"tap = continue",1);
 }
-function drawSleep(){ clear(); textCentered(90,"mono note",2); }
+const drawSleep = drawResting;
 
 const TOUR = [
   ["WELCOME",["Mono Note Mini","","A notebook you talk to.","","This tour shows every","feature. Tap NEXT to","walk through it."]],

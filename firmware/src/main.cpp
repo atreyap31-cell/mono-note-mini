@@ -13,6 +13,7 @@
 #include "pala_ui.h"
 #include "pala_record.h"
 #include "pala_net.h"
+#include "logo_mn.h"
 
 #define BAT_ADC_PIN 4
 #define BAT_EMPTY_MV 3300
@@ -64,9 +65,10 @@ static int transcriptPage = 0;
 static int wave[16] = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
 static int waveIdx = 0;
 
+static void drawRestingScreen();
+
 static void sleepNow() {
-  uiFillRect(0, 0, 200, 200, 0xff);
-  uiTextCentered(90, "mono note", 2);
+  drawRestingScreen();
   uiFlushFull();
   delay(300);
   pwr.POWEER_Audio_OFF();
@@ -102,17 +104,24 @@ static int batteryPct() {
   return pct;
 }
 
-static void drawBattery(int x, int y) {
+/* The resting screen carries one bar and nothing else. A charging device reads
+   as full rather than showing a meaningless number. */
+static void drawBatteryBar() {
   int pct = batteryPct();
-  uiRect(x, y, 26, 13);
-  uiFillRect(x + 26, y + 3, 2, 7);
-  if (pct < 0) {
-    uiText(x + 4, y + 3, "?", 1);
-    return;
-  }
-  int w = 22 * pct / 100;
+  uiRect(20, 10, 160, 12);
+  if (pct < 0) pct = 100;
+  int w = 156 * pct / 100;
   if (w < 2) w = 2;
-  uiFillRect(x + 2, y + 2, w, 9);
+  uiFillRect(22, 12, w, 8, 0x00);
+}
+
+/* Battery bar at the top, script wordmark centred in what is left. Used for
+   both the home screen and the deep-sleep screen: on e-paper the image costs
+   nothing to hold, so what you leave behind is what the device looks like. */
+static void drawRestingScreen() {
+  uiFillRect(0, 0, 200, 200, 0xff);
+  drawBatteryBar();
+  uiBitmap((200 - LOGO_W) / 2, 84, LOGO_W, LOGO_H, LOGO_MN);
 }
 
 static String timestampName() {
@@ -216,12 +225,7 @@ static void loadTranscript(const String& base) {
 
 static void drawHome() {
   epd->EPD_Clear();
-  drawBattery(158, 12);
-  uiTextCentered(56, "mono", 2);
-  uiTextCentered(76, "note mini", 1);
-  uiRect(80, 96, 40, 2);
-  uiTextCentered(116, "TAP TO UNLOCK", 1);
-  uiTextCentered(186, "HOLD = BACK", 1);
+  drawRestingScreen();
   uiFlushFull();
 }
 

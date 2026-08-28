@@ -51,6 +51,18 @@ void uiTextCentered(int y, const String& text, int scale, uint8_t color) {
   uiText(x, y, text, scale, color);
 }
 
+void uiBitmap(int x, int y, int w, int h, const unsigned char* data, uint8_t color) {
+  const int stride = (w + 7) / 8;
+  for (int j = 0; j < h; j++) {
+    for (int i = 0; i < w; i++) {
+      unsigned char b = pgm_read_byte(&data[j * stride + (i >> 3)]);
+      if (!(b & (0x80 >> (i & 7)))) continue;
+      int px = x + i, py = y + j;
+      if (px >= 0 && px < 200 && py >= 0 && py < 200) epd->EPD_DrawColorPixel(px, py, color);
+    }
+  }
+}
+
 /* Centre inside a box - used for button labels. */
 void uiTextCenteredIn(int x, int w, int y, const String& text, int scale, uint8_t color) {
   int tx = x + (w - uiTextWidth(text, scale)) / 2;

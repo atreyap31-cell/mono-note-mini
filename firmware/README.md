@@ -153,6 +153,14 @@ Work through these in order:
 - **"no record buffer"** -> PSRAM did not allocate; check the `memory_type` build flag
 - **Upload fails** -> data cable, hold BOOT during connect, try another USB port
 
+## The wordmark
+
+The resting screen — shown both on the home screen and while asleep — is a battery bar and the script `mn` wordmark, nothing else. E-paper holds an image for free, so what the device is left showing is what the device looks like.
+
+The wordmark lives in [`src/logo_mn.h`](src/logo_mn.h) as a 152x54 one-bit bitmap, blitted by `uiBitmap()`. It was rasterised from **Script MT Bold** at large size and downsampled, so the hairline joins are decided by area coverage rather than by which pixel centre an outline happened to cross; the thinnest surviving stroke is 2 px. The generator lives outside the repo — regenerate it from any face by rendering `mn`, cropping to the ink, scaling to 152 px wide and packing row-major at 8 px per byte, MSB leftmost.
+
+Worth knowing before this ships anywhere commercial: it is a raster of a licensed Microsoft/Monotype typeface. Font EULAs generally cover output like this, and for a personal project it is unremarkable, but if that matters to you the bitmap can be swapped for an open-licensed face or a drawn-from-scratch mark without touching any code — only `logo_mn.h` changes.
+
 ## Not verified on hardware
 
 Everything here compiles clean and the logic has been exercised in the browser preview and against a mock of the HTTP API, but no part of it has run on a board. The audio path, touch orientation, e-paper timing and PSRAM allocation are the four things that can only be confirmed by flashing it.
