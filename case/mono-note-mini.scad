@@ -107,6 +107,38 @@ fin_x = [case_w*0.32, case_w*0.68];     // two per short edge
 catch_z = tub_d - fin_len;              // where the barb lands, both parts agree
 
 // =============================================================================
+// SIDE ENGRAVING
+// =============================================================================
+// The long word goes on whichever side has no buttons; the short one fits in
+// the clear run below them. Both sit low on the wall, under the TF slot and
+// under the button tongues, so nothing collides.
+eng_long    = "mono note";
+eng_short   = "MINI";
+eng_font    = "Liberation Sans:style=Bold";
+eng_size    = 3.6;              // cap height
+eng_depth   = 0.5;              // how deep it cuts
+eng_z       = 4.5;              // low on the wall, below every cutout
+eng_y_btn   = 12.0;             // on the button side, sit below the buttons
+eng_y_plain = 18.0;             // clear side: short of the TF slot
+
+// =============================================================================
+// BUTTONS
+//
+// Flexure tongues cut straight out of the side wall rather than loose caps:
+// nothing to lose, nothing to assemble, and no gap for dust. The wall is thinned
+// behind each tongue so it can actually bend - 2 mm of PETG will not.
+// =============================================================================
+btn_tongue_l = 7.5;     // along the case height
+btn_tongue_w = 5.0;     // along the case depth
+btn_tongue_t = 1.0;     // thinned wall at the tongue
+btn_slot     = 0.6;     // gap around it - printable at a 0.4 nozzle
+btn_dish_d   = 4.2;     // finger dish sunk into the tongue
+btn_dish_h   = 0.45;    // a proud pad would push the case past 39.80 wide
+btn_boss_l   = 1.8;     // ASSUMED  inward reach to the switch
+btn_boss_d   = 2.6;
+btn_z        = floor_t + back_stack + pcb_t/2 + 1.0;   // level with the switches
+
+// =============================================================================
 // HELPERS
 // =============================================================================
 // Rounded box as a hull of four cylinders. The offset(r)/offset(-r) idiom is
@@ -149,6 +181,49 @@ module grille(d) {
     }
 }
 
+// Text sunk into a long side. left = -X face, right = +X face.
+module side_engraving(txt, on_left, ey) {
+    // extruded a little proud so the cut always breaks the surface cleanly
+    e = eng_depth + 0.2;
+    if (on_left)
+        translate([e - 0.2, ey, eng_z]) rotate([90, 0, -90])
+            linear_extrude(e) text(txt, size = eng_size, font = eng_font,
+                                   halign = "center", valign = "center");
+    else
+        translate([case_w - e + 0.2, ey, eng_z]) rotate([90, 0, 90])
+            linear_extrude(e) text(txt, size = eng_size, font = eng_font,
+                                   halign = "center", valign = "center");
+}
+
+// One flexure tongue in a side wall, anchored at its lower end. `by` is the
+// centre along the case height. Cuts and additions are separate so the caller
+// can difference then union in the right order.
+module button_cuts(by, on_left) {
+    x0 = on_left ? -1 : case_w - wall - 1;
+    tl = btn_tongue_l; tw = btn_tongue_w; s = btn_slot;
+    // U-slot: two rails along the height, one across the free end
+    for (dz = [-1, 1])
+        translate([x0, by - tl/2, btn_z + dz*(tw/2 + s/2) - s/2])
+            cube([wall + 2, tl + s, s]);
+    translate([x0, by + tl/2, btn_z - tw/2 - s])
+        cube([wall + 2, s, tw + 2*s]);
+    // shallow dish on the outside so a fingertip finds the button
+    xd = on_left ? -0.01 : case_w - btn_dish_h;
+    translate([xd, by + btn_tongue_l/6, btn_z]) rotate([0, 90, 0])
+        cylinder(d = btn_dish_d, h = btn_dish_h + 0.01);
+    // thin the wall behind the tongue so it can bend
+    xr = on_left ? btn_tongue_t : wall - btn_tongue_t;
+    translate([xr, by - tl/2, btn_z - tw/2])
+        cube([wall - btn_tongue_t + 0.01, tl, tw]);
+}
+
+module button_adds(by, on_left) {
+    // inner boss only - the dish on the outside is a cut, see button_cuts
+    xb = on_left ? btn_tongue_t : case_w - btn_tongue_t;
+    translate([xb, by + btn_tongue_l/6, btn_z]) rotate(on_left ? [0, 90, 0] : [0, -90, 0])
+        cylinder(d = btn_boss_d, h = btn_boss_l);
+}
+
 // Grooves in the tub's inner wall, cut from the cavity face outward. Both parts
 // derive their position from catch_z, so they cannot drift apart.
 module groove_cuts() {
@@ -182,11 +257,17 @@ module back_shell() {
         translate([case_w - wall - 1, tf_z - tf_w/2, pcb_z - tf_t/2])
             cube([wall + 2, tf_w, tf_t + 1.0]);
 
-        // side buttons
-        bx = (btn_side == "left") ? -1 : case_w - wall - 1;
-        for (z = [btn_boot_z, btn_pwr_z])
-            translate([bx, z, pcb_z + 1.5]) rotate([0, 90, 0])
-                cylinder(d = btn_d, h = wall + 2);
+        // side buttons - flexure tongues cut out of the wall
+        for (by = [btn_boot_z, btn_pwr_z])
+            button_cuts(by, btn_side == "left");
+
+        // engraving. On the button side it drops below them; the other side
+        // has the full run and takes it centred.
+        left_has_btn = (btn_side == "left");
+        side_engraving(left_has_btn ? eng_short : eng_long, true,
+                       left_has_btn ? eng_y_btn : eng_y_plain);
+        side_engraving(left_has_btn ? eng_long : eng_short, false,
+                       left_has_btn ? eng_y_plain : eng_y_btn);
 
         // speaker grille through the back
         translate([spk_x, spk_y, 0]) grille(spk_d);
@@ -203,6 +284,10 @@ module back_shell() {
     for (p = [[wall + 2.5, wall + 2.5], [case_w - wall - 2.5, wall + 2.5],
               [wall + 2.5, case_h - wall - 2.5], [case_w - wall - 2.5, case_h - wall - 2.5]])
         translate([p[0], p[1], floor_t]) cylinder(d = 3.6, h = back_stack);
+
+    // finger pads and inner bosses, added after the wall has been cut
+    for (by = [btn_boot_z, btn_pwr_z])
+        button_adds(by, btn_side == "left");
 }
 
 // =============================================================================
