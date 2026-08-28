@@ -97,6 +97,11 @@ fin_len     = 9.0;      // free length - what keeps the strain low
 fin_catch   = 0.8;      // how far the barb reaches past the cavity face
 fin_lead    = 1.5;      // assembly ramp height
 fin_clear   = 0.2;      // groove clearance around the finger
+fin_root    = 1.0;      // gusset at the base, inward face only
+
+// 0.4 mm nozzle at a 0.40 mm line width: the 1.6 mm finger is exactly four
+// walls and the 2.0 mm shell exactly five, so neither gets a sliver of infill
+// down its middle. A finger with infill in it snaps.
 
 fin_x = [case_w*0.32, case_w*0.68];     // two per short edge
 catch_z = tub_d - fin_len;              // where the barb lands, both parts agree
@@ -114,9 +119,18 @@ module rrect(w, h, r, th) {
 
 // A cantilever finger rising in +Z, its barb reaching out in -Y. `over` is how
 // far the barb passes the finger's own outer face.
+//
+// Printed upright the layer lines run across the beam, so bending it works the
+// layer bonds rather than the plastic - that is where a printed snap breaks,
+// always at the root. The gusset spreads that load. It flares inward only: the
+// outward face has just fit_clear between it and the tub wall.
 module finger(len, thick, wide, over, lead) {
     union() {
         cube([wide, thick, len]);
+        hull() {
+            cube([wide, thick + fin_root, 0.01]);
+            translate([0, 0, fin_root]) cube([wide, thick, 0.01]);
+        }
         hull() {                                  // barb at the free end
             translate([0, 0, len - lead - 0.6]) cube([wide, thick, 0.01]);
             translate([0, -over, len - lead]) cube([wide, thick + over, 0.01]);

@@ -43,11 +43,33 @@ The device is **portrait** — taller than it is wide. The glass itself is 200 p
 
 The outside will be the right size and shape as printed. The inside will not hold the board correctly until those are measured.
 
-## Printing
+## Printing — Bambu A1, 0.4 mm nozzle
 
-- **0.2 mm layers, 3 perimeters, 20% infill.** No supports needed: the hooks print standing up off the bezel face and the port cutouts are all on vertical walls.
-- **PETG or PLA.** PETG flexes further before yielding, which suits snap hooks; PLA works but be gentler on the first assembly. Avoid brittle filled filaments — carbon-fill will crack the hooks.
-- Print the bezel **face down** so the visible surface is the smooth plate side.
+Start from **0.20 mm Standard @BBL A1**, then change four things:
+
+| Setting | Value | Why |
+|---|---|---|
+| Wall line width | **0.40 mm** | makes the 1.6 mm finger exactly 4 walls and the 2.0 mm shell exactly 5 |
+| Wall loops | **5** | so the shell is solid perimeters with no infill inside it |
+| Top / bottom shells | **5** | 1.0 mm of solid either side of the 1.8 mm faces |
+| Supports | **off** | nothing needs them, see orientation below |
+
+The line width is the one that matters. At the default 0.42 mm a 1.6 mm finger works out at 3.8 walls, so the slicer puts a sliver of infill down the middle of it — and a cantilever with infill in its core snaps at the root the first time you flex it. At 0.40 it is four solid walls.
+
+Infill 20 % gyroid is plenty; both parts are nearly all perimeter. Leave elephant-foot compensation at Bambu's default 0.15 mm — the bezel plugs in on a 0.25 mm clearance, and a squashed first layer eats straight into that.
+
+### Orientation
+
+- **Back tub:** floor down, open side up. As exported. Port cutouts are all on vertical walls and bridge fine.
+- **Front bezel:** face down, fingers pointing up. As exported. The visible face comes off the plate smooth.
+
+### Filament
+
+**PETG for the bezel.** Printed upright, the fingers have their layer lines running across the beam, so bending one works the layer bonds rather than the plastic itself — that is where printed snaps fail, always at the root. PETG's layer adhesion is much better than PLA's and it takes more deflection before it yields. There is a gusset at each finger root to spread that load, but the material still helps.
+
+PLA is fine for the tub, and fine for the bezel too if you are gentle the first few times. **Avoid carbon or glass filled filament entirely** — stiff and brittle is the exact wrong combination for a snap fit.
+
+Both parts fit the A1's 256 mm bed with room to spare; print them together.
 
 ## How the snap works
 
