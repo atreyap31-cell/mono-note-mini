@@ -20,6 +20,10 @@ GLASS = 27.60           # 200 px at 0.138 mm pitch
 GLASS_BOTTOM = 14.40
 APERTURE = 28.80
 APERTURE_BOTTOM = 13.80
+BEZEL_T = 1.8
+TUB_D = 15.10
+PCB_TOP_Z = 10.40       # floor + back stack + board thickness
+RAILS = {"left": (4.25, 5.45), "right": (34.35, 35.55)}
 
 
 def load(path):
@@ -97,6 +101,22 @@ def check_screen(tris, samples=90):
     return len(cand), hits
 
 
+def check_rails(tris):
+    """The hold-down rails clamp the board against the posts below it. They went
+    missing once to an undef dimension, which warns but still exports a clean
+    part - so verify they are physically present and reach the board."""
+    out = []
+    for name, (x0, x1) in RAILS.items():
+        sel = [t for t in tris if all(x0 - 0.02 <= p[0] <= x1 + 0.02 for p in t)]
+        if not sel:
+            out.append((name, None, None))
+            continue
+        top_local = max(p[2] for t in sel for p in t)
+        reach = TUB_D - (top_local - BEZEL_T)      # in tub coordinates
+        out.append((name, top_local, PCB_TOP_Z - reach))
+    return out
+
+
 def main():
     ok = True
     for path, label in (("back.stl", "back tub"), ("front.stl", "front bezel")):
@@ -129,6 +149,16 @@ def main():
                   f"{cand} candidate triangles   {'ok' if hits == 0 else 'FAIL'}")
             print(f"  aperture margin   {margin:.2f} mm per side around the glass")
             ok &= hits == 0
+
+            for name, top, press in check_rails(tris):
+                if top is None:
+                    print(f"  {name+' rail':<17} MISSING - FAIL")
+                    ok = False
+                else:
+                    good = press >= 0
+                    print(f"  {name+' rail':<17} presses {press:+.2f} mm on the board   "
+                          f"{'ok' if good else 'FAIL - does not reach it'}")
+                    ok &= good
 
     print("\n" + ("all checks passed" if ok else "CHECKS FAILED"))
     return 0 if ok else 1

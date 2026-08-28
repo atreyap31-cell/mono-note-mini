@@ -47,6 +47,11 @@ pcb_h       = 34.00;    // ASSUMED  the labelled PCB area on the back view
 pcb_t       = 1.6;
 pcb_bottom  = 9.50;     // ASSUMED  from the drawing: case bottom to PCB bottom
 pcb_clear   = 0.35;
+pcb_squeeze = 0.10;     // how hard the bezel rails press the board down
+
+// derived footprint - posts below and rails above both key off these
+pcb_x0 = (case_w - pcb_w)/2;   pcb_x1 = pcb_x0 + pcb_w;
+pcb_y0 = pcb_bottom;           pcb_y1 = pcb_y0 + pcb_h;
 
 front_stack = 3.4;      // ASSUMED  e-paper module standing off the PCB
 back_stack  = 7.0;      // ASSUMED  TF socket / battery header / speaker
@@ -79,6 +84,10 @@ bezel_t     = 1.8;      // front face thickness
 floor_t     = 1.8;      // back face thickness
 
 tub_d       = case_d - bezel_t;         // tub height, so the pair totals case_d
+// Declared here, not up with the PCB block: OpenSCAD resolves top-level
+// assignments in file order, so referencing floor_t before this point silently
+// yields undef - which is exactly how the hold-down rails went missing once.
+pcb_top_z   = floor_t + back_stack + pcb_t;
 cav_w       = case_w - 2*wall;
 cav_h       = case_h - 2*wall;
 
@@ -97,6 +106,8 @@ cav_h       = case_h - 2*wall;
 // =============================================================================
 fit_clear   = 0.25;     // plug to cavity, each side
 rim_h       = 2.0;      // locating rim depth into the tub
+rail_w      = 1.2;      // hold-down rail width
+rail_gap    = 0.05;     // keeps the rail off the display window
 
 fin_t       = 1.6;      // finger thickness
 fin_w       = 7.0;      // finger width
@@ -109,6 +120,12 @@ fin_root    = 1.0;      // gusset at the base, inward face only
 // 0.4 mm nozzle at a 0.40 mm line width: the 1.6 mm finger is exactly four
 // walls and the 2.0 mm shell exactly five, so neither gets a sliver of infill
 // down its middle. A finger with infill in it snaps.
+
+// Guards. A dimension that resolves to undef only warns, and the part exports
+// looking fine with the feature quietly absent.
+assert(pcb_top_z != undef && pcb_top_z > 0, "pcb_top_z undefined - check declaration order");
+assert(tub_d - pcb_top_z > 0, "no room between the board and the bezel");
+assert((case_w - win)/2 > wall, "display aperture is wider than the shell allows");
 
 fin_x = [case_w*0.32, case_w*0.68];     // two per short edge
 catch_z = tub_d - fin_len;              // where the barb lands, both parts agree
@@ -286,10 +303,11 @@ module back_shell() {
             cylinder(d = 10, h = wall + 2);
     }
 
-    // PCB shelf: four posts rather than a continuous ledge, so the board can be
-    // dropped in past the connectors on its edges
-    for (p = [[wall + 2.5, wall + 2.5], [case_w - wall - 2.5, wall + 2.5],
-              [wall + 2.5, case_h - wall - 2.5], [case_w - wall - 2.5, case_h - wall - 2.5]])
+    // Posts under the board's corners. They were previously at the cavity
+    // corners, which is 5 mm clear of the PCB at both ends - the board rested
+    // on nothing at all.
+    for (p = [[pcb_x0 + 3, pcb_y0 + 3], [pcb_x1 - 3, pcb_y0 + 3],
+              [pcb_x0 + 3, pcb_y1 - 3], [pcb_x1 - 3, pcb_y1 - 3]])
         translate([p[0], p[1], floor_t]) cylinder(d = 3.6, h = back_stack);
 
     // finger pads and inner bosses, added after the wall has been cut
@@ -327,6 +345,17 @@ module front_frame() {
         // microphone port
         translate([mic_x, mic_y, -1]) cylinder(d = 1.8, h = bezel_t + 2);
     }
+
+    // Hold-down rails. Without these the board only rests on posts and can
+    // lift 2.7 mm inside a closed case - it rattles, and the display is not
+    // held against the window. The rails run down each side of the PCB in the
+    // margin between the display window and the board edge, so the board is
+    // clamped between post and rail with nothing crossing the screen.
+    rail_len = tub_d - pcb_top_z + pcb_squeeze;
+    wx0 = (case_w - win)/2;
+    for (rx = [wx0 - rail_w - rail_gap, wx0 + win + rail_gap])
+        translate([rx, pcb_y0 + 2, bezel_t])
+            cube([rail_w, (pcb_y1 - pcb_y0) - 4, rail_len]);
 
     // Fingers, on the short edges only. Barbs face outward into the grooves.
     for (x = fin_x) {
