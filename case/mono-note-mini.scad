@@ -70,7 +70,6 @@ spk_d       = 15.0;
 wall        = 2.0;
 bezel_t     = 1.8;      // front face thickness
 floor_t     = 1.8;      // back face thickness
-lip         = 1.5;      // bezel skirt overlap onto the tub
 
 tub_d       = case_d - bezel_t;         // tub height, so the pair totals case_d
 cav_w       = case_w - 2*wall;
@@ -79,35 +78,49 @@ cav_h       = case_h - 2*wall;
 // =============================================================================
 // SNAP FIT
 //
-// Hooks on the bezel, grooves in the tub. Free length is what keeps them alive:
-// a 6.5 mm beam taking 0.9 mm of deflection stays inside PLA's elastic range,
-// where a short stubby hook doing the same job whitens and breaks.
+// The bezel plugs into the tub rather than capping it, so the outside stays a
+// smooth 39.80 x 53.00 with nothing protruding. Four cantilever fingers hang
+// from the bezel and catch grooves in the tub's inner wall.
+//
+// They sit on the short edges only, and that is forced by the board: the PCB is
+// ~34.6 mm wide in a 35.8 mm cavity, leaving 0.6 mm at each long side - no room
+// for a finger. Above and below the board there is ~7.5 mm to work in, which
+// buys a 9 mm cantilever. A finger short enough to fit beside the PCB would be
+// the stubby kind that stress-whitens and snaps after a few openings.
 // =============================================================================
-hook_t      = 1.5;
-hook_w      = 6.0;
-hook_len    = 6.5;
-hook_catch  = 0.85;
-hook_lead   = 1.4;
-hook_clear  = 0.15;
-groove_over = 0.25;
+fit_clear   = 0.25;     // plug to cavity, each side
+rim_h       = 2.0;      // locating rim depth into the tub
 
-hook_x = [case_w*0.30, case_w*0.70];    // two on each short edge
-hook_y = [case_h*0.28, case_h*0.72];    // two on each long edge
+fin_t       = 1.6;      // finger thickness
+fin_w       = 7.0;      // finger width
+fin_len     = 9.0;      // free length - what keeps the strain low
+fin_catch   = 0.8;      // how far the barb reaches past the cavity face
+fin_lead    = 1.5;      // assembly ramp height
+fin_clear   = 0.2;      // groove clearance around the finger
+
+fin_x = [case_w*0.32, case_w*0.68];     // two per short edge
+catch_z = tub_d - fin_len;              // where the barb lands, both parts agree
 
 // =============================================================================
 // HELPERS
 // =============================================================================
+// Rounded box as a hull of four cylinders. The offset(r)/offset(-r) idiom is
+// tidier to read but hands CGAL near-degenerate arcs, which it fails on.
 module rrect(w, h, r, th) {
-    linear_extrude(th) offset(r = r) offset(delta = -r) square([w, h]);
+    rr = min(r, w/2 - 0.01, h/2 - 0.01);
+    hull() for (p = [[rr, rr], [w - rr, rr], [rr, h - rr], [w - rr, h - rr]])
+        translate([p[0], p[1], 0]) cylinder(r = rr, h = th);
 }
 
-module hook(len, thick, wide, catch, lead) {
+// A cantilever finger rising in +Z, its barb reaching out in -Y. `over` is how
+// far the barb passes the finger's own outer face.
+module finger(len, thick, wide, over, lead) {
     union() {
         cube([wide, thick, len]);
-        translate([0, 0, len]) hull() {
-            cube([wide, thick, 0.01]);
-            translate([0, -catch, 0]) cube([wide, thick + catch, 0.01]);
-            translate([0, -catch, lead]) cube([wide, 0.01, 0.01]);
+        hull() {                                  // barb at the free end
+            translate([0, 0, len - lead - 0.6]) cube([wide, thick, 0.01]);
+            translate([0, -over, len - lead]) cube([wide, thick + over, 0.01]);
+            translate([0, -over, len]) cube([wide, over + 0.01, 0.01]);
         }
     }
 }
@@ -122,20 +135,16 @@ module grille(d) {
     }
 }
 
-// Grooves are cut from the tub as a set, so back and front stay in step.
+// Grooves in the tub's inner wall, cut from the cavity face outward. Both parts
+// derive their position from catch_z, so they cannot drift apart.
 module groove_cuts() {
-    gz = tub_d - hook_len;
-    for (x = hook_x) {
-        translate([x - hook_w/2 - hook_clear, -1, gz])
-            cube([hook_w + 2*hook_clear, wall - hook_catch + groove_over + 1, hook_len + 2]);
-        translate([x - hook_w/2 - hook_clear, case_h - (wall - hook_catch + groove_over), gz])
-            cube([hook_w + 2*hook_clear, wall - hook_catch + groove_over + 1, hook_len + 2]);
-    }
-    for (y = hook_y) {
-        translate([-1, y - hook_w/2 - hook_clear, gz])
-            cube([wall - hook_catch + groove_over + 1, hook_w + 2*hook_clear, hook_len + 2]);
-        translate([case_w - (wall - hook_catch + groove_over), y - hook_w/2 - hook_clear, gz])
-            cube([wall - hook_catch + groove_over + 1, hook_w + 2*hook_clear, hook_len + 2]);
+    gw = fin_w + 2*fin_clear;
+    gh = fin_lead + 1.6;                    // a little taller than the barb
+    for (x = fin_x) {
+        translate([x - gw/2, wall - fin_catch, catch_z - 0.4])          // bottom edge
+            cube([gw, fin_catch + 0.01, gh]);
+        translate([x - gw/2, case_h - wall - 0.01, catch_z - 0.4])      // top edge
+            cube([gw, fin_catch + 0.01, gh]);
     }
 }
 
@@ -187,36 +196,38 @@ module back_shell() {
 // =============================================================================
 module front_frame() {
     wx = (case_w - win) / 2;
+    // plug footprint: the cavity, less a slip fit
+    pw = cav_w - 2*fit_clear;
+    ph = cav_h - 2*fit_clear;
+    px = wall + fit_clear;
+
     difference() {
         union() {
             rrect(case_w, case_h, case_r, bezel_t);
-            translate([0, 0, bezel_t]) difference() {           // skirt
-                rrect(case_w, case_h, case_r, lip + hook_len);
-                translate([wall - hook_clear, wall - hook_clear, -1])
-                    rrect(cav_w + 2*hook_clear, cav_h + 2*hook_clear,
-                          max(0.1, case_r - wall), lip + hook_len + 2);
-            }
+            // shallow locating rim, so the bezel seats square before the
+            // fingers engage
+            translate([px, px, bezel_t])
+                rrect(pw, ph, max(0.1, case_r - wall), rim_h);
         }
         // Display aperture. The whole window is exposed on purpose - the UI
         // puts its back button in the bottom rows of the panel, so a bezel
         // lapping even 2 mm over the glass would sit on a control.
-        translate([wx, win_bottom, -1]) cube([win, win, bezel_t + 2]);
+        translate([wx, win_bottom, -1]) cube([win, win, bezel_t + rim_h + 2]);
+
+        // hollow the rim out so it does not foul the display module
+        translate([px + 2, px + 2, bezel_t])
+            rrect(pw - 4, ph - 4, max(0.1, case_r - wall - 2), rim_h + 1);
 
         // microphone port
         translate([mic_x, mic_y, -1]) cylinder(d = 1.8, h = bezel_t + 2);
     }
 
-    for (x = hook_x) {
-        translate([x - hook_w/2, wall - hook_t, bezel_t])
-            hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
-        translate([x + hook_w/2, case_h - wall + hook_t, bezel_t]) rotate([0, 0, 180])
-            hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
-    }
-    for (y = hook_y) {
-        translate([wall - hook_t, y + hook_w/2, bezel_t]) rotate([0, 0, -90])
-            hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
-        translate([case_w - wall + hook_t, y - hook_w/2, bezel_t]) rotate([0, 0, 90])
-            hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
+    // Fingers, on the short edges only. Barbs face outward into the grooves.
+    for (x = fin_x) {
+        translate([x - fin_w/2, px, bezel_t])                       // bottom edge
+            finger(fin_len, fin_t, fin_w, fin_catch + fit_clear, fin_lead);
+        translate([x + fin_w/2, case_h - px, bezel_t]) rotate([0, 0, 180])
+            finger(fin_len, fin_t, fin_w, fin_catch + fit_clear, fin_lead);
     }
 }
 
@@ -235,8 +246,10 @@ else if (part == "plate") { back_shell(); translate([case_w + 6, 0, 0]) front_fr
 else {
     back_shell();
     pcb_ghost();
+    // flipped onto the tub: rotate alone is the whole transform - adding a
+    // mirror as well cancels the Y flip and shifts the part a case-length away
     color("white", 0.55)
-        translate([0, case_h, tub_d + bezel_t + lip]) rotate([180, 0, 0]) mirror([0, 1, 0])
+        translate([0, case_h, tub_d + bezel_t]) rotate([180, 0, 0])
             front_frame();
 }
 

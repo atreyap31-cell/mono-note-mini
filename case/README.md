@@ -55,6 +55,26 @@ Six cantilever hooks on the bezel catch grooves in the tub wall: two per long si
 
 To take it apart, push a thumbnail into the notch on the bottom edge and lift. If it opens too easily, raise `hook_catch` by 0.1 mm at a time; if it will not close, raise `hook_clear` instead.
 
-## Not yet verified
+![assembly](assembly.png)
 
-Nothing here has been printed, and no STL has been exported — OpenSCAD is not installed on the machine this was written on, so the geometry has not been rendered or checked for self-intersection. Treat the first print as a fit test, in draft quality, before committing to a good one.
+Back tub and front bezel:
+
+![back](back.png) ![front](front.png)
+
+## Verified geometry
+
+Both parts render and export cleanly, and the meshes were checked directly:
+
+| | back tub | front bezel |
+|---|---|---|
+| Triangles | 7204 | 1220 |
+| Connected shells | 1 | 1 |
+| Non-manifold edges | 0 / 10806 | 0 / 1830 |
+| Footprint | 39.80 × 53.00 | 39.80 × 53.00 |
+| Height | 15.10 | 1.80 + fingers |
+
+15.10 + 1.80 = **16.90 mm assembled**, matching Waveshare's depth exactly, and neither part exceeds the footprint — the bezel plugs *into* the tub, so nothing protrudes.
+
+## Still not verified
+
+**Nothing has been printed.** The geometry is sound and the outside is the right size, but the internals rest on the assumed board dimensions above. Treat the first print as a draft-quality fit test.
