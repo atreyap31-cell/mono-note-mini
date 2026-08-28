@@ -24,12 +24,19 @@ case_h      = 53.00;    // height - the device is portrait, taller than wide
 case_d      = 16.90;    // total thickness
 case_r      = 4.50;     // outside corner radius
 
-win         = 27.80;    // display window, square
-win_bottom  = 14.30;    // from the bottom edge up to the bottom of the window
-// horizontally centred: (39.80 - 27.80) / 2 = 6.00 each side
+// The glass is the number that matters: 200 px at 0.138 mm pitch. Waveshare's
+// own window is 27.80 at 14.30, i.e. centred on the glass with 0.1 mm a side.
+glass        = 27.60;
+glass_bottom = 14.40;   // keeps the same centre as Waveshare's 27.80 @ 14.30
 
-// For reference: the glass itself is 200 px at 0.138 mm pitch = 27.6 mm, so
-// Waveshare's 27.80 window already carries 0.1 mm of margin per side.
+// The aperture is cut wider than the glass on purpose. Where the display sits
+// in the case is an assumed figure, and at 0.1 mm a side any error at all puts
+// the bezel over live pixels - which would eat the back button, since the UI
+// draws it in the bottom rows of the panel. Losing a little of the module's
+// black border costs nothing; covering a control costs a control.
+win_margin  = 0.60;
+win         = glass + 2*win_margin;             // 28.80
+win_bottom  = glass_bottom - win_margin;        // 13.80
 
 // =============================================================================
 // ASSUMED - not published anywhere. Waveshare dimensions the cased product,
