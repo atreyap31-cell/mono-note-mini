@@ -1,7 +1,8 @@
 // Mono Note Mini - snap-fit enclosure, no screws
 // =============================================================================
-// Two parts: a back tub that holds the board, and a front bezel that clips over
-// it on six cantilever hooks. Printed in PLA or PETG at 0.2 mm, no supports.
+// A replacement for the case the board ships in. The stock one is a two-part
+// shell closed with two screws; this is the same external envelope closed with
+// six cantilever hooks instead, so it opens with a thumbnail.
 //
 //   openscad -o back.stl  -D 'part="back"'  mono-note-mini.scad
 //   openscad -o front.stl -D 'part="front"' mono-note-mini.scad
@@ -10,118 +11,131 @@
 // =============================================================================
 
 part = "assembly";      // "back" | "front" | "assembly" | "plate"
-$fn = 48;
+$fn = 64;
 
 // =============================================================================
-// MEASURED INPUTS
-//
-// !! Every value in this block is an ASSUMPTION until checked with calipers.
-// !! Waveshare publishes the outline only as a drawing, so these are inferred
-// !! from the 1.54" module and typical dev-board layout. Measure the real board
-// !! and correct them here - nothing below needs to change.
+// KNOWN - from Waveshare's outline drawing for ESP32-S3-ePaper-1.54
+// (ESP32-S3-ePaper-1.54-details-size.jpg). These are the dimensions of the
+// finished product in its stock case, so matching them keeps the device the
+// same size in the hand and keeps the window over the glass.
 // =============================================================================
-board_w        = 48.0;  // ASSUMED  PCB width  (X)
-board_h        = 40.0;  // ASSUMED  PCB height (Y)
-board_t        = 1.6;   // standard 2-layer PCB
-board_clear    = 0.35;  // slip fit around the PCB edge
+case_w      = 39.80;    // width
+case_h      = 53.00;    // height - the device is portrait, taller than wide
+case_d      = 16.90;    // total thickness
+case_r      = 4.50;     // outside corner radius
 
-// tallest thing standing on the front face of the PCB (the e-paper module)
-front_stack    = 3.2;   // ASSUMED
-// tallest thing hanging off the back (TF socket, battery header, speaker)
-back_stack     = 6.5;   // ASSUMED
+win         = 27.80;    // display window, square
+win_bottom  = 14.30;    // from the bottom edge up to the bottom of the window
+// horizontally centred: (39.80 - 27.80) / 2 = 6.00 each side
 
-// Display. The active area is exact: 200 px at 0.138 mm pitch.
-active         = 27.6;
-// Where the centre of the active area sits relative to the PCB centre.
-disp_off_x     = 0.0;   // ASSUMED
-disp_off_y     = 4.0;   // ASSUMED - display usually sits above centre
+// For reference: the glass itself is 200 px at 0.138 mm pitch = 27.6 mm, so
+// Waveshare's 27.80 window already carries 0.1 mm of margin per side.
 
-// Port and control positions, measured from the PCB's lower-left corner.
-usb_x          = 24.0;  // ASSUMED  centre of the USB-C connector, on the bottom edge
-usb_w          = 9.5;   // Type-C body + clearance
-usb_h          = 3.6;
-tf_y           = 20.0;  // ASSUMED  centre of the TF slot, on the right edge
-tf_w           = 15.5;
-tf_h           = 2.2;
-btn_boot_x     = 14.0;  // ASSUMED  BOOT button centre, bottom edge
-btn_pwr_x      = 34.0;  // ASSUMED  PWR  button centre, bottom edge
-btn_d          = 4.2;   // finger hole over each button
+// =============================================================================
+// ASSUMED - not published anywhere. Waveshare dimensions the cased product,
+// never the bare PCB, so everything here waits on calipers. See README.
+// =============================================================================
+pcb_w       = 34.60;    // ASSUMED  from the 22.00 + 12.60 chain on the drawing
+pcb_h       = 34.00;    // ASSUMED  the labelled PCB area on the back view
+pcb_t       = 1.6;
+pcb_bottom  = 9.50;     // ASSUMED  from the drawing: case bottom to PCB bottom
+pcb_clear   = 0.35;
 
-mic_x          = 8.0;   // ASSUMED  microphone port
-mic_y          = 34.0;
-spk_x          = 24.0;  // ASSUMED  speaker centre (back face)
-spk_y          = 12.0;
-spk_d          = 14.0;  // grille diameter
+front_stack = 3.4;      // ASSUMED  e-paper module standing off the PCB
+back_stack  = 7.0;      // ASSUMED  TF socket / battery header / speaker
+
+// Side buttons. The drawing's side view shows BOOT and PWR on one edge, but
+// does not dimension them - these are placeholders.
+btn_side    = "left";   // ASSUMED  which edge the buttons sit on
+btn_boot_z  = 34.0;     // ASSUMED  height up the case
+btn_pwr_z   = 25.0;     // ASSUMED
+btn_d       = 4.0;
+
+usb_x       = case_w/2; // ASSUMED  USB-C centred on the bottom edge
+usb_w       = 9.6;
+usb_t       = 3.6;
+tf_z        = 40.0;     // ASSUMED  TF slot height on the right edge
+tf_w        = 15.5;
+tf_t        = 2.2;
+
+mic_x       = 12.0;     // ASSUMED  mic port, bottom area of the front face
+mic_y       = 7.0;
+spk_x       = case_w/2; // ASSUMED  speaker grille on the back
+spk_y       = 9.0;
+spk_d       = 15.0;
 
 // =============================================================================
 // SHELL
 // =============================================================================
-wall           = 2.0;   // side walls
-floor_t        = 1.6;   // back face
-bezel_t        = 1.6;   // front face
-corner_r       = 3.0;   // outside corner radius
-lip            = 1.2;   // how far the bezel overlaps the tub wall
+wall        = 2.0;
+bezel_t     = 1.8;      // front face thickness
+floor_t     = 1.8;      // back face thickness
+lip         = 1.5;      // bezel skirt overlap onto the tub
 
-// interior the PCB sits in
-cav_w          = board_w + 2*board_clear;
-cav_h          = board_h + 2*board_clear;
-
-// The PCB rests on a shelf so it cannot press on the back face.
-shelf          = 1.5;   // how far the shelf reaches in over the PCB edge
-shelf_gap      = back_stack + 0.6;   // clearance under the PCB
-
-body_h         = floor_t + shelf_gap + board_t + front_stack;  // tub height
-outer_w        = cav_w + 2*wall;
-outer_h        = cav_h + 2*wall;
+tub_d       = case_d - bezel_t;         // tub height, so the pair totals case_d
+cav_w       = case_w - 2*wall;
+cav_h       = case_h - 2*wall;
 
 // =============================================================================
 // SNAP FIT
 //
-// Cantilever hooks on the bezel, catching a groove in the tub wall. Hook length
-// is what sets the strain: a 6 mm beam deflecting 0.9 mm stays well inside PLA's
-// elastic range, where a 3 mm beam doing the same would whiten and snap.
+// Hooks on the bezel, grooves in the tub. Free length is what keeps them alive:
+// a 6.5 mm beam taking 0.9 mm of deflection stays inside PLA's elastic range,
+// where a short stubby hook doing the same job whitens and breaks.
 // =============================================================================
-hook_t         = 1.6;   // beam thickness
-hook_w         = 7.0;   // beam width along the wall
-hook_len       = 6.5;   // free length before the barb
-hook_catch     = 0.9;   // engagement depth
-hook_lead      = 1.4;   // lead-in chamfer height (assembly ramp)
-hook_clear     = 0.15;  // print clearance either side
-groove_extra   = 0.25;  // groove cut slightly deeper than the barb
+hook_t      = 1.5;
+hook_w      = 6.0;
+hook_len    = 6.5;
+hook_catch  = 0.85;
+hook_lead   = 1.4;
+hook_clear  = 0.15;
+groove_over = 0.25;
 
-// hook positions: two per long side, one per short side
-hook_x = [outer_w*0.28, outer_w*0.72];
-hook_y = [outer_h*0.30, outer_h*0.70];
+hook_x = [case_w*0.30, case_w*0.70];    // two on each short edge
+hook_y = [case_h*0.28, case_h*0.72];    // two on each long edge
 
 // =============================================================================
 // HELPERS
 // =============================================================================
 module rrect(w, h, r, th) {
-    linear_extrude(th) offset(r = r) offset(delta = -r)
-        square([w, h], center = false);
+    linear_extrude(th) offset(r = r) offset(delta = -r) square([w, h]);
 }
 
-// A hook pointing inward along +Y at the given position.
 module hook(len, thick, wide, catch, lead) {
     union() {
-        cube([wide, thick, len]);                       // the beam
-        translate([0, 0, len])                          // the barb
-            hull() {
-                cube([wide, thick, 0.01]);
-                translate([0, -catch, 0]) cube([wide, thick + catch, 0.01]);
-                translate([0, -catch, lead]) cube([wide, 0.01, 0.01]);
-            }
+        cube([wide, thick, len]);
+        translate([0, 0, len]) hull() {
+            cube([wide, thick, 0.01]);
+            translate([0, -catch, 0]) cube([wide, thick + catch, 0.01]);
+            translate([0, -catch, lead]) cube([wide, 0.01, 0.01]);
+        }
     }
 }
 
-module speaker_grille(d) {
-    // concentric rings of holes - prints cleanly and stays stiff
+module grille(d) {
     for (ring = [0 : 2]) {
         r = ring * d/6;
         n = ring == 0 ? 1 : ring * 6;
         for (i = [0 : n-1])
             rotate([0, 0, i * 360/n]) translate([r, 0, 0])
-                cylinder(d = 1.6, h = 20, center = true);
+                cylinder(d = 1.5, h = 30, center = true);
+    }
+}
+
+// Grooves are cut from the tub as a set, so back and front stay in step.
+module groove_cuts() {
+    gz = tub_d - hook_len;
+    for (x = hook_x) {
+        translate([x - hook_w/2 - hook_clear, -1, gz])
+            cube([hook_w + 2*hook_clear, wall - hook_catch + groove_over + 1, hook_len + 2]);
+        translate([x - hook_w/2 - hook_clear, case_h - (wall - hook_catch + groove_over), gz])
+            cube([hook_w + 2*hook_clear, wall - hook_catch + groove_over + 1, hook_len + 2]);
+    }
+    for (y = hook_y) {
+        translate([-1, y - hook_w/2 - hook_clear, gz])
+            cube([wall - hook_catch + groove_over + 1, hook_w + 2*hook_clear, hook_len + 2]);
+        translate([case_w - (wall - hook_catch + groove_over), y - hook_w/2 - hook_clear, gz])
+            cube([wall - hook_catch + groove_over + 1, hook_w + 2*hook_clear, hook_len + 2]);
     }
 }
 
@@ -129,107 +143,80 @@ module speaker_grille(d) {
 // BACK TUB
 // =============================================================================
 module back_shell() {
+    pcb_z = floor_t + back_stack;       // underside of the PCB
     difference() {
-        union() {
-            // outer body
-            rrect(outer_w, outer_h, corner_r, body_h);
-        }
+        rrect(case_w, case_h, case_r, tub_d);
 
-        // main cavity, leaving the shelf ledge
+        // interior
         translate([wall, wall, floor_t])
-            rrect(cav_w, cav_h, max(0.1, corner_r - wall), body_h);
+            rrect(cav_w, cav_h, max(0.1, case_r - wall), tub_d);
 
-        // widen above the shelf so the PCB drops in
-        translate([wall - shelf, wall - shelf, floor_t + shelf_gap])
-            rrect(cav_w + 2*shelf, cav_h + 2*shelf,
-                  max(0.1, corner_r - wall + shelf), body_h);
+        // USB-C on the bottom edge
+        translate([usb_x - usb_w/2, -1, pcb_z - usb_t/2])
+            cube([usb_w, wall + 2, usb_t + 1.0]);
 
-        // ---- port cutouts (through the tub wall, below the PCB top face) ----
-        port_z = floor_t + shelf_gap - 0.6;
+        // TF slot on the right edge
+        translate([case_w - wall - 1, tf_z - tf_w/2, pcb_z - tf_t/2])
+            cube([wall + 2, tf_w, tf_t + 1.0]);
 
-        // USB-C, bottom edge
-        translate([wall + board_clear + usb_x - usb_w/2, -1, port_z])
-            cube([usb_w, wall + 2, usb_h + 1.2]);
+        // side buttons
+        bx = (btn_side == "left") ? -1 : case_w - wall - 1;
+        for (z = [btn_boot_z, btn_pwr_z])
+            translate([bx, z, pcb_z + 1.5]) rotate([0, 90, 0])
+                cylinder(d = btn_d, h = wall + 2);
 
-        // TF card, right edge
-        translate([outer_w - wall - 1, wall + board_clear + tf_y - tf_w/2, port_z])
-            cube([wall + 2, tf_w, tf_h + 1.2]);
+        // speaker grille through the back
+        translate([spk_x, spk_y, 0]) grille(spk_d);
 
-        // BOOT and PWR finger holes, bottom edge
-        for (bx = [btn_boot_x, btn_pwr_x])
-            translate([wall + board_clear + bx, -1, port_z + btn_d/2 + 0.4])
-                rotate([-90, 0, 0]) cylinder(d = btn_d, h = wall + 2);
+        groove_cuts();
 
-        // speaker grille through the back face
-        translate([wall + board_clear + spk_x, wall + board_clear + spk_y, 0])
-            speaker_grille(spk_d);
-
-        // microphone port
-        translate([wall + board_clear + mic_x, wall + board_clear + mic_y, -1])
-            cylinder(d = 2.0, h = floor_t + 2);
-
-        // ---- snap grooves in the outer wall ----
-        gz = body_h - hook_len;
-        for (x = hook_x) {
-            translate([x - hook_w/2 - hook_clear, -1, gz])
-                cube([hook_w + 2*hook_clear, wall - hook_catch + groove_extra + 1, hook_len + 1]);
-            translate([x - hook_w/2 - hook_clear,
-                       outer_h - (wall - hook_catch + groove_extra), gz])
-                cube([hook_w + 2*hook_clear, wall - hook_catch + groove_extra + 1, hook_len + 1]);
-        }
-        for (y = hook_y) {
-            translate([-1, y - hook_w/2 - hook_clear, gz])
-                cube([wall - hook_catch + groove_extra + 1, hook_w + 2*hook_clear, hook_len + 1]);
-            translate([outer_w - (wall - hook_catch + groove_extra),
-                       y - hook_w/2 - hook_clear, gz])
-                cube([wall - hook_catch + groove_extra + 1, hook_w + 2*hook_clear, hook_len + 1]);
-        }
-
-        // thumb notch, so the two halves can be parted without a tool
-        translate([outer_w/2, -1, body_h - 2.5])
-            rotate([-90, 0, 0]) cylinder(d = 9, h = wall + 2);
+        // thumb notch so the halves part without a tool
+        translate([case_w/2, -1, tub_d - 2.5]) rotate([-90, 0, 0])
+            cylinder(d = 10, h = wall + 2);
     }
+
+    // PCB shelf: four posts rather than a continuous ledge, so the board can be
+    // dropped in past the connectors on its edges
+    for (p = [[wall + 2.5, wall + 2.5], [case_w - wall - 2.5, wall + 2.5],
+              [wall + 2.5, case_h - wall - 2.5], [case_w - wall - 2.5, case_h - wall - 2.5]])
+        translate([p[0], p[1], floor_t]) cylinder(d = 3.6, h = back_stack);
 }
 
 // =============================================================================
 // FRONT BEZEL
 // =============================================================================
 module front_frame() {
-    win = active + 0.6;                 // aperture, a hair over the active area
-    wx = wall + board_clear + board_w/2 + disp_off_x;
-    wy = wall + board_clear + board_h/2 + disp_off_y;
-
+    wx = (case_w - win) / 2;
     difference() {
         union() {
-            rrect(outer_w, outer_h, corner_r, bezel_t);
-            // skirt that overlaps the tub
-            translate([0, 0, bezel_t]) difference() {
-                rrect(outer_w, outer_h, corner_r, lip + hook_len);
+            rrect(case_w, case_h, case_r, bezel_t);
+            translate([0, 0, bezel_t]) difference() {           // skirt
+                rrect(case_w, case_h, case_r, lip + hook_len);
                 translate([wall - hook_clear, wall - hook_clear, -1])
                     rrect(cav_w + 2*hook_clear, cav_h + 2*hook_clear,
-                          max(0.1, corner_r - wall), lip + hook_len + 2);
+                          max(0.1, case_r - wall), lip + hook_len + 2);
             }
         }
-        // display aperture - must clear the whole active area, the UI uses
-        // every row of it including the bottom bar
-        translate([wx - win/2, wy - win/2, -1]) cube([win, win, bezel_t + 2]);
+        // Display aperture. The whole window is exposed on purpose - the UI
+        // puts its back button in the bottom rows of the panel, so a bezel
+        // lapping even 2 mm over the glass would sit on a control.
+        translate([wx, win_bottom, -1]) cube([win, win, bezel_t + 2]);
+
+        // microphone port
+        translate([mic_x, mic_y, -1]) cylinder(d = 1.8, h = bezel_t + 2);
     }
 
-    // hooks, pointing outward into the tub grooves
     for (x = hook_x) {
         translate([x - hook_w/2, wall - hook_t, bezel_t])
             hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
-        translate([x + hook_w/2, outer_h - wall + hook_t, bezel_t])
-            rotate([0, 0, 180])
-                hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
+        translate([x + hook_w/2, case_h - wall + hook_t, bezel_t]) rotate([0, 0, 180])
+            hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
     }
     for (y = hook_y) {
-        translate([wall - hook_t, y + hook_w/2, bezel_t])
-            rotate([0, 0, -90])
-                hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
-        translate([outer_w - wall + hook_t, y - hook_w/2, bezel_t])
-            rotate([0, 0, 90])
-                hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
+        translate([wall - hook_t, y + hook_w/2, bezel_t]) rotate([0, 0, -90])
+            hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
+        translate([case_w - wall + hook_t, y - hook_w/2, bezel_t]) rotate([0, 0, 90])
+            hook(hook_len + lip, hook_t, hook_w, hook_catch, hook_lead);
     }
 }
 
@@ -238,22 +225,19 @@ module front_frame() {
 // =============================================================================
 module pcb_ghost() {
     color("green", 0.35)
-        translate([wall + board_clear, wall + board_clear, floor_t + shelf_gap])
-            cube([board_w, board_h, board_t]);
+        translate([(case_w - pcb_w)/2, pcb_bottom, floor_t + back_stack])
+            cube([pcb_w, pcb_h, pcb_t]);
 }
 
-if (part == "back")  back_shell();
+if (part == "back") back_shell();
 else if (part == "front") front_frame();
-else if (part == "plate") {
-    back_shell();
-    translate([outer_w + 6, 0, 0]) front_frame();
-} else {
+else if (part == "plate") { back_shell(); translate([case_w + 6, 0, 0]) front_frame(); }
+else {
     back_shell();
     pcb_ghost();
-    // bezel flipped and dropped on top
-    color("white", 0.6)
-        translate([0, outer_h, body_h + bezel_t + lip]) rotate([180, 0, 0])
-            mirror([0, 1, 0]) front_frame();
+    color("white", 0.55)
+        translate([0, case_h, tub_d + bezel_t + lip]) rotate([180, 0, 0]) mirror([0, 1, 0])
+            front_frame();
 }
 
-echo(str("outer size: ", outer_w, " x ", outer_h, " x ", body_h + bezel_t, " mm"));
+echo(str("outside: ", case_w, " x ", case_h, " x ", tub_d + bezel_t, " mm"));
