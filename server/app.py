@@ -62,7 +62,7 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small.en")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto")      # auto | cuda | cpu
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:12b")
 API_KEY = os.getenv("API_KEY", "")                         # optional shared secret
 
 # The device's own tag set. The LLM must pick from these and nothing else,
