@@ -5,7 +5,25 @@ Two printed parts, no screws and no inserts: a back tub that holds the board, an
 ```
 openscad -o back.stl  -D 'part="back"'  mono-note-mini.scad
 openscad -o front.stl -D 'part="front"' mono-note-mini.scad
+openscad -o plate.stl -D 'part="plate"' mono-note-mini.scad
 ```
+
+**Open `plate.stl` in the slicer, not the two parts separately.** Both parts are
+modelled at the same origin, so loading `back.stl` and `front.stl` together puts
+the bezel *inside* the tub where you cannot see it. `plate.stl` lays them out
+side by side.
+
+## Shape
+
+The profile is a **squircle** - the superellipse `|x/a|^n + |y/b|^n = 1` at
+n = 4, rather than a rectangle with radiused corners. Curvature is continuous
+the whole way round, so there is no point where a straight edge meets an arc.
+(n = 2 would be an ellipse, n -> infinity a rectangle; Apple's icon is n ~ 5 and
+so not strictly a squircle.) Change `sq_n` to taste.
+
+It is not only cosmetic. The wall is no longer straight, so the snap fingers
+had to be re-derived from the curve: at their old positions the barb lost all
+engagement at its inner end and the case would have popped open.
 
 Open the file in [OpenSCAD](https://openscad.org) and set `part` to `"assembly"` to see it together, or `"plate"` to lay both out for printing.
 
@@ -22,7 +40,7 @@ What it changes is how it opens. Two screws become six snap hooks and a thumb no
 | | mm |
 |---|---|
 | Outside | 39.80 × 53.00 × 16.90 |
-| Corner radius | R4.50 |
+| Corner profile | squircle, n = 4 |
 | Display window | 27.80 square |
 | Window position | centred horizontally, 14.30 up from the bottom edge |
 

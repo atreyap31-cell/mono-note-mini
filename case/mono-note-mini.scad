@@ -22,7 +22,14 @@ $fn = 64;
 case_w      = 39.80;    // width
 case_h      = 53.00;    // height - the device is portrait, taller than wide
 case_d      = 16.90;    // total thickness
-case_r      = 4.50;     // outside corner radius
+case_r      = 4.50;     // kept for reference; the profile is a squircle now
+
+// Squircle: |x/a|^n + |y/b|^n = 1. n=4 is the definition; n=2 would be an
+// ellipse and n->inf a rectangle. Apple's icon is n~5 and not strictly a
+// squircle. The corners stay curvature-continuous, so there is no point where
+// a straight edge meets an arc - which is the whole visual point of it.
+sq_n        = 4;
+sq_steps    = 160;      // polygon resolution around the profile
 
 // The glass is the number that matters: 200 px at 0.138 mm pitch. Waveshare's
 // own window is 27.80 at 14.30, i.e. centred on the glass with 0.1 mm a side.
@@ -59,8 +66,10 @@ back_stack  = 7.0;      // ASSUMED  TF socket / battery header / speaker
 // Side buttons. The drawing's side view shows BOOT and PWR on one edge, but
 // does not dimension them - these are placeholders.
 btn_side    = "left";   // ASSUMED  which edge the buttons sit on
-btn_boot_z  = 34.0;     // ASSUMED  height up the case
-btn_pwr_z   = 25.0;     // ASSUMED
+// Kept low and close together: on a squircle the side is only truly flat
+// through the middle of its run, and a flexure on a curved patch binds.
+btn_boot_z  = 22.0;     // ASSUMED  height up the case
+btn_pwr_z   = 13.0;     // ASSUMED
 btn_d       = 4.0;
 
 usb_x       = case_w/2; // ASSUMED  USB-C centred on the bottom edge
@@ -110,7 +119,7 @@ rail_w      = 1.2;      // hold-down rail width
 rail_gap    = 0.05;     // keeps the rail off the display window
 
 fin_t       = 1.6;      // finger thickness
-fin_w       = 7.0;      // finger width
+fin_w       = 5.0;      // finger width - see fin_x
 fin_len     = 9.0;      // free length - what keeps the strain low
 fin_catch   = 0.8;      // how far the barb reaches past the cavity face
 fin_lead    = 1.5;      // assembly ramp height
@@ -127,8 +136,22 @@ assert(pcb_top_z != undef && pcb_top_z > 0, "pcb_top_z undefined - check declara
 assert(tub_d - pcb_top_z > 0, "no room between the board and the bezel");
 assert((case_w - win)/2 > wall, "display aperture is wider than the shell allows");
 
-fin_x = [case_w*0.32, case_w*0.68];     // two per short edge
+// Held close to the centre of the edge, where the squircle is flattest. Out at
+// 0.32/0.68 of the width the wall has fallen away 0.8 mm across a 7 mm finger,
+// which takes the barb's engagement to zero at its inner end - it would simply
+// pop open. At +/-6 mm with a 5 mm finger the wall moves 0.31 mm and the barb
+// keeps 0.49-0.80 mm of grip along its whole width.
+fin_x = [case_w/2 - 6, case_w/2 + 6];
 catch_z = tub_d - fin_len;              // where the barb lands, both parts agree
+
+// Where a finger's outer face has to sit so it clears the curved cavity wall
+// across its whole width. On a straight wall this was just wall + fit_clear;
+// on a squircle the wall falls away toward the corners, and a fixed inset
+// would bury the finger's outer end in the shell.
+function fin_face(fx) =
+    let(a = cav_w/2, b = cav_h/2, cy = case_h/2, cx = case_w/2)
+    cy - min(sq_reach(fx - fin_w/2 - cx, a, b, sq_n),
+             sq_reach(fx + fin_w/2 - cx, a, b, sq_n)) + fit_clear;
 
 // =============================================================================
 // SIDE ENGRAVING
@@ -139,11 +162,14 @@ catch_z = tub_d - fin_len;              // where the barb lands, both parts agre
 eng_long    = "mono note";
 eng_short   = "MINI";
 eng_font    = "Liberation Sans:style=Bold";
-eng_size    = 3.6;              // cap height
+eng_size    = 3.0;              // cap height
 eng_depth   = 0.5;              // how deep it cuts
 eng_z       = 4.5;              // low on the wall, below every cutout
-eng_y_btn   = 12.0;             // on the button side, sit below the buttons
-eng_y_plain = 18.0;             // clear side: short of the TF slot
+// The squircle's long side only runs flat through its middle - it falls away
+// by 0.5 mm near the ends, which would swallow a 0.5 mm engraving. Both words
+// sit in the flat band: y 15-38 varies by under 0.2 mm.
+eng_y_btn   = 33.0;             // button side: above both tongues
+eng_y_plain = 23.0;             // clear side: below the TF slot
 
 // =============================================================================
 // BUTTONS
@@ -165,13 +191,22 @@ btn_z        = floor_t + back_stack + pcb_t/2 + 1.0;   // level with the switche
 // =============================================================================
 // HELPERS
 // =============================================================================
-// Rounded box as a hull of four cylinders. The offset(r)/offset(-r) idiom is
-// tidier to read but hands CGAL near-degenerate arcs, which it fails on.
+// Superellipse profile, drawn from 0,0 to w,h. `r` is ignored - the corner is
+// set by sq_n, not by a radius - but the parameter stays so every call site
+// reads the same.
+function sq_pt(t, w, h, n) = [
+    w/2 + (w/2) * sign(cos(t)) * pow(abs(cos(t)), 2/n),
+    h/2 + (h/2) * sign(sin(t)) * pow(abs(sin(t)), 2/n)
+];
 module rrect(w, h, r, th) {
-    rr = min(r, w/2 - 0.01, h/2 - 0.01);
-    hull() for (p = [[rr, rr], [w - rr, rr], [rr, h - rr], [w - rr, h - rr]])
-        translate([p[0], p[1], 0]) cylinder(r = rr, h = th);
+    linear_extrude(th)
+        polygon([for (i = [0 : sq_steps - 1]) sq_pt(i * 360 / sq_steps, w, h, sq_n)]);
 }
+
+// How far the profile reaches from its centre line, at a given offset along the
+// other axis. Used to sit the snap fingers against a wall that is no longer
+// straight - placing them at a fixed inset would bury them in the shell.
+function sq_reach(d, a, b, n) = b * pow(max(0, 1 - pow(abs(d/a), n)), 1/n);
 
 // A cantilever finger rising in +Z, its barb reaching out in -Y. `over` is how
 // far the barb passes the finger's own outer face.
@@ -207,14 +242,16 @@ module grille(d) {
 
 // Text sunk into a long side. left = -X face, right = +X face.
 module side_engraving(txt, on_left, ey) {
-    // extruded a little proud so the cut always breaks the surface cleanly
-    e = eng_depth + 0.2;
+    // Starts outside the shell and cuts inward, so it still bites where the
+    // squircle has pulled the surface in. Depth therefore varies slightly along
+    // the word - about 0.2 mm across the flat band, out of 0.5 mm.
+    e = eng_depth + 0.8;
     if (on_left)
-        translate([e - 0.2, ey, eng_z]) rotate([90, 0, -90])
+        translate([eng_depth, ey, eng_z]) rotate([90, 0, -90])
             linear_extrude(e) text(txt, size = eng_size, font = eng_font,
                                    halign = "center", valign = "center");
     else
-        translate([case_w - e + 0.2, ey, eng_z]) rotate([90, 0, 90])
+        translate([case_w - eng_depth, ey, eng_z]) rotate([90, 0, 90])
             linear_extrude(e) text(txt, size = eng_size, font = eng_font,
                                    halign = "center", valign = "center");
 }
@@ -254,10 +291,14 @@ module groove_cuts() {
     gw = fin_w + 2*fin_clear;
     gh = fin_lead + 1.6;                    // a little taller than the barb
     for (x = fin_x) {
-        translate([x - gw/2, wall - fin_catch, catch_z - 0.4])          // bottom edge
-            cube([gw, fin_catch + 0.01, gh]);
-        translate([x - gw/2, case_h - wall - 0.01, catch_z - 0.4])      // top edge
-            cube([gw, fin_catch + 0.01, gh]);
+        // Cut from below the barb tip up to the finger face. Material only
+        // exists outboard of the curved cavity wall, so the groove ends up
+        // following that curve without having to be modelled as one.
+        gd = fin_catch + fit_clear + 0.15;
+        translate([x - gw/2, fin_face(x) - gd, catch_z - 0.4])           // bottom edge
+            cube([gw, gd + 0.01, gh]);
+        translate([x - gw/2, case_h - fin_face(x) - 0.01, catch_z - 0.4])
+            cube([gw, gd + 0.01, gh]);                                    // top edge
     }
 }
 
@@ -359,9 +400,9 @@ module front_frame() {
 
     // Fingers, on the short edges only. Barbs face outward into the grooves.
     for (x = fin_x) {
-        translate([x - fin_w/2, px, bezel_t])                       // bottom edge
+        translate([x - fin_w/2, fin_face(x), bezel_t])              // bottom edge
             finger(fin_len, fin_t, fin_w, fin_catch + fit_clear, fin_lead);
-        translate([x + fin_w/2, case_h - px, bezel_t]) rotate([0, 0, 180])
+        translate([x + fin_w/2, case_h - fin_face(x), bezel_t]) rotate([0, 0, 180])
             finger(fin_len, fin_t, fin_w, fin_catch + fit_clear, fin_lead);
     }
 }
