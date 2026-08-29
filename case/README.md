@@ -87,7 +87,7 @@ Infill 20 % gyroid is plenty; both parts are nearly all perimeter. Leave elephan
 
 PLA is fine for the tub, and fine for the bezel too if you are gentle the first few times. **Avoid carbon or glass filled filament entirely** â€” stiff and brittle is the exact wrong combination for a snap fit.
 
-Both parts fit the A1's 256 mm bed with room to spare; print them together.
+Both parts fit the X1C's 256 mm bed with room to spare — `plate.stl` already lays them out side by side. (An A1 prints these identically; only the profile name changes.)
 
 ## How the snap works
 
