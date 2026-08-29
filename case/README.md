@@ -1,6 +1,6 @@
 # Snap-fit enclosure
 
-Two printed parts, no screws and no inserts: a back tub that holds the board, and a front bezel that clips over it on six cantilever hooks.
+Two printed parts, no screws and no inserts: a back tub that holds the board, and a front bezel that plugs into it on four cantilever fingers.
 
 ```
 openscad -o back.stl  -D 'part="back"'  mono-note-mini.scad
