@@ -133,9 +133,25 @@ Note that TLS certificates are **not** verified on this upload (`setInsecure`), 
 - Button sounds are a soft 1 kHz tick, **off by default**
 - The companion web app (`index.html` at the repo root) imports these WAVs for reading aloud, tagging, and GitHub sync
 
+## Flashing
+
+```powershell
+.lash.ps1              # build, upload, then open the serial monitor
+.lash.ps1 -Build       # build only
+.lash.ps1 -Monitor     # just watch the serial output
+```
+
+PlatformIO lives at `T:\pio-venv` with its toolchain at `T:\.platformio`, both
+off the system drive. The script sets that up itself, so nothing needs to be on
+PATH.
+
+If the upload fails it is almost always one of three things, in order: a
+charge-only USB cable, needing **BOOT** held while it connects, or another
+program holding the port.
+
 ## First bring-up
 
-Open the PlatformIO serial monitor at 115200 before you start. Every touch prints `touch x,y state=n`, which is the fastest way to catch the one thing that cannot be checked without hardware.
+`flash.ps1` drops you straight into the serial monitor at 115200. Every touch prints `touch x,y state=n`, which is the fastest way to catch the one thing that cannot be checked without hardware.
 
 Work through these in order:
 
