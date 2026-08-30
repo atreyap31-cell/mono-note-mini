@@ -9,7 +9,7 @@ put `http://<your-pc>:8000` in the device's API field and it works.
 | Route | What |
 |---|---|
 | `POST /transcribe` | multipart, field `audio` → `{"text": "..."}` — the device calls this |
-| `POST /enrich` | `{"text": ...}` → `{"title", "tag", "todos"}` — optional, the web page calls this |
+| `POST /enrich` | `{"text": ...}` → `{"title", "tag", "todos"}` — the device's web page calls this |
 | `GET /health` | model, device, CUDA status |
 
 ## Running it
@@ -88,7 +88,22 @@ The 49B Nemotron already in the Ollama folder will not run on this machine —
 Q8 at 49B is ~52 GB of weights, more than the VRAM and RAM combined.
 
 `/enrich` returns a clear error if Ollama is not running rather than failing
-silently, and the device never calls it, so nothing breaks without it.
+silently, and the firmware never calls it, so nothing breaks without it.
+
+### Where it shows up
+
+The device's own page (`www/index.html`) grows a **Suggest** button on any note
+that has a transcript. It reads the backend address from `/api/info` — the same
+one the device already stores for syncing — so there is nothing extra to
+configure.
+
+Pressing it files the note under whichever of the five tags the model picks,
+and *asks* before adding any action items to the to-do list rather than
+appending them silently. A tag outside the five is discarded.
+
+That page is served by the device and this server is a different origin, so the
+server sends CORS headers. They are open by default because this is a LAN tool;
+set `ALLOW_ORIGINS` to restrict it.
 
 ## Away from home
 

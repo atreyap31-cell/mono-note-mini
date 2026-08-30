@@ -122,7 +122,7 @@ footer a{color:var(--ink)}
 <script>
 const TAGS = ["Work","Projects","Ideas","Quotes","Random"];
 const $ = s => document.querySelector(s);
-let notes = [], filter = "", query = "", todos = [];
+let notes = [], filter = "", query = "", todos = [], apiBase = "";
 
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.classList.add('on');
@@ -150,6 +150,11 @@ async function loadInfo(){
     const i = await (await fetch('/api/info')).json();
     const pct = i.totalMB ? Math.round(i.usedMB*100/i.totalMB) : 0;
     $('#bar').style.width = pct + "%";
+    /* The device already stores the backend address - reuse it rather than
+       asking for it twice. Re-render once known: the Suggest button cannot be
+       drawn before then. */
+    apiBase = (i.api || "").replace(/\/+$/, "");
+    if (apiBase) render();
     $('#meta').textContent =
       i.usedMB + " / " + i.totalMB + " MB used · auto-sync " +
       (i.syncHrs ? "every " + i.syncHrs + "h" : "off") +
@@ -199,6 +204,7 @@ function render(){
       ${n.txt ? `<p>${esc(n.txt)}</p>` : `<p class="none">Not transcribed yet.</p>`}
       <div class="acts">
         <select data-act="tag">${opts}</select>
+        ${n.txt && apiBase ? `<button class="flat" data-act="suggest">Suggest</button>` : ``}
         <button class="flat" data-act="del">Delete</button>
       </div>
     </article>`;
@@ -213,6 +219,44 @@ function render(){
         toast("filed"); render();
       }catch(err){ toast("tag failed"); }
     };
+    const sug = el.querySelector('[data-act="suggest"]');
+    if (sug) sug.onclick = async () => {
+      const note = notes.find(x => x.base === base);
+      const was = sug.textContent;
+      sug.disabled = true; sug.textContent = "...";
+      try {
+        const r = await fetch(apiBase + '/enrich', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({text: note.txt})
+        });
+        if (!r.ok) throw new Error('server said ' + r.status);
+        const out = await r.json();
+        /* File it, but only if the model returned one of the device's tags. */
+        if (out.tag && TAGS.includes(out.tag)) {
+          await post('/api/tag', {n: base, tag: out.tag});
+          note.tag = out.tag;
+        }
+        /* Offer the action items rather than appending them silently. */
+        if (out.todos && out.todos.length) {
+          const ask = (out.title ? out.title + '\n\n' : '') +
+                      'Add these to the to-do list?\n\n- ' + out.todos.join('\n- ');
+          if (confirm(ask)) {
+            out.todos.forEach(t => todos.push({text: t, done: false}));
+            renderTodos();
+            await saveTodos();
+          }
+        }
+        toast(out.tag ? 'filed under ' + out.tag : 'no tag suggested');
+        render();
+      } catch (err) {
+        toast('suggest failed');
+        console.error(err);
+      } finally {
+        sug.disabled = false; sug.textContent = was;
+      }
+    };
+
     el.querySelector('[data-act="del"]').onclick = async () => {
       if(!confirm("Delete " + base + "?\n\nRemoves the audio, transcript and tag together. This cannot be undone.")) return;
       try{

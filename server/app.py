@@ -24,6 +24,7 @@ from typing import Any
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -70,6 +71,16 @@ API_KEY = os.getenv("API_KEY", "")                         # optional shared sec
 TAGS = ["Work", "Projects", "Ideas", "Quotes", "Random"]
 
 app = FastAPI(title="Mono Note Mini backend", version="1.0")
+
+# The device serves its own web page, so that page lives on a different origin
+# to this server and cannot call /enrich without these headers. Open by default
+# because this is a LAN tool; set ALLOW_ORIGINS to lock it down.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[o for o in os.getenv("ALLOW_ORIGINS", "*").split(",") if o],
+    allow_methods=["GET", "POST"],
+    allow_headers=["*"],
+)
 
 _model = None
 _model_device = "unloaded"
