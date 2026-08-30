@@ -6,16 +6,6 @@ A notebook you talk to: record to the SD card, tag it, play it back on the speak
 
 Built on Waveshare's own BSP code (e-paper driver, FT6336 touch, ES8311 codec stack, power rails) with a PlatformIO/Arduino glue layer written for this project.
 
-## Flash it
-
-1. Install **VS Code** -> Extensions -> install **PlatformIO IDE**
-2. File -> Open Folder -> this `firmware/` folder
-3. Connect the board with a **data** USB-C cable
-4. Click **-> (Upload)** in the bottom PlatformIO toolbar
-5. When it finishes, the device boots into the guided tour
-
-If upload fails: hold the **BOOT** button while it says "Connecting...", or try another cable/port.
-
 ## First boot
 
 A brand-new device (or one that was just factory reset) runs a **17-step guided tour** covering every feature. Each screen has a **NEXT** button that has to be pressed to move on - taps anywhere else are ignored, so nothing gets skipped by accident. **BACK** returns to the previous step. One step asks you to choose button sounds on or off before it will continue.
@@ -148,6 +138,12 @@ PATH.
 If the upload fails it is almost always one of three things, in order: a
 charge-only USB cable, needing **BOOT** held while it connects, or another
 program holding the port.
+
+Prefer a GUI? Install the **PlatformIO IDE** extension in VS Code, open this
+`firmware/` folder and press Upload in the bottom toolbar. Same result; the
+script just avoids needing the IDE at all.
+
+When it finishes, the device boots into the guided tour.
 
 ## First bring-up
 
