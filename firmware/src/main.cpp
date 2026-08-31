@@ -79,7 +79,20 @@ static void drawRestingScreen();
 static void sleepNow() {
   drawRestingScreen();
   uiFlushFull();
-  delay(300);
+
+  /* ext1 wakes the chip whenever one of these pins is LOW, and powering off is
+     itself a held button - so at this moment the wake condition is already
+     true. Sleeping now would wake again within microseconds, which looks
+     exactly like the button doing nothing. Wait for the release first.
+     The timeout is for a stuck button: better to sleep and wake in a loop than
+     to hang here forever with the screen saying it has gone to sleep. */
+  uint32_t guard = millis();
+  while ((digitalRead(BOOT_BUTTON_PIN) == LOW || digitalRead(PWR_BUTTON_PIN) == LOW)
+         && millis() - guard < 10000) {
+    delay(10);
+  }
+  delay(150);   /* let the contact settle so the release is not read as a press */
+
   pwr.POWEER_Audio_OFF();
   pwr.POWEER_EPD_OFF();
   /* The bottom button is the power button, so it is what wakes the device.
@@ -1009,10 +1022,11 @@ void loop() {
   const uint16_t ev = inputPoll();
   if (ev & BTN_ANY_DOWN) lastActivity = millis();
 
-  /* Holding the bottom button means "off" from anywhere. Recording is the one
-     exception: losing a note because a thumb lingered would be the worst
-     possible failure, so a recording has to be stopped deliberately first. */
-  if ((ev & BTN_POWER_OFF) && state != ST_MAKE && state != ST_WALKTHROUGH) {
+  /* Holding the bottom button means "off" from anywhere, the tour included -
+     not being able to switch a device off is worse than losing your place in
+     it. Recording is the one exception: losing a note because a thumb lingered
+     would be the worst failure this device has, so it must be stopped first. */
+  if ((ev & BTN_POWER_OFF) && state != ST_MAKE) {
     sleepNow();
     return;
   }
