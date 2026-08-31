@@ -14,6 +14,7 @@
 #include "pala_record.h"
 #include "pala_net.h"
 #include "logo_mn.h"
+#include "soc/usb_serial_jtag_struct.h"
 
 #define BAT_ADC_PIN 4
 #define BAT_EMPTY_MV 3300
@@ -77,18 +78,20 @@ static int transcriptPage = 0;
 static void drawHome(bool force = true);
 
 /* Deep sleep switches off the USB-Serial-JTAG peripheral, so a plugged-in
-   device drops off the bus and cannot be reflashed until someone presses a
-   button. On battery that is exactly right; on a desk with a cable in it is
-   just obstructive. So the idle timeout is skipped while USB is powered.
-   Holding the button still sleeps, because that is a deliberate instruction. */
-static bool usbPowered() {
-  /* The bus supplies about 5V; a full cell reads ~4.2V, so anything above
-     4.65V has to be coming from the cable. Same threshold batteryPct uses to
-     decide it is charging. */
-  analogRead(BAT_ADC_PIN);
-  uint32_t sum = 0;
-  for (int i = 0; i < 4; i++) { sum += analogRead(BAT_ADC_PIN); delay(2); }
-  return (sum / 4) * 3300 / 4095 * 2 > 4650;
+   device drops off the bus and cannot be reflashed until somebody presses a
+   button. On battery that timeout is right; on a desk with a cable in it is
+   just obstructive. So the idle timeout is skipped while a USB host is there.
+   Holding the button still sleeps, because that is a deliberate instruction.
+
+   Detection asks the USB peripheral, not the battery. The first attempt at
+   this inferred USB from cell voltage and did nothing at all, because with no
+   cell fitted that reading never crosses the threshold. A host, by contrast,
+   sends a start-of-frame packet every millisecond whether or not a battery
+   exists - so clear the SOF flag, wait, and see whether one arrived. */
+static bool usbHostPresent() {
+  USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
+  delay(4);                                  /* a SOF arrives every 1ms */
+  return USB_SERIAL_JTAG.int_raw.sof_int_raw != 0;
 }
 
 static void sleepNow() {
@@ -1090,7 +1093,7 @@ void loop() {
         state = ST_MENU;
         drawMenu();
       }
-      if (millis() - lastActivity > 30000 && !inputAnyHeld() && !usbPowered()) sleepNow();
+      if (millis() - lastActivity > 30000 && !inputAnyHeld() && !usbHostPresent()) sleepNow();
       if (millis() - lastAutoCheck > 300000UL) { lastAutoCheck = millis(); maybeAutoSync(); }
       break;
 
@@ -1109,7 +1112,7 @@ void loop() {
           case 3: selReset(6); state = ST_SETTINGS; drawSettings(); break;
         }
       }
-      if (millis() - lastActivity > 60000 && !inputAnyHeld() && !usbPowered()) sleepNow();
+      if (millis() - lastActivity > 60000 && !inputAnyHeld() && !usbHostPresent()) sleepNow();
       break;
 
     case ST_MAKE:
