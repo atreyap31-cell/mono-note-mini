@@ -74,11 +74,25 @@ static std::vector<String> transcriptLines;
 static int transcriptPage = 0;
 
 
-static void drawRestingScreen();
+static void drawHome(bool force = true);
+
+/* Deep sleep switches off the USB-Serial-JTAG peripheral, so a plugged-in
+   device drops off the bus and cannot be reflashed until someone presses a
+   button. On battery that is exactly right; on a desk with a cable in it is
+   just obstructive. So the idle timeout is skipped while USB is powered.
+   Holding the button still sleeps, because that is a deliberate instruction. */
+static bool usbPowered() {
+  /* The bus supplies about 5V; a full cell reads ~4.2V, so anything above
+     4.65V has to be coming from the cable. Same threshold batteryPct uses to
+     decide it is charging. */
+  analogRead(BAT_ADC_PIN);
+  uint32_t sum = 0;
+  for (int i = 0; i < 4; i++) { sum += analogRead(BAT_ADC_PIN); delay(2); }
+  return (sum / 4) * 3300 / 4095 * 2 > 4650;
+}
 
 static void sleepNow() {
-  drawRestingScreen();
-  uiFlushFull();
+  drawHome(true);      /* same screen awake or asleep, so waking changes nothing */
 
   /* ext1 wakes the chip whenever one of these pins is LOW, and powering off is
      itself a held button - so at this moment the wake condition is already
@@ -119,34 +133,72 @@ static String syncRateLabel() {
   return "every " + String(h) + "h";
 }
 
+/* A single analogRead on a rail that sags under load gives a different answer
+   every time you ask, which is why the sleep screen and the home screen used
+   to disagree. Average a handful, throwing away the first two while the ADC
+   settles. */
 static int batteryPct() {
-  uint32_t raw = analogRead(BAT_ADC_PIN);
+  analogRead(BAT_ADC_PIN);
+  analogRead(BAT_ADC_PIN);
+  uint32_t sum = 0;
+  for (int i = 0; i < 8; i++) { sum += analogRead(BAT_ADC_PIN); delay(2); }
+  uint32_t raw = sum / 8;
   uint32_t mv = raw * 3300 / 4095 * 2;
-  if (mv > 4650) return -1;
+  if (mv > 4650) return -1;               /* on charge, or no cell fitted */
   int pct = (int)(mv - BAT_EMPTY_MV) * 100 / (BAT_FULL_MV - BAT_EMPTY_MV);
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
   return pct;
 }
 
-/* The resting screen carries one bar and nothing else. A charging device reads
-   as full rather than showing a meaningless number. */
-static void drawBatteryBar() {
+/* Reported as quarters, not a percentage. E-paper costs a full refresh to
+   change anything, so a reading that wobbles by a percent would repaint the
+   screen for no new information. Four steps only move when something real has
+   happened, and four steps is all anyone reads off a battery gauge anyway. */
+static int batteryQuarter() {
   int pct = batteryPct();
-  uiRect(20, 10, 160, 12);
-  if (pct < 0) pct = 100;
-  int w = 156 * pct / 100;
-  if (w < 2) w = 2;
-  uiFillRect(22, 12, w, 8, 0x00);
+  if (pct < 0) return 4;                  /* charging reads as full */
+  if (pct >= 75) return 4;
+  if (pct >= 50) return 3;
+  if (pct >= 25) return 2;
+  if (pct >= 10) return 1;
+  return 0;
 }
 
-/* Battery bar at the top, script wordmark centred in what is left. Used for
-   both the home screen and the deep-sleep screen: on e-paper the image costs
-   nothing to hold, so what you leave behind is what the device looks like. */
-static void drawRestingScreen() {
+/* Survives deep sleep, so waking can tell whether the panel already shows the
+   right picture. E-paper holds its image with no power at all - if nothing has
+   changed there is nothing to redraw. */
+RTC_DATA_ATTR static int rtcShownQuarter = -1;
+
+static void drawBatteryBar(int quarter) {
+  const int x = 20, y = 10, w = 160, h = 14;
+  uiRect(x, y, w, h);
+  uiFillRect(x + w, y + 4, 3, 6, 0x00);   /* the little terminal nub */
+  const int cell = (w - 4) / 4;
+  for (int i = 0; i < 4; i++) {
+    int cx = x + 2 + i * cell;
+    if (i < quarter) uiFillRect(cx + 1, y + 3, cell - 2, h - 6, 0x00);
+    if (i > 0)       uiFillRect(cx, y + 1, 1, h - 2, 0x00);   /* divider */
+  }
+}
+
+/* There is only one home screen. It is what the device shows while awake and
+   what it leaves on the glass when it sleeps, so waking up does not change the
+   picture and there is no second version to disagree with the first.
+
+   Callers force by default. Only waking from deep sleep passes false, and only
+   because the panel is still holding this very picture. */
+static void drawHome(bool force) {
+  int q = batteryQuarter();
+  /* Skipping is only ever safe when the panel already shows this screen -
+     coming back from a menu it is showing something else entirely. */
+  if (!force && q == rtcShownQuarter) return;
+  rtcShownQuarter = q;
+  epd->EPD_Clear();
   uiFillRect(0, 0, 200, 200, 0xff);
-  drawBatteryBar();
+  drawBatteryBar(q);
   uiBitmap((200 - LOGO_W) / 2, 84, LOGO_W, LOGO_H, LOGO_MN);
+  uiFlushFull();
 }
 
 static String timestampName() {
@@ -246,12 +298,6 @@ static void loadTranscript(const String& base) {
     if (line.length()) transcriptLines.push_back(line);
     start = nl + 1;
   }
-}
-
-static void drawHome() {
-  epd->EPD_Clear();
-  drawRestingScreen();
-  uiFlushFull();
 }
 
 static void drawMenu() {
@@ -1012,7 +1058,12 @@ void setup() {
     state = ST_WALKTHROUGH;
     drawTourStep(walkStep);
   } else {
-    drawHome();
+    /* Waking from deep sleep, the panel is still holding the home screen it
+       was left on - so if the battery is still in the same quarter there is
+       nothing to redraw, and we skip a two-second full refresh on every wake.
+       A cold boot has no idea what is on the glass, so it always repaints. */
+    const bool fromSleep = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1;
+    drawHome(!fromSleep);
   }
   lastActivity = millis();
   if (state != ST_WALKTHROUGH) maybeAutoSync();
@@ -1039,7 +1090,7 @@ void loop() {
         state = ST_MENU;
         drawMenu();
       }
-      if (millis() - lastActivity > 30000 && !inputAnyHeld()) sleepNow();
+      if (millis() - lastActivity > 30000 && !inputAnyHeld() && !usbPowered()) sleepNow();
       if (millis() - lastAutoCheck > 300000UL) { lastAutoCheck = millis(); maybeAutoSync(); }
       break;
 
@@ -1058,7 +1109,7 @@ void loop() {
           case 3: selReset(6); state = ST_SETTINGS; drawSettings(); break;
         }
       }
-      if (millis() - lastActivity > 60000 && !inputAnyHeld()) sleepNow();
+      if (millis() - lastActivity > 60000 && !inputAnyHeld() && !usbPowered()) sleepNow();
       break;
 
     case ST_MAKE:
