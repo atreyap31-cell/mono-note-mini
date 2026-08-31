@@ -13,6 +13,7 @@
 #include "pala_ui.h"
 #include "pala_record.h"
 #include "pala_net.h"
+#include "pala_sync.h"
 #include "logo_mn.h"
 #include "soc/usb_serial_jtag_struct.h"
 
@@ -980,6 +981,37 @@ static void syncAll(bool autoRun) {
     }
     delay(200);
   }
+  /* Second half: push the notes to the owner's repo. Transcription and
+     publishing are one press because they are one intention - "make what is on
+     this device visible" - and whichever half is not configured is skipped
+     rather than treated as a failure. */
+  if (!syncCancel && syncConfigured()) {
+    drawSyncScreen(pending.size(), pending.size(), "publishing...");
+    std::vector<String> allBases;
+    collectBases(allBases);
+    std::vector<SyncNote> out;
+    for (auto& b : allBases) {
+      SyncNote n;
+      n.base = b;
+      n.tag = tagOf(b);
+      n.secs = 0;
+      File tf = SD_MMC.open(notePath(b, ".txt"), "r");
+      if (tf) { n.transcript = tf.readString(); tf.close(); }
+      out.push_back(n);
+    }
+    todoLoad();
+    std::vector<SyncTodo> tds;
+    for (auto& t : todos) tds.push_back({t.text, t.done});
+    String perr;
+    if (!syncPublish(out, tds, perr) && !autoRun) {
+      staDisconnect();
+      state = prev;
+      if (prev == ST_SETTINGS) drawSettings(); else drawHome();
+      showError("publish: " + perr);
+      return;
+    }
+  }
+
   time_t now = time(nullptr);
   if (now > 1600000000) netSetU64("lastSync", (uint64_t)now);
   staDisconnect();

@@ -1,4 +1,5 @@
 #include "pala_net.h"
+#include "pala_sync.h"
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WiFiClientSecure.h>
@@ -101,6 +102,15 @@ static void handleApp() {
   page += "Password <input name=pass type=password value='" + netGet("pass") + "'><br>";
   page += "API base <input name=api value='" + netGet("api") + "'><br>";
   page += "Device password <input name=devpass type=password value='" + netGet("devpass","record123") + "'><br><small>Each device keeps its own — others on your Wi-Fi can't see your notes without it</small><br>";
+  page += "<h3>Publish to your repo</h3>";
+  page += "<p><small>Sync pushes your notes to a GitHub repo you own, so the web app can read them from anywhere. This device writes one file of its own and nothing else, so several devices can share a repo without overwriting each other.</small></p>";
+  page += "<p>This device: <code>" + syncDeviceId() + "</code><br><small>Open the web app with <code>?d=" + syncDeviceId() + "</code> to see just these notes.</small></p>";
+  page += "Owner <input name=ghowner value='" + netGet("ghOwner") + "'><br>";
+  page += "Repo <input name=ghrepo value='" + netGet("ghRepo") + "'><br>";
+  page += "Branch <input name=ghbranch value='" + netGet("ghBranch","main") + "'><br>";
+  page += "Path <input name=ghpath placeholder='" + syncPath() + "' value='" + netGet("ghPath") + "'><br>";
+  page += "Token <input name=ghtoken type=password value='" + String(netGet("ghToken").length() ? "________" : "") + "'><br>";
+  page += "<small><b>Use a fine-grained token limited to this one repo, Contents: read and write.</b> It is stored on the device in plain text, so a lost device means a token that can write to that repo — and nothing else. Leave the field as-is to keep the current token.</small><br>";
   {
     uint32_t hrs = netGetU32("syncHrs", SYNC_HOURS_DEFAULT);
     const uint32_t opts[] = {0, 1, 2, 4, 8, 24};
@@ -228,7 +238,10 @@ static void handleApiInfo() {
   j += ",\"usedMB\":" + String((uint32_t)(used / 1048576ULL));
   j += ",\"syncHrs\":" + String(netGetU32("syncHrs", SYNC_HOURS_DEFAULT));
   j += ",\"api\":\"" + jsonEscape(netGet("api")) + "\"";
-  j += ",\"ssid\":\"" + jsonEscape(netGet("ssid")) + "\"}";
+  j += ",\"ssid\":\"" + jsonEscape(netGet("ssid")) + "\"";
+  j += ",\"device\":\"" + syncDeviceId() + "\"";
+  j += ",\"ghOwner\":\"" + jsonEscape(netGet("ghOwner")) + "\"";
+  j += ",\"ghRepo\":\"" + jsonEscape(netGet("ghRepo")) + "\"}";
   server.send(200, "application/json", j);
 }
 
@@ -272,6 +285,14 @@ static void handleSave() {
   netSet("pass", server.arg("pass"));
   netSet("api", server.arg("api"));
   String dp=server.arg("devpass"); if(dp.length()) netSet("devpass", dp);
+  netSet("ghOwner",  server.arg("ghowner"));
+  netSet("ghRepo",   server.arg("ghrepo"));
+  netSet("ghBranch", server.arg("ghbranch").length() ? server.arg("ghbranch") : String("main"));
+  netSet("ghPath",   server.arg("ghpath"));
+  /* The form shows a placeholder rather than the real token, so writing that
+     placeholder back would destroy it. */
+  String gt = server.arg("ghtoken");
+  if (gt.length() && gt != "________") netSet("ghToken", gt);
   netSet("sound", server.hasArg("sound") ? "1" : "0");
   if (server.hasArg("synchrs")) {
     uint32_t h = (uint32_t)server.arg("synchrs").toInt();

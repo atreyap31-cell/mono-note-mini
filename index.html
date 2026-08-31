@@ -256,9 +256,31 @@ const VOICES=[
 ['British Male',[['bm_george','George'],['bm_daniel','Daniel'],['bm_fable','Fable'],['bm_lewis','Lewis']]]];
 const defaults={theme:'light',voice:'af_heart',tags:['idea','reminder','task','journal'],apiBase:'',ttsRate:1,gh:{owner:'',repo:'',branch:'main',path:'data/notes.json',token:'',auto:true},lastSync:0,typeSounds:false};
 let prefs=Object.assign({},defaults,JSON.parse(localStorage.getItem(PREF_KEY)||'{}'));
+let savePrefsDeferred=false;
 prefs.gh=Object.assign({},defaults.gh,prefs.gh||{});
+/* One site, many people. The URL says whose notes to open, so a link can be
+   shared or bookmarked without anyone having to fill in settings first:
+     ?o=owner&r=repo            a repo, default path
+     ?d=mnm-1dd81ab0            a specific device's file in that repo
+     ?p=data/whatever.json      an explicit path, overriding ?d
+   Reading a public repo needs no token. A private one still does, and that
+   stays in this browser - it is never put in the URL, where it would end up in
+   history, bookmarks and every server log along the way. */
+(function readLink(){
+  const q=new URLSearchParams(location.search);
+  const o=q.get('o')||q.get('owner'), r=q.get('r')||q.get('repo');
+  const d=q.get('d')||q.get('device'), pth=q.get('p')||q.get('path'), b=q.get('b')||q.get('branch');
+  if(o) prefs.gh.owner=o.trim();
+  if(r) prefs.gh.repo=r.trim();
+  if(b) prefs.gh.branch=b.trim();
+  if(pth) prefs.gh.path=pth.replace(/^\/+/,'').trim();
+  else if(d && /^[A-Za-z0-9._-]+$/.test(d)) prefs.gh.path='data/'+d.trim()+'.json';
+  if(o||r||d||pth||b) savePrefsDeferred=true;
+})();
 if(!Array.isArray(prefs.tags)||!prefs.tags.length)prefs.tags=defaults.tags.slice();
 const savePrefs=()=>localStorage.setItem(PREF_KEY,JSON.stringify(prefs));
+/* A link that names a repo should still be there after a refresh. */
+if(savePrefsDeferred) savePrefs();
 const $=s=>document.querySelector(s);
 const uid=()=>crypto.randomUUID?crypto.randomUUID():'id-'+Date.now()+'-'+Math.random().toString(36).slice(2);
 const SUFFIX=/(?:\/(?:transcribe|tts|rewrite|chat))+\/?$/;
