@@ -1,4 +1,5 @@
 #include "pala_ui.h"
+#include <math.h>
 #include "epaper_driver_bsp.h"
 #include "glcdfont.h"
 
@@ -49,6 +50,13 @@ void uiTextCentered(int y, const String& text, int scale, uint8_t color) {
   int x = (200 - uiTextWidth(text, scale)) / 2;
   if (x < 0) x = 0;
   uiText(x, y, text, scale, color);
+}
+
+void uiFillCircle(int cx, int cy, int r, uint8_t color) {
+  for (int dy = -r; dy <= r; dy++) {
+    int half = (int)(sqrtf((float)(r * r - dy * dy)) + 0.5f);
+    uiFillRect(cx - half, cy + dy, half * 2 + 1, 1, color);
+  }
 }
 
 void uiRow(int x, int y, int w, int h, const String& label, int scale, bool selected) {

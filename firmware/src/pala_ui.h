@@ -9,6 +9,11 @@ void uiText(int x, int y, const String& text, int scale = 1, uint8_t color = 0x0
 int uiTextWidth(const String& text, int scale = 1);
 void uiTextCentered(int y, const String& text, int scale = 1, uint8_t color = 0x00);
 void uiTextCenteredIn(int x, int w, int y, const String& text, int scale = 1, uint8_t color = 0x00);
+/* Filled circle and square, for the recording indicator. Two shapes drawn once
+   each beat a counter that repaints: e-paper ghosts and wears under constant
+   partial refreshes, and a note's length is on the file anyway. */
+void uiFillCircle(int cx, int cy, int r, uint8_t color = 0x00);
+
 /* A menu row. When selected it fills solid and the label reverses out, which
    on e-paper reads far better than a thin outline - there is no colour or
    backlight to lean on. */

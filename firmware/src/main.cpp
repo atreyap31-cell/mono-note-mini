@@ -73,8 +73,6 @@ static String noteTranscript = "";
 static std::vector<String> transcriptLines;
 static int transcriptPage = 0;
 
-static int wave[16] = {2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2};
-static int waveIdx = 0;
 
 static void drawRestingScreen();
 
@@ -311,35 +309,31 @@ static void drawTodo() {
 
 /* Timer, meter and hint all live in the partial-refresh region so the screen
    doesn't full-flash once a second while recording. */
-static void paintMakeBody() {
-  uint32_t s = recSeconds();
-  String t = String(s / 60) + ":" + String(s % 60 < 10 ? "0" : "") + String(s % 60);
-  uiFillRect(10, 44, 180, 60, 0x00);
-  uiTextCentered(66, t, 3, 0xff);
-
-  uiFillRect(0, 118, 200, 44, 0xff);
-  for (int i = 0; i < 16; i++) {
-    int h = wave[i] * 6 / 10 + 2;
-    uiFillRect(24 + i * 10, 150 - h / 2, 6, h, 0x00);
-  }
-
-  uiFillRect(0, 164, 200, 24, 0xff);
-  uiTextCentered(164, "press bottom to stop", 1);
-  uiTextCentered(178, String(MAKE_MAX_SECONDS - (int)s) + "s left", 1);
-}
-
+/* Recording draws two frames in its whole life: a circle when it starts and a
+   square when it stops. An e-paper panel ghosts and wears under repeated
+   partial refreshes, and a running clock is the sort of thing that would
+   repaint two hundred times for a two-minute note. The length is written into
+   the file and shown in the note list afterwards, so nothing is lost by not
+   animating it. */
 static void drawMake() {
   epd->EPD_Clear();
   uiTextCentered(10, "RECORDING", 2);
-  uiRect(0, 30, 200, 1);
-  paintMakeBody();
+  uiRect(0, 34, 200, 1);
+  uiFillCircle(100, 108, 42, 0x00);
+  uiTextCentered(166, "press bottom to stop", 1);
   uiFlushFull();
-  uiFlushPartialPrepare();
 }
 
-static void updateMake() {
-  paintMakeBody();
-  uiFlushPartial();
+/* The square is the acknowledgement that the press landed - without it there
+   is no feedback at all between stopping and the tag picker appearing. */
+static void drawMakeStopped() {
+  epd->EPD_Clear();
+  uiTextCentered(10, "SAVED", 2);
+  uiRect(0, 34, 200, 1);
+  uiFillRect(64, 72, 72, 72, 0x00);
+  uint32_t s = recSeconds();
+  uiTextCentered(166, String(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + String(s % 60), 2);
+  uiFlushFull();
 }
 
 static void drawTagScreen() {
@@ -862,21 +856,22 @@ static bool startRecording() {
     drawMenu();
     return false;
   }
-  for (int i = 0; i < 16; i++) wave[i] = 2;
-  waveIdx = 0;
   state = ST_MAKE;
   drawMake();
   return true;
 }
 
 static void finishRecording() {
-  /* A mis-press can end here with nothing captured. */
+  /* A mis-press can end here with nothing captured - say nothing was saved
+     rather than showing the square, which means "saved". */
   if (recSeconds() == 0) {
     recDiscard();
     state = ST_MENU;
     drawMenu();
     return;
   }
+  drawMakeStopped();
+  delay(700);            /* let the square be seen before the tag picker */
   lastSavedName = timestampName();
   if (!recSave("/recordings/" + lastSavedName)) {
     state = ST_HOME;
@@ -1053,15 +1048,8 @@ void loop() {
       break;
 
     case ST_MAKE:
-      {
-        static uint32_t lastTick = 0;
-        if (millis() - lastTick > 500) {
-          wave[waveIdx] = recLevel();
-          waveIdx = (waveIdx + 1) % 16;
-          updateMake();
-          lastTick = millis();
-        }
-      }
+      /* Nothing to repaint while it runs - the screen was drawn when
+         recording started and is not touched again until it stops. */
       if (recSeconds() >= MAKE_MAX_SECONDS) { finishRecording(); break; }
       /* The same button starts and stops, so a note costs one press each end. */
       if (ev & (BTN_BOT_TAP | BTN_TOP_HOLD | BTN_TOP_DOUBLE)) finishRecording();
