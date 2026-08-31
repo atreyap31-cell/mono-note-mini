@@ -51,6 +51,13 @@ void uiTextCentered(int y, const String& text, int scale, uint8_t color) {
   uiText(x, y, text, scale, color);
 }
 
+void uiRow(int x, int y, int w, int h, const String& label, int scale, bool selected) {
+  if (selected) uiFillRect(x, y, w, h, 0x00);
+  else          uiRect(x, y, w, h, 0x00);
+  int ty = y + (h - 8 * scale) / 2;
+  uiTextCenteredIn(x, w, ty, label, scale, selected ? 0xff : 0x00);
+}
+
 void uiBitmap(int x, int y, int w, int h, const unsigned char* data, uint8_t color) {
   const int stride = (w + 7) / 8;
   for (int j = 0; j < h; j++) {

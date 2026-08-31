@@ -7,7 +7,7 @@
 #include <math.h>
 #include "user_config.h"
 #include "i2c_bsp.h"
-#include "ft6336_bsp.h"
+#include "pala_input.h"
 #include "board_power_bsp.h"
 #include "epaper_driver_bsp.h"
 #include "pala_ui.h"
@@ -21,25 +21,36 @@
 
 static board_power_bsp_t pwr(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 static I2cMasterBus* i2c = nullptr;
-static I2cFt6336Dev* touch = nullptr;
 static epaper_driver_display* epd = nullptr;
 
 enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_SYNCRATE, ST_FACTORY };
 static State state = ST_HOME;
 static State syncReturnTo = ST_HOME;
 
-static uint32_t touchDownAt = 0;
-static int downX = -1, downY = -1, lastY = -1;
-static bool longFired = false;
-static bool pressed = false;
 static uint32_t lastActivity = 0;
 static uint32_t lastAutoCheck = 0;
 
-/* Recording gesture: press-and-hold records and releasing saves, but a quick
-   tap latches so a long note doesn't mean holding a finger down for 2 minutes. */
-static bool makeArmed = false;    /* finger still down from the menu press */
-static bool makeLatched = false;  /* tapped instead of held - runs until stopped */
-static uint32_t makeDownAt = 0;
+/* Every menu is a list of choices with one of them highlighted. The top button
+   moves the highlight, holding it chooses. `sel` is that highlight and `selMax`
+   is how many choices the current screen has, so the wrap-around is one rule
+   rather than one per screen. */
+static int sel = 0;
+static int selMax = 1;
+
+static void selReset(int count) { sel = 0; selMax = count > 0 ? count : 1; }
+static void selNext()           { sel = (sel + 1) % selMax; }
+static void selPrev()           { sel = (sel + selMax - 1) % selMax; }
+
+/* Rows visible at a time. At scale 2 a line of text is 16px tall, so five rows
+   is what fits between the header and the footer hint. */
+#define LIST_ROWS 5
+
+/* Keep the highlighted row inside the window after the highlight moves. */
+static void selEnsureVisible(int& top, int rows) {
+  if (sel < top) top = sel;
+  if (sel >= top + rows) top = sel - rows + 1;
+  if (top < 0) top = 0;
+}
 
 /* Storage cleanup + factory reset both confirm on a second tap. */
 static bool confirmFree = false;
@@ -73,8 +84,11 @@ static void sleepNow() {
   delay(300);
   pwr.POWEER_Audio_OFF();
   pwr.POWEER_EPD_OFF();
+  /* The bottom button is the power button, so it is what wakes the device.
+     The top one wakes it too - waking on the button you happen to press is
+     kinder than making people learn which one is allowed to. */
   esp_sleep_enable_ext1_wakeup(
-      (1ULL << GPIO_NUM_0) | (1ULL << GPIO_NUM_18) | (1ULL << EPD_TP_INT_PIN), ESP_EXT1_WAKEUP_ANY_LOW);
+      (1ULL << BOOT_BUTTON_PIN) | (1ULL << PWR_BUTTON_PIN), ESP_EXT1_WAKEUP_ANY_LOW);
   esp_deep_sleep_start();
 }
 
@@ -233,10 +247,10 @@ static void drawMenu() {
   epd->EPD_Clear();
   uiTextCentered(10, "mono note mini", 1);
   uiRect(0, 26, 200, 1);
-  uiRect(10, 36, 180, 36);  uiTextCentered(48, "VIEW NOTES", 1);
-  uiRect(10, 76, 180, 36);  uiTextCentered(88, "MAKE NOTE", 1);
-  uiRect(10, 116, 180, 36); uiTextCentered(128, "TO-DO", 1);
-  uiRect(10, 156, 180, 36); uiTextCentered(168, "SETTINGS", 1);
+  uiRow(6, 36, 188, 36, "VIEW NOTES", 2, sel == 0);
+  uiRow(6, 76, 188, 36, "MAKE NOTE",  2, sel == 1);
+  uiRow(6, 116, 188, 36, "TO-DO",     2, sel == 2);
+  uiRow(6, 156, 188, 36, "SETTINGS",  2, sel == 3);
   uiFlushFull();
 }
 
@@ -273,24 +287,23 @@ static void todoSave() {
 
 static void drawTodo() {
   epd->EPD_Clear();
-  uiTextCentered(10, "TO-DO", 2);
-  uiRect(0, 28, 200, 1);
-  if (todos.empty()) uiTextCentered(100, "no jobs - add via web", 1);
-  for (int i = 0; i < 6 && todoTop + i < (int)todos.size(); i++) {
+  uiTextCentered(6, "TO-DO", 2);
+  uiRect(0, 26, 200, 1);
+  if (todos.empty()) uiTextCentered(96, "no jobs yet", 2);
+  for (int i = 0; i < LIST_ROWS && todoTop + i < (int)todos.size(); i++) {
     int idx = todoTop + i;
-    int y = 36 + i * 24;
-    bool sel = false;
-    uiRect(8, y + 4, 14, 14);
-    if (todos[idx].done) {
-      uiFillRect(10, y + 6, 10, 10, 0x00);
-      uiFillRect(11, y + 11, 8, 2, 0xff);
-    }
+    int y = 32 + i * 29;
+    bool on = (idx == sel);
+    if (on) uiFillRect(4, y, 192, 27, 0x00);
+    uint8_t ink = on ? 0xff : 0x00;
+    uiRect(10, y + 6, 15, 15, ink);
+    if (todos[idx].done) uiFillRect(13, y + 9, 9, 9, ink);
     String t = todos[idx].text;
-    if ((int)t.length() > 24) t = t.substring(0, 24);
-    uiText(30, y + 6, t, 1);
+    if ((int)t.length() > 12) t = t.substring(0, 12);
+    uiText(32, y + 6, t, 2, ink);
   }
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back   (tap = check off)", 1, 0xff);
+  uiFillRect(0, 182, 200, 18, 0x00);
+  uiTextCentered(187, "hold=tick  2tap=back", 1, 0xff);
   uiFlushFull();
 }
 
@@ -311,13 +324,13 @@ static void paintMakeBody() {
   }
 
   uiFillRect(0, 164, 200, 24, 0xff);
-  uiTextCentered(166, makeLatched ? "tap timer to stop" : "release to stop", 1);
+  uiTextCentered(164, "press bottom to stop", 1);
   uiTextCentered(178, String(MAKE_MAX_SECONDS - (int)s) + "s left", 1);
 }
 
 static void drawMake() {
   epd->EPD_Clear();
-  uiTextCentered(14, "MAKE NOTE", 1);
+  uiTextCentered(10, "RECORDING", 2);
   uiRect(0, 30, 200, 1);
   paintMakeBody();
   uiFlushFull();
@@ -331,42 +344,38 @@ static void updateMake() {
 
 static void drawTagScreen() {
   epd->EPD_Clear();
-  uiTextCentered(8, "SORT IT", 2);
-  const char* labels[5] = {"Work", "Projects", "Ideas", "Quotes", "Random"};
-  uiRect(10, 36, 86, 34);   uiTextCenteredIn(10, 86, 47, labels[0]);
-  uiRect(104, 36, 86, 34);  uiTextCenteredIn(104, 86, 47, labels[1]);
-  uiRect(10, 78, 86, 34);   uiTextCenteredIn(10, 86, 89, labels[2]);
-  uiRect(104, 78, 86, 34);  uiTextCenteredIn(104, 86, 89, labels[3]);
-  uiRect(10, 120, 180, 34); uiTextCenteredIn(10, 180, 131, labels[4]);
-  uiTextCentered(170, "tap a tag to file it", 1);
-  uiTextCentered(186, "tap here to skip", 1);
+  uiTextCentered(4, "SORT IT", 2);
+  uiRect(0, 24, 200, 1);
+  for (int i = 0; i < 5; i++)
+    uiRow(6, 28 + i * 26, 188, 24, TAGS[i], 2, sel == i);
+  uiRow(6, 158, 188, 22, "SKIP", 1, sel == 5);
+  uiFillRect(0, 184, 200, 16, 0x00);
+  uiTextCentered(188, "hold to file it", 1, 0xff);
   uiFlushFull();
 }
 
 static void drawHowTo() {
   epd->EPD_Clear();
-  uiTextCentered(8, "HOW TO USE", 1);
-  uiRect(0, 20, 200, 1);
-  uiText(4, 26, "1 Tap home to unlock", 1);
-  uiText(4, 40, "2 MAKE: hold to record,", 1);
-  uiText(4, 52, "  release saves. Or tap", 1);
-  uiText(4, 64, "  once, tap timer to end", 1);
-  uiText(4, 78, "3 VIEW: tag > note > PLAY", 1);
-  uiText(4, 92, "4 Hold 0.9s = back", 1);
-  uiText(4, 106, "5 Sync now needs Wi-Fi", 1);
-  uiText(4, 120, "6 Extra: redo this tour", 1);
-  uiRect(0, 134, 200, 1);
-  uiTextCentered(140, "CREDITS", 1);
-  uiTextCentered(154, "Made by Atreya Patil", 1);
-  uiTextCentered(168, "insp. PALA NOTE", 1);
-  uiTextCentered(182, "(c) 2026", 1);
+  uiTextCentered(4, "HOW TO", 2);
+  uiRect(0, 24, 200, 1);
+  uiText(4, 30, "TOP button", 2);
+  uiText(4, 50, " tap  = next", 1);
+  uiText(4, 64, " hold = choose", 1);
+  uiText(4, 78, " x2   = back", 1);
+  uiText(4, 96, "BOTTOM button", 2);
+  uiText(4, 116, " tap  = record/stop", 1);
+  uiText(4, 130, " hold = scroll down", 1);
+  uiText(4, 144, " 5s   = power off", 1);
+  uiRect(0, 158, 200, 1);
+  uiTextCentered(163, "Made by Atreya Patil", 1);
+  uiTextCentered(176, "insp. PALA NOTE  (c) 2026", 1);
   uiFlushFull();
 }
 
 /* ---- guided tour -------------------------------------------------------
-   Every screen is gated behind the NEXT button: taps anywhere else are
-   ignored, so the tour can't be skipped by stabbing at the glass. Step
-   TOUR_SOUND is the one exception - it demands an ON/OFF choice instead. */
+   Every screen is gated behind a deliberate hold of the top button, so the
+   tour cannot be skipped by drumming on the buttons. A double-tap steps back.
+   Step TOUR_SOUND is the exception - it wants an ON/OFF choice first. */
 
 #define TOUR_STEPS 17
 #define TOUR_SOUND 15
@@ -383,25 +392,28 @@ static void drawTourStep(int step) {
       lines[2] = "A notebook you talk to.";
       lines[3] = "";
       lines[4] = "This tour shows every";
-      lines[5] = "feature. Tap NEXT to";
-      lines[6] = "walk through it.";
+      lines[5] = "feature. Hold the TOP";
+      lines[6] = "button to move on.";
       break;
     case 1:
-      title = "GESTURES";
-      lines[0] = "Three moves, everywhere:";
+      title = "THE BUTTONS";
+      lines[0] = "Two buttons do it all.";
       lines[1] = "";
-      lines[2] = "TAP        choose";
-      lines[3] = "HOLD 0.9s  go back";
-      lines[4] = "SWIPE      scroll";
+      lines[2] = "TOP  tap  = next";
+      lines[3] = "     hold = choose";
+      lines[4] = "     x2   = back";
+      lines[5] = "BOT  tap  = record";
+      lines[6] = "     hold = scroll down";
       break;
     case 2:
-      title = "HOME & SLEEP";
-      lines[0] = "Tap the home screen to";
-      lines[1] = "unlock it.";
+      title = "ON & OFF";
+      lines[0] = "Press either button to";
+      lines[1] = "wake it.";
       lines[2] = "";
-      lines[3] = "It sleeps by itself when";
-      lines[4] = "idle. A touch or either";
-      lines[5] = "button wakes it again.";
+      lines[3] = "Hold the BOTTOM button";
+      lines[4] = "five seconds to switch";
+      lines[5] = "it off. It also sleeps";
+      lines[6] = "on its own when idle.";
       break;
     case 3:
       title = "THE MENU";
@@ -414,12 +426,12 @@ static void drawTourStep(int step) {
       break;
     case 4:
       title = "MAKE A NOTE";
-      lines[0] = "HOLD MAKE NOTE to record,";
-      lines[1] = "let go and it saves.";
+      lines[0] = "Tap the BOTTOM button";
+      lines[1] = "to start recording.";
       lines[2] = "";
-      lines[3] = "Or tap it once and it";
-      lines[4] = "keeps going until you";
-      lines[5] = "tap the timer.";
+      lines[3] = "Tap it again to stop";
+      lines[4] = "and save.";
+      lines[5] = "";
       lines[6] = "Two minutes per note.";
       break;
     case 5:
@@ -438,16 +450,16 @@ static void drawTourStep(int step) {
       lines[1] = "shows how many notes";
       lines[2] = "are filed under it.";
       lines[3] = "";
-      lines[4] = "Swipe to scroll,";
-      lines[5] = "tap a note to open it.";
+      lines[4] = "Hold BOTTOM to scroll,";
+      lines[5] = "hold TOP to open one.";
       break;
     case 7:
       title = "PLAY & READ";
       lines[0] = "PLAY hears the note on";
       lines[1] = "the speaker.";
       lines[2] = "";
-      lines[3] = "Swipe to page through";
-      lines[4] = "the transcript.";
+      lines[3] = "Hold BOTTOM to page on";
+      lines[4] = "through the transcript.";
       lines[5] = "";
       lines[6] = "DELETE asks twice.";
       break;
@@ -456,7 +468,7 @@ static void drawTourStep(int step) {
       lines[0] = "A checklist kept on the";
       lines[1] = "card as plain text.";
       lines[2] = "";
-      lines[3] = "Tap a row to check it";
+      lines[3] = "Hold TOP to tick a row";
       lines[4] = "off. Add or edit jobs";
       lines[5] = "from the web page.";
       break;
@@ -539,114 +551,93 @@ static void drawTourStep(int step) {
   uiRect(0, 18, 200, 1);
 
   if (step == TOUR_SOUND) {
-    uiTextCentered(30, "A soft tick on each tap.", 1);
-    uiTextCentered(48, soundOn() ? "NOW: ON" : "NOW: OFF", 1);
-    uiRect(10, 66, 86, 34);  uiTextCenteredIn(10, 86, 79, "ON", 2);
-    uiRect(104, 66, 86, 34); uiTextCenteredIn(104, 86, 79, "OFF", 2);
-    uiTextCentered(112, "Pick one to carry on.", 1);
+    uiTextCentered(28, "A soft tick on each press.", 1);
+    uiTextCentered(44, soundOn() ? "NOW: ON" : "NOW: OFF", 1);
+    uiRow(10, 62, 84, 32, "ON",  2, sel == 0);
+    uiRow(106, 62, 84, 32, "OFF", 2, sel == 1);
+    uiTextCentered(104, "Tap TOP to switch,", 1);
+    uiTextCentered(118, "hold TOP to carry on.", 1);
   } else {
     for (int i = 0; i < 7; i++)
-      if (lines[i] && lines[i][0]) uiText(4, 26 + i * 14, lines[i], 1);
+      if (lines[i] && lines[i][0]) uiText(4, 26 + i * 15, lines[i], 1);
   }
 
-  uiTextCentered(140, "STEP " + String(step + 1) + " / " + String(TOUR_STEPS), 1);
+  uiTextCentered(138, "STEP " + String(step + 1) + " / " + String(TOUR_STEPS), 1);
 
   if (step != TOUR_SOUND) {
-    if (step > 0) { uiRect(6, 156, 52, 26); uiTextCenteredIn(6, 52, 165, "BACK"); }
-    uiFillRect(64, 156, 130, 26, 0x00);
-    int nx = 64 + (130 - uiTextWidth(step == TOUR_STEPS - 1 ? "FINISH" : "NEXT >", 1)) / 2;
-    uiText(nx, 165, step == TOUR_STEPS - 1 ? "FINISH" : "NEXT >", 1, 0xff);
+    uiFillRect(0, 154, 200, 46, 0x00);
+    uiTextCentered(160, step == TOUR_STEPS - 1 ? "HOLD TOP = FINISH"
+                                               : "HOLD TOP = NEXT", 1, 0xff);
+    if (step > 0) uiTextCentered(176, "DOUBLE-TAP = BACK", 1, 0xff);
   }
   uiFlushFull();
 }
 
 static void drawSettings() {
   epd->EPD_Clear();
-  uiTextCentered(8, "SETTINGS", 2);
+  uiTextCentered(6, "SETTINGS", 2);
   uiRect(0, 26, 200, 1);
-  const char* rows[6] = {"1  Wi-Fi", "2  Sync now", "3  Storage",
-                         "4  IP", "5  How to & Credits", "6  Extra"};
-  for (int i = 0; i < 6; i++) {
-    int y = 32 + i * 25;
-    uiRect(10, y, 180, 23);
-    uiText(18, y + 8, rows[i], 1);
-  }
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back", 1, 0xff);
+  static const char* ROWS[6] = {"WI-FI", "SYNC NOW", "STORAGE", "IP ADDRESS", "HOW TO", "EXTRA"};
+  for (int i = 0; i < 6; i++) uiRow(6, 32 + i * 27, 188, 25, ROWS[i], 2, sel == i);
   uiFlushFull();
 }
 
 static void drawExtra() {
   epd->EPD_Clear();
-  uiTextCentered(8, "EXTRA", 2);
+  uiTextCentered(6, "EXTRA", 2);
   uiRect(0, 26, 200, 1);
-  uiRect(10, 36, 180, 36);
-  uiText(18, 48, "1  Redo tutorial", 1);
-  uiText(18, 60, "   see every feature", 1);
-  uiRect(10, 80, 180, 36);
-  uiText(18, 92, "2  Auto-sync rate", 1);
-  uiText(18, 104, "   now: " + syncRateLabel(), 1);
-  uiRect(10, 124, 180, 36);
-  uiText(18, 136, "3  Factory reset", 1);
-  uiText(18, 148, "   erases everything", 1);
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back", 1, 0xff);
+  uiRow(6, 40, 188, 36, "REDO TOUR",  2, sel == 0);
+  uiRow(6, 84, 188, 36, "SYNC RATE",  2, sel == 1);
+  uiRow(6, 128, 188, 36, "RESET",     2, sel == 2);
+  uiTextCentered(174, "double-tap = back", 1);
   uiFlushFull();
 }
 
 static void drawSyncRate() {
   uint32_t cur = syncHours();
   epd->EPD_Clear();
-  uiTextCentered(6, "AUTO-SYNC", 2);
-  uiTextCentered(28, "now: " + syncRateLabel(), 1);
-  uiRect(0, 40, 200, 1);
+  uiTextCentered(4, "AUTO-SYNC", 2);
+  uiRect(0, 24, 200, 1);
   const char* labels[6] = {"Off", "1h", "2h", "4h", "8h", "24h"};
   for (int i = 0; i < 6; i++) {
-    int x = (i % 2 == 0) ? 10 : 104;
-    int y = 46 + (i / 2) * 34;
-    if (SYNC_OPTS[i] == cur) {
-      uiFillRect(x, y, 86, 30, 0x00);
-      int tx = x + (86 - uiTextWidth(labels[i], 1)) / 2;
-      uiText(tx, y + 12, labels[i], 1, 0xff);
-    } else {
-      uiRect(x, y, 86, 30);
-      int tx = x + (86 - uiTextWidth(labels[i], 1)) / 2;
-      uiText(tx, y + 12, labels[i], 1);
-    }
+    int x = (i % 2 == 0) ? 6 : 102;
+    int y = 30 + (i / 2) * 32;
+    String lab = labels[i];
+    if (SYNC_OPTS[i] == cur) lab = "*" + lab;   /* the one in force */
+    uiRow(x, y, 92, 28, lab, 2, sel == i);
   }
-  uiTextCentered(154, "Syncing more often", 1);
-  uiTextCentered(168, "drains the battery faster", 1);
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back", 1, 0xff);
+  uiTextCentered(132, "* = current", 1);
+  uiTextCentered(148, "more often drains", 1);
+  uiTextCentered(162, "the battery faster", 1);
+  uiFillRect(0, 182, 200, 18, 0x00);
+  uiTextCentered(187, "hold=pick  2tap=back", 1, 0xff);
   uiFlushFull();
 }
 
 static void drawFactory() {
   epd->EPD_Clear();
   if (factoryStage == 0) {
-    uiTextCentered(8, "FACTORY RESET", 1);
-    uiRect(0, 20, 200, 1);
-    uiText(4, 28, "Erases the whole card:", 1);
-    uiText(4, 44, "every note, transcript,", 1);
-    uiText(4, 56, "tag and the to-do list.", 1);
-    uiText(4, 72, "Also clears Wi-Fi, your", 1);
-    uiText(4, 84, "server address, sound", 1);
-    uiText(4, 96, "and the sync rate.", 1);
-    uiText(4, 112, "This cannot be undone.", 1);
-    uiRect(10, 132, 86, 30);  uiTextCenteredIn(10, 86, 144, "CANCEL");
-    uiRect(104, 132, 86, 30); uiTextCenteredIn(104, 86, 144, "ERASE");
+    uiTextCentered(4, "RESET", 2);
+    uiRect(0, 24, 200, 1);
+    uiText(4, 30, "Erases the whole", 1);
+    uiText(4, 44, "card: every note,", 1);
+    uiText(4, 58, "transcript, tag and", 1);
+    uiText(4, 72, "the to-do list. Also", 1);
+    uiText(4, 86, "Wi-Fi, your server", 1);
+    uiText(4, 100, "address and settings.", 1);
+    uiText(4, 118, "Cannot be undone.", 1);
+    uiRow(6, 134, 92, 26, "CANCEL", 2, sel == 0);
+    uiRow(102, 134, 92, 26, "ERASE", 2, sel == 1);
   } else {
-    uiTextCentered(24, "ARE YOU", 2);
-    uiTextCentered(46, "SURE?", 2);
-    uiRect(0, 72, 200, 1);
-    uiTextCentered(84, "Last chance.", 1);
-    uiTextCentered(100, "Everything on the card", 1);
-    uiTextCentered(112, "goes, out of the box.", 1);
-    uiRect(10, 132, 86, 30);  uiTextCenteredIn(10, 86, 144, "KEEP IT");
-    uiFillRect(104, 132, 86, 30, 0x00);
-    int tx = 104 + (86 - uiTextWidth("ERASE ALL", 1)) / 2;
-    uiText(tx, 144, "ERASE ALL", 1, 0xff);
+    uiTextCentered(20, "ARE YOU", 2);
+    uiTextCentered(44, "SURE?", 2);
+    uiRect(0, 70, 200, 1);
+    uiTextCentered(82, "Last chance.", 2);
+    uiTextCentered(106, "Everything goes.", 1);
+    uiRow(6, 134, 92, 26, "KEEP IT", 2, sel == 0);
+    uiRow(102, 134, 92, 26, "ERASE", 2, sel == 1);
   }
+
   uiFillRect(0, 184, 200, 16, 0x00);
   uiTextCentered(188, "< back", 1, 0xff);
   uiFlushFull();
@@ -698,13 +689,7 @@ static void drawStorage() {
   if (rc > 0) {
     uiTextCentered(130, String(rc) + " clips already synced", 1);
     uiTextCentered(144, "audio frees " + String((uint32_t)(rb / (1024ULL * 1024ULL))) + " MB", 1);
-    if (confirmFree) {
-      uiFillRect(10, 158, 180, 22, 0x00);
-      uiTextCenteredIn(10, 180, 165, "TAP AGAIN TO FREE", 1, 0xff);
-    } else {
-      uiRect(10, 158, 180, 22);
-      uiTextCenteredIn(10, 180, 165, "FREE SPACE");
-    }
+    uiRow(6, 156, 188, 24, confirmFree ? "SURE? HOLD" : "FREE SPACE", 2, true);
   } else {
     uiTextCentered(140, "nothing to free yet", 1);
     uiTextCentered(158, "transcripts are kept", 1);
@@ -781,69 +766,68 @@ static void drawIpScreen() {
 
 static void drawViewTags() {
   epd->EPD_Clear();
-  uiTextCentered(10, "VIEW NOTES", 2);
-  uiRect(0, 28, 200, 1);
+  uiTextCentered(6, "VIEW NOTES", 2);
+  uiRect(0, 26, 200, 1);
   std::vector<String> bases;
   collectBases(bases);
   for (int i = 0; i < 5; i++) {
-    int y = 38 + i * 27;
+    int y = 32 + i * 29;
     int count = 0;
     for (size_t b = 0; b < bases.size(); b++) if (tagOf(bases[b]) == TAGS[i]) count++;
-    uiRect(10, y, 180, 23);
-    uiText(20, y + 7, String(TAGS[i]), 1);
-    String c = String(count);
-    uiText(170, y + 7, c, 1);
+    bool on = (sel == i);
+    if (on) uiFillRect(6, y, 188, 27, 0x00); else uiRect(6, y, 188, 27);
+    uiText(12, y + 6, String(TAGS[i]), 2, on ? 0xff : 0x00);
+    uiText(168, y + 6, String(count), 2, on ? 0xff : 0x00);
   }
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back", 1, 0xff);
+  uiFillRect(0, 182, 200, 18, 0x00);
+  uiTextCentered(187, "hold=open  2tap=back", 1, 0xff);
   uiFlushFull();
 }
 
 static void drawViewList() {
   epd->EPD_Clear();
-  uiTextCentered(10, viewTag, 2);
-  uiRect(0, 28, 200, 1);
-  if (noteList.empty()) uiTextCentered(100, "nothing here yet", 1);
-  for (int i = 0; i < 6 && listTop + i < (int)noteList.size(); i++) {
+  uiTextCentered(6, viewTag, 2);
+  uiRect(0, 26, 200, 1);
+  if (noteList.empty()) uiTextCentered(96, "nothing here yet", 2);
+  for (int i = 0; i < LIST_ROWS && listTop + i < (int)noteList.size(); i++) {
     int idx = listTop + i;
+    int y = 32 + i * 29;
     String n = noteList[idx];
-    if (!noteHasAudio(n)) n = "* " + n;   /* text-only, audio was freed */
-    if ((int)n.length() > 22) n = n.substring(0, 22);
-    if (idx == noteRow) {
-      uiFillRect(4, 34 + i * 24, 192, 24, 0x00);
-      uiText(8, 40 + i * 24, n, 1, 0xff);
-    } else {
-      uiText(8, 40 + i * 24, n, 1);
-    }
+    if (!noteHasAudio(n)) n = "*" + n;    /* text-only, audio was freed */
+    if ((int)n.length() > 15) n = n.substring(n.length() - 15);
+    bool on = (idx == sel);
+    if (on) uiFillRect(6, y, 188, 27, 0x00);
+    uiText(10, y + 6, n, 2, on ? 0xff : 0x00);
   }
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back   (swipe to scroll)", 1, 0xff);
+  uiFillRect(0, 182, 200, 18, 0x00);
+  uiTextCentered(187, "hold=open  2tap=back", 1, 0xff);
   uiFlushFull();
 }
+
+#define NOTE_LINES 5
 
 static void drawViewNote() {
   epd->EPD_Clear();
   const String base = noteList[noteRow];
   const bool hasAudio = noteHasAudio(base);
   String n = base;
-  if ((int)n.length() > 24) n = n.substring(0, 24);
-  uiText(4, 6, n, 1);
-  uiRect(0, 20, 200, 1);
+  if ((int)n.length() > 15) n = n.substring(n.length() - 15);
+  uiText(4, 4, n, 2);
+  uiRect(0, 24, 200, 1);
   if (transcriptLines.empty()) {
-    uiTextCentered(80, "not transcribed yet", 1);
+    uiTextCentered(60, "not transcribed", 2);
   } else {
-    int pages = (transcriptLines.size() + 5) / 6;
-    int start = transcriptPage * 6;
-    for (int i = 0; i < 6 && start + i < (int)transcriptLines.size(); i++)
-      uiText(4, 26 + i * 14, transcriptLines[start + i], 1);
-    if (pages > 1) uiTextCentered(122, String(transcriptPage + 1) + "/" + String(pages), 1);
+    int pages = (transcriptLines.size() + NOTE_LINES - 1) / NOTE_LINES;
+    int start = transcriptPage * NOTE_LINES;
+    for (int i = 0; i < NOTE_LINES && start + i < (int)transcriptLines.size(); i++)
+      uiText(4, 30 + i * 18, transcriptLines[start + i], 2);
+    if (pages > 1)
+      uiTextCentered(122, String(transcriptPage + 1) + "/" + String(pages), 1);
   }
-  uiRect(10, 134, 180, 22);
-  uiTextCentered(139, !hasAudio ? "AUDIO FREED" : (playActive() ? "STOP" : "PLAY"), 1);
-  uiRect(10, 160, 180, 22);
-  uiTextCentered(165, confirmDelete ? "TAP AGAIN TO DELETE" : "DELETE", 1);
+  uiRow(6, 132, 188, 24, !hasAudio ? "AUDIO FREED" : (playActive() ? "STOP" : "PLAY"), 2, sel == 0);
+  uiRow(6, 158, 188, 24, confirmDelete ? "SURE? HOLD" : "DELETE", 2, sel == 1);
   uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back  (swipe = pages)", 1, 0xff);
+  uiTextCentered(188, "holds=pages  2tap=back", 1, 0xff);
   uiFlushFull();
 }
 
@@ -862,11 +846,10 @@ static void showError(const String& msg) {
   epd->EPD_Clear();
   uiTextCentered(60, "ERROR", 2);
   uiTextCentered(100, msg, 1);
-  uiTextCentered(150, "tap = continue", 1);
+  uiTextCentered(150, "press = continue", 1);
   uiFlushFull();
   while (true) {
-    uint16_t x, y;
-    if (touch->GetTouchPoint(&x, &y)) { delay(300); break; }
+    if (inputPoll() & BTN_ANY_DOWN) { delay(300); break; }
     delay(20);
   }
 }
@@ -881,18 +864,13 @@ static bool startRecording() {
   }
   for (int i = 0; i < 16; i++) wave[i] = 2;
   waveIdx = 0;
-  makeArmed = true;      /* finger is still down - hold mode until proven otherwise */
-  makeLatched = false;
-  makeDownAt = millis();
   state = ST_MAKE;
   drawMake();
   return true;
 }
 
 static void finishRecording() {
-  makeArmed = false;
-  makeLatched = false;
-  /* A stab at the menu row can end here with nothing captured. */
+  /* A mis-press can end here with nothing captured. */
   if (recSeconds() == 0) {
     recDiscard();
     state = ST_MENU;
@@ -983,45 +961,6 @@ static void maybeAutoSync() {
   syncAll(true);
 }
 
-static void pollTouch(bool& tap, bool& longPress, bool& releaseEvent, int& tx, int& ty, int& swipe,
-                      bool& downEvent) {
-  tap = false; longPress = false; releaseEvent = false; swipe = 0; downEvent = false;
-  uint16_t x, y;
-  bool down = touch->GetTouchPoint(&x, &y);
-  if (down && !pressed) {
-    pressed = true;
-    touchDownAt = millis();
-    downX = x; downY = y; lastY = y;
-    longFired = false;
-    lastActivity = millis();
-    downEvent = true;
-    tx = downX; ty = downY;
-    /* First thing to check on a fresh board: touch axes. If these numbers do
-       not match where you pressed, the panel and digitiser disagree and every
-       hit zone will be wrong. 115200 baud. */
-    Serial.printf("touch %d,%d state=%d\n", downX, downY, (int)state);
-  } else if (down && pressed) {
-    lastActivity = millis();
-    if (!longFired && millis() - touchDownAt > 900) {
-      longFired = true;
-      longPress = true;
-    }
-    if (abs(y - lastY) > 55) {
-      swipe = (y < lastY) ? -1 : 1;
-      lastY = y;
-    }
-  } else if (!down && pressed) {
-    pressed = false;
-    releaseEvent = true;
-    uint32_t held = millis() - touchDownAt;
-    int moved = abs((int)x - downX) + abs((int)y - downY);
-    if (!longFired && held < 600 && moved < 40) {
-      tap = true;
-      tx = downX; ty = downY;
-    }
-  }
-}
-
 static void deleteCurrentNote() {
   const String base = noteList[noteRow];
   SD_MMC.remove(notePath(base, ".wav"));
@@ -1043,8 +982,7 @@ void setup() {
   pwr.VBAT_POWER_ON();
   pwr.POWEER_EPD_ON();
   i2c = I2cMasterBus::requestInstance(ESP32_I2C_SCL_PIN, ESP32_I2C_SDA_PIN, ESP32_I2C_DEV_NUM);
-  touch = I2cFt6336Dev::requestInstance(i2c->Get_I2cBusHandle(), I2C_FT6336_DEV_Address, EPD_WIDTH, EPD_HEIGHT);
-  touch->Ft6336_Reset(EPD_TP_RST_PIN);
+  inputBegin();
   epd = new epaper_driver_display(EPD_WIDTH, EPD_HEIGHT,
       {EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN, EPD_MOSI_PIN, EPD_SCK_PIN, EPD_SPI_NUM, EPD_WIDTH * EPD_HEIGHT / 8});
   epd->EPD_Init();
@@ -1073,46 +1011,45 @@ void setup() {
 }
 
 void loop() {
-  bool tap, longPress, releaseEvent, downEvent;
-  int tx = -1, ty = -1, swipe;
-  pollTouch(tap, longPress, releaseEvent, tx, ty, swipe, downEvent);
+  const uint16_t ev = inputPoll();
+  if (ev & BTN_ANY_DOWN) lastActivity = millis();
+
+  /* Holding the bottom button means "off" from anywhere. Recording is the one
+     exception: losing a note because a thumb lingered would be the worst
+     possible failure, so a recording has to be stopped deliberately first. */
+  if ((ev & BTN_POWER_OFF) && state != ST_MAKE && state != ST_WALKTHROUGH) {
+    sleepNow();
+    return;
+  }
 
   switch (state) {
     case ST_HOME:
-      if (tap) {
+      if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD)) {
         if (soundOn()) beep();
+        selReset(4);
         state = ST_MENU;
         drawMenu();
       }
-      if (millis() - lastActivity > 30000 && !pressed) sleepNow();
+      if (millis() - lastActivity > 30000 && !inputAnyHeld()) sleepNow();
       if (millis() - lastAutoCheck > 300000UL) { lastAutoCheck = millis(); maybeAutoSync(); }
       break;
 
     case ST_MENU:
-      /* MAKE NOTE arms on touch-down so a hold starts capturing immediately. */
-      if (downEvent && ty >= 76 && ty < 112) {
+      /* The bottom button records from anywhere in the menu - the point of the
+         device is that catching a thought is one press, not four. */
+      if (ev & BTN_BOT_TAP) { if (soundOn()) beep(); startRecording(); break; }
+      if (ev & BTN_TOP_TAP)    { selNext(); drawMenu(); }
+      if (ev & BTN_TOP_DOUBLE) { state = ST_HOME; drawHome(); break; }
+      if (ev & BTN_TOP_HOLD) {
         if (soundOn()) beep();
-        startRecording();
-        break;
-      }
-      if (longPress || (tap && ty > 184)) { sleepNow(); break; }
-      if (tap) {
-        if (soundOn()) beep();
-        if (ty >= 36 && ty < 72) {
-          viewTag = "";
-          state = ST_VIEW_TAGS;
-          drawViewTags();
-        } else if (ty >= 116 && ty < 152) {
-          todoLoad();
-          todoTop = 0;
-          state = ST_TODO;
-          drawTodo();
-        } else if (ty >= 156 && ty < 192) {
-          state = ST_SETTINGS;
-          drawSettings();
+        switch (sel) {
+          case 0: viewTag = ""; selReset(5); state = ST_VIEW_TAGS; drawViewTags(); break;
+          case 1: startRecording(); break;
+          case 2: todoLoad(); todoTop = 0; selReset(todos.size()); state = ST_TODO; drawTodo(); break;
+          case 3: selReset(6); state = ST_SETTINGS; drawSettings(); break;
         }
       }
-      if (millis() - lastActivity > 60000 && !pressed) sleepNow();
+      if (millis() - lastActivity > 60000 && !inputAnyHeld()) sleepNow();
       break;
 
     case ST_MAKE:
@@ -1126,182 +1063,114 @@ void loop() {
         }
       }
       if (recSeconds() >= MAKE_MAX_SECONDS) { finishRecording(); break; }
-      if (makeArmed && !pressed) {
-        /* Finger left the glass. A quick flick means they tapped rather than
-           held, so keep recording until they come back and stop it. */
-        makeArmed = false;
-        if (millis() - makeDownAt < 600) {
-          makeLatched = true;
-          updateMake();
-        } else {
-          finishRecording();
-        }
-        break;
-      }
-      if (makeLatched) {
-        if (longPress) { finishRecording(); break; }
-        if (tap && ty >= 44 && ty <= 104) finishRecording();
-      }
+      /* The same button starts and stops, so a note costs one press each end. */
+      if (ev & (BTN_BOT_TAP | BTN_TOP_HOLD | BTN_TOP_DOUBLE)) finishRecording();
       break;
 
     case ST_TODO:
-      if (longPress || (tap && ty > 184)) { state = ST_MENU; drawMenu(); break; }
-      if (swipe == -1 && todoTop > 0) { todoTop--; drawTodo(); }
-      if (swipe == 1 && todoTop + 6 < (int)todos.size()) { todoTop++; drawTodo(); }
-      if (tap) {
-        int trow = (ty - 36) / 24;
-        if (trow >= 0 && trow < 6 && todoTop + trow < (int)todos.size()) {
-          todos[todoTop + trow].done = !todos[todoTop + trow].done;
-          todoSave();
-          if (soundOn()) beep();
-          drawTodo();
-        }
+      if (ev & BTN_TOP_DOUBLE) { selReset(4); state = ST_MENU; drawMenu(); break; }
+      if (todos.empty()) break;
+      if (ev & BTN_TOP_TAP)    { selNext(); selEnsureVisible(todoTop, LIST_ROWS); drawTodo(); }
+      if (ev & BTN_TOP_REPEAT) { selPrev(); selEnsureVisible(todoTop, LIST_ROWS); drawTodo(); }
+      if (ev & BTN_BOT_REPEAT) { selNext(); selEnsureVisible(todoTop, LIST_ROWS); drawTodo(); }
+      if (ev & BTN_TOP_HOLD) {
+        todos[sel].done = !todos[sel].done;
+        todoSave();
+        if (soundOn()) beep();
+        drawTodo();
       }
       break;
 
     case ST_TAG:
-      if (tap) {
-        const char* pick = nullptr;
-        if (ty >= 36 && ty < 70) pick = tx < 100 ? TAGS[0] : TAGS[1];
-        else if (ty >= 78 && ty < 112) pick = tx < 100 ? TAGS[2] : TAGS[3];
-        else if (ty >= 120 && ty < 154) pick = TAGS[4];
-        if (pick) {
-          saveTag(pick);
-          if (soundOn()) beep();
-        }
+      if (ev & BTN_TOP_TAP)  { selNext(); drawTagScreen(); }
+      if (ev & BTN_TOP_HOLD) {
+        if (sel < 5) saveTag(TAGS[sel]);
+        if (soundOn()) beep();
         state = ST_HOME;
         drawHome();
       }
+      if (ev & BTN_TOP_DOUBLE) { state = ST_HOME; drawHome(); }
       break;
 
     case ST_SETTINGS:
-      if (longPress || (tap && ty > 184)) { state = ST_HOME; drawHome(); break; }
-      if (tap && ty >= 32 && ty < 180) {
-        int row = (ty - 32) / 25;
+      if (ev & BTN_TOP_DOUBLE) { selReset(4); state = ST_MENU; drawMenu(); break; }
+      if (ev & BTN_TOP_TAP)    { selNext(); drawSettings(); }
+      if (ev & BTN_TOP_HOLD) {
         if (soundOn()) beep();
-        switch (row) {
-          case 0:
-            state = ST_SET_WIFI;
-            drawWifiScreen(portalStart());
-            break;
-          case 1:
-            syncAll(false);
-            break;
-          case 2:
-            confirmFree = false;
-            state = ST_STORAGE;
-            drawStorage();
-            break;
+        switch (sel) {
+          case 0: state = ST_SET_WIFI; drawWifiScreen(portalStart()); break;
+          case 1: syncAll(false); break;
+          case 2: confirmFree = false; state = ST_STORAGE; drawStorage(); break;
           case 3:
             drawSyncScreen(0, 0, "connecting wifi...");
-            if (staConnect(20000)) {
-              serverStartSta();
-              state = ST_SET_IP;
-              drawIpScreen();
-            } else {
-              showError("wifi failed");
-              drawSettings();
-            }
+            if (staConnect(20000)) { serverStartSta(); state = ST_SET_IP; drawIpScreen(); }
+            else { showError("wifi failed"); drawSettings(); }
             break;
-          case 4:
-            state = ST_HOWTO;
-            drawHowTo();
-            break;
-          case 5:
-            state = ST_EXTRA;
-            drawExtra();
-            break;
+          case 4: state = ST_HOWTO; drawHowTo(); break;
+          case 5: selReset(3); state = ST_EXTRA; drawExtra(); break;
         }
       }
       break;
 
     case ST_HOWTO:
-      if (tap || longPress) { state = ST_SETTINGS; drawSettings(); }
+      if (ev & (BTN_TOP_TAP | BTN_TOP_HOLD | BTN_TOP_DOUBLE)) {
+        selReset(6); state = ST_SETTINGS; drawSettings();
+      }
       break;
 
     case ST_EXTRA:
-      if (longPress || (tap && ty > 184)) { state = ST_SETTINGS; drawSettings(); break; }
-      if (tap) {
-        if (ty >= 36 && ty < 72) {
-          if (soundOn()) beep();
-          tourFromExtra = true;   /* re-run the tour, touch nothing else */
-          walkStep = 0;
-          state = ST_WALKTHROUGH;
-          drawTourStep(walkStep);
-        } else if (ty >= 80 && ty < 116) {
-          if (soundOn()) beep();
-          state = ST_SYNCRATE;
-          drawSyncRate();
-        } else if (ty >= 124 && ty < 160) {
-          if (soundOn()) beep();
-          factoryStage = 0;
-          state = ST_FACTORY;
-          drawFactory();
+      if (ev & BTN_TOP_DOUBLE) { selReset(6); state = ST_SETTINGS; drawSettings(); break; }
+      if (ev & BTN_TOP_TAP)    { selNext(); drawExtra(); }
+      if (ev & BTN_TOP_HOLD) {
+        if (soundOn()) beep();
+        switch (sel) {
+          case 0: tourFromExtra = true; walkStep = 0; sel = 0; state = ST_WALKTHROUGH; drawTourStep(walkStep); break;
+          case 1: selReset(6); state = ST_SYNCRATE; drawSyncRate(); break;
+          case 2: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
         }
       }
       break;
 
     case ST_SYNCRATE:
-      if (longPress || (tap && ty > 184)) { state = ST_EXTRA; drawExtra(); break; }
-      if (tap) {
-        int rowIdx = -1;
-        if (ty >= 46 && ty < 76) rowIdx = 0;
-        else if (ty >= 80 && ty < 110) rowIdx = 1;
-        else if (ty >= 114 && ty < 144) rowIdx = 2;
-        if (rowIdx >= 0) {
-          int idx = rowIdx * 2 + (tx < 100 ? 0 : 1);
-          netSetU32("syncHrs", SYNC_OPTS[idx]);
-          if (soundOn()) beep();
-          drawSyncRate();
-        }
+      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_EXTRA; drawExtra(); break; }
+      if (ev & BTN_TOP_TAP)    { selNext(); drawSyncRate(); }
+      if (ev & BTN_TOP_HOLD) {
+        netSetU32("syncHrs", SYNC_OPTS[sel]);
+        if (soundOn()) beep();
+        drawSyncRate();
       }
       break;
 
     case ST_FACTORY:
-      if (longPress || (tap && ty > 184)) { state = ST_EXTRA; drawExtra(); break; }
-      if (tap && ty >= 132 && ty < 162) {
-        bool right = tx >= 100;
-        if (!right) {                    /* CANCEL / KEEP IT */
-          state = ST_EXTRA;
-          drawExtra();
-        } else if (factoryStage == 0) {  /* ERASE -> ask once more */
-          factoryStage = 1;
-          drawFactory();
-        } else {                         /* ERASE ALL - no way back */
-          doFactoryReset();
-        }
+      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_EXTRA; drawExtra(); break; }
+      if (ev & BTN_TOP_TAP)    { selNext(); drawFactory(); }
+      if (ev & BTN_TOP_HOLD) {
+        if (sel == 0) { selReset(3); state = ST_EXTRA; drawExtra(); }
+        else if (factoryStage == 0) { factoryStage = 1; selReset(2); drawFactory(); }
+        else doFactoryReset();
       }
       break;
 
     case ST_WALKTHROUGH:
-      /* Gated: only the NEXT button advances, so every screen gets seen. */
-      if (tap) {
-        if (walkStep == TOUR_SOUND) {
-          if (ty >= 66 && ty < 100) {
-            netSet("sound", tx < 100 ? "1" : "0");
-            if (soundOn()) beep();
-            walkStep++;
-            drawTourStep(walkStep);
-          }
-        } else if (ty >= 156 && ty < 182) {
-          if (tx >= 64) {
-            walkStep++;
-            if (walkStep >= TOUR_STEPS) {
-              netSetBool("first_boot_done", true);
-              if (tourFromExtra) {
-                tourFromExtra = false;
-                state = ST_EXTRA;
-                drawExtra();
-              } else {
-                state = ST_HOME;
-                drawHome();
-              }
-            } else {
-              if (soundOn()) beep();
-              drawTourStep(walkStep);
-            }
-          } else if (tx < 60 && walkStep > 0) {
-            walkStep--;
+      /* Gated: only a deliberate hold moves on, so no screen gets skipped. */
+      if (walkStep == TOUR_SOUND) {
+        if (ev & BTN_TOP_TAP) { sel = sel ? 0 : 1; drawTourStep(walkStep); }
+        if (ev & BTN_TOP_HOLD) {
+          netSet("sound", sel == 0 ? "1" : "0");
+          if (soundOn()) beep();
+          walkStep++; sel = 0;
+          drawTourStep(walkStep);
+        }
+      } else {
+        if ((ev & BTN_TOP_DOUBLE) && walkStep > 0) {
+          walkStep--; if (soundOn()) beep(); drawTourStep(walkStep);
+        } else if (ev & BTN_TOP_HOLD) {
+          walkStep++;
+          if (walkStep >= TOUR_STEPS) {
+            netSetBool("first_boot_done", true);
+            if (tourFromExtra) { tourFromExtra = false; selReset(3); state = ST_EXTRA; drawExtra(); }
+            else { state = ST_HOME; drawHome(); }
+          } else {
             if (soundOn()) beep();
             drawTourStep(walkStep);
           }
@@ -1311,119 +1180,89 @@ void loop() {
 
     case ST_SET_WIFI:
       portalPoll();
-      if (longPress || (tap && ty > 184)) {
-        portalStop();
-        state = ST_SETTINGS;
-        drawSettings();
-      }
+      if (ev & BTN_TOP_DOUBLE) { portalStop(); selReset(6); state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_SYNC:
-      if (tap) syncCancel = true;
+      if (ev & (BTN_TOP_TAP | BTN_TOP_DOUBLE)) syncCancel = true;
       break;
 
     case ST_STORAGE:
-      if (longPress || (tap && ty > 184)) {
-        confirmFree = false;
-        state = ST_SETTINGS;
-        drawSettings();
-        break;
-      }
-      if (tap && ty >= 158 && ty < 180) {
-        if (confirmFree) {
-          freeTranscribedAudio();
-          confirmFree = false;
-          if (soundOn()) beep();
-          drawStorage();
-        } else {
-          confirmFree = true;
-          drawStorage();
-        }
-      } else if (tap) {
-        confirmFree = false;
+      if (ev & BTN_TOP_DOUBLE) { confirmFree = false; selReset(6); state = ST_SETTINGS; drawSettings(); break; }
+      if (ev & BTN_TOP_HOLD) {
+        if (confirmFree) { freeTranscribedAudio(); confirmFree = false; if (soundOn()) beep(); }
+        else confirmFree = true;
         drawStorage();
       }
       break;
 
     case ST_SET_IP:
       portalPoll();
-      if (longPress || (tap && ty > 184)) {
-        portalStop();
-        staDisconnect();
-        state = ST_SETTINGS;
-        drawSettings();
-      }
+      if (ev & BTN_TOP_DOUBLE) { portalStop(); staDisconnect(); selReset(6); state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_VIEW_TAGS:
-      if (longPress || (tap && ty > 184)) { state = ST_HOME; drawHome(); break; }
-      if (tap) {
-        int row = (ty - 38) / 27;
-        if (row >= 0 && row < 5) {
-          if (soundOn()) beep();
-          viewTag = TAGS[row];
-          refreshNoteList();
-          listTop = 0; noteRow = -1;
-          state = ST_VIEW_LIST;
-          drawViewList();
-        }
+      if (ev & BTN_TOP_DOUBLE) { selReset(4); state = ST_MENU; drawMenu(); break; }
+      if (ev & BTN_TOP_TAP)    { selNext(); drawViewTags(); }
+      if (ev & BTN_TOP_HOLD) {
+        if (soundOn()) beep();
+        viewTag = TAGS[sel];
+        refreshNoteList();
+        listTop = 0; noteRow = -1;
+        selReset(noteList.size());
+        state = ST_VIEW_LIST;
+        drawViewList();
       }
       break;
 
     case ST_VIEW_LIST:
-      if (longPress || (tap && ty > 184)) { state = ST_VIEW_TAGS; drawViewTags(); break; }
-      if (swipe == -1 && listTop > 0) { listTop--; drawViewList(); }
-      if (swipe == 1 && listTop + 6 < (int)noteList.size()) { listTop++; drawViewList(); }
-      if (tap) {
-        int row = (ty - 34) / 24;
-        if (row >= 0 && row < 6 && listTop + row < (int)noteList.size()) {
-          if (soundOn()) beep();
-          noteRow = listTop + row;
-          confirmDelete = false;
-          loadTranscript(noteList[noteRow]);
-          state = ST_VIEW_NOTE;
-          drawViewNote();
-        }
+      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_VIEW_TAGS; drawViewTags(); break; }
+      if (noteList.empty()) break;
+      if (ev & BTN_TOP_TAP)    { selNext(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
+      if (ev & BTN_TOP_REPEAT) { selPrev(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
+      if (ev & BTN_BOT_REPEAT) { selNext(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
+      if (ev & BTN_TOP_HOLD) {
+        if (soundOn()) beep();
+        noteRow = sel;
+        confirmDelete = false;
+        transcriptPage = 0;
+        loadTranscript(noteList[noteRow]);
+        selReset(2);
+        state = ST_VIEW_NOTE;
+        drawViewNote();
       }
       break;
 
     case ST_VIEW_NOTE:
       playPoll();
-      if (longPress) {
+      if (ev & BTN_TOP_DOUBLE) {
         playStop();
+        selReset(noteList.size());
+        sel = noteRow < 0 ? 0 : noteRow;
         state = ST_VIEW_LIST;
         drawViewList();
         break;
       }
-      if (swipe == 1 && transcriptLines.size() > 6 && transcriptPage < (int)((transcriptLines.size() + 5) / 6) - 1) {
-        transcriptPage++;
-        drawViewNote();
+      /* Holds page the transcript here - top back, bottom forward - because
+         the two buttons on this screen are chosen by tapping, not holding. */
+      if (ev & BTN_TOP_REPEAT) {
+        if (transcriptPage > 0) { transcriptPage--; drawViewNote(); }
       }
-      if (swipe == -1 && transcriptPage > 0) { transcriptPage--; drawViewNote(); }
-      if (tap) {
-        if (ty >= 134 && ty <= 156) {
-          if (playActive()) {
-            playStop();
-            if (soundOn()) beep();
-          } else if (noteHasAudio(noteList[noteRow]) &&
-                     playFile(notePath(noteList[noteRow], ".wav"))) {
+      if (ev & BTN_BOT_REPEAT) {
+        int pages = ((int)transcriptLines.size() + NOTE_LINES - 1) / NOTE_LINES;
+        if (transcriptPage < pages - 1) { transcriptPage++; drawViewNote(); }
+      }
+      if (ev & BTN_TOP_TAP) { selNext(); confirmDelete = false; drawViewNote(); }
+      if (ev & BTN_TOP_HOLD) {
+        if (sel == 0) {
+          if (playActive()) { playStop(); if (soundOn()) beep(); }
+          else if (noteHasAudio(noteList[noteRow]) && playFile(notePath(noteList[noteRow], ".wav"))) {
             if (soundOn()) beep();
           }
           drawViewNote();
-        } else if (ty >= 160 && ty <= 182) {
-          if (confirmDelete) {
-            deleteCurrentNote();
-          } else {
-            confirmDelete = true;
-            drawViewNote();
-          }
-        } else if (ty > 184) {
-          playStop();
-          state = ST_VIEW_LIST;
-          drawViewList();
         } else {
-          confirmDelete = false;
-          drawViewNote();
+          if (confirmDelete) deleteCurrentNote();
+          else { confirmDelete = true; drawViewNote(); }
         }
       }
       break;

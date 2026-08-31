@@ -9,6 +9,11 @@ void uiText(int x, int y, const String& text, int scale = 1, uint8_t color = 0x0
 int uiTextWidth(const String& text, int scale = 1);
 void uiTextCentered(int y, const String& text, int scale = 1, uint8_t color = 0x00);
 void uiTextCenteredIn(int x, int w, int y, const String& text, int scale = 1, uint8_t color = 0x00);
+/* A menu row. When selected it fills solid and the label reverses out, which
+   on e-paper reads far better than a thin outline - there is no colour or
+   backlight to lean on. */
+void uiRow(int x, int y, int w, int h, const String& label, int scale, bool selected);
+
 /* 1bpp row-major bitmap, MSB leftmost; only set bits are drawn. */
 void uiBitmap(int x, int y, int w, int h, const unsigned char* data, uint8_t color = 0x00);
 void uiFlushFull();
