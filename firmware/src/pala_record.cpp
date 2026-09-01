@@ -21,6 +21,9 @@ static TaskHandle_t recTaskH = nullptr;
 
 static File playHandle;
 static volatile bool playing = false;
+/* Why playback stopped, shown on screen. Guessing at this from the outside
+   cost an evening; the device can simply say. */
+static const char* playFailed = nullptr;
 static volatile bool playRun = false;
 static TaskHandle_t playTaskH = nullptr;
 static int16_t* stereoBuf = nullptr;
@@ -168,18 +171,28 @@ void recDiscard() {
    A task writes continuously and the codec paces it: esp_codec_dev_write blocks
    until the I2S has room, so the loop needs no timing of its own. */
 static void playTaskFn(void*) {
-  int16_t* buf = (int16_t*)heap_caps_malloc(PLAY_FRAMES * 2 * sizeof(int16_t), MALLOC_CAP_SPIRAM);
-  int16_t mono[PLAY_FRAMES];
-  while (playRun && buf) {
+  /* Both buffers on the heap. mono[] as a local was 2KB of a 4KB task stack
+     before any file I/O had a chance to use it, which is how the task came to
+     start and vanish without ever producing sound. PSRAM if it can, internal
+     RAM if it cannot - four kilobytes is not worth failing over. */
+  int16_t* buf  = (int16_t*)heap_caps_malloc(PLAY_FRAMES * 2 * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+  if (!buf)  buf  = (int16_t*)malloc(PLAY_FRAMES * 2 * sizeof(int16_t));
+  int16_t* mono = (int16_t*)heap_caps_malloc(PLAY_FRAMES * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+  if (!mono) mono = (int16_t*)malloc(PLAY_FRAMES * sizeof(int16_t));
+  if (!buf || !mono) playFailed = "no buffer";
+  bool first = true;
+  while (playRun && buf && mono) {
     int got = playHandle.read((uint8_t*)mono, PLAY_FRAMES * sizeof(int16_t)) / sizeof(int16_t);
-    if (got <= 0) break;                       /* end of the recording */
+    if (got <= 0) { if (first) playFailed = "read 0 bytes"; break; }
+    first = false;
     for (int i = 0; i < got; i++) {
       buf[2 * i]     = mono[i];
       buf[2 * i + 1] = mono[i];
     }
     audio_playback_write(buf, got * 2 * sizeof(int16_t));
   }
-  if (buf) heap_caps_free(buf);
+  if (buf)  free(buf);
+  if (mono) free(mono);
   if (playHandle) playHandle.close();
   playing  = false;
   playRun  = false;
@@ -193,9 +206,11 @@ bool playFile(const String& wavPath) {
   playHandle = SD_MMC.open(wavPath, "r");
   if (!playHandle) return false;
   playHandle.seek(44);                         /* past the RIFF header */
+  playFailed = nullptr;
   playing = true;
   playRun = true;
-  if (xTaskCreatePinnedToCore(playTaskFn, "play", 4096, nullptr, 4, &playTaskH, 1) != pdPASS) {
+  if (xTaskCreatePinnedToCore(playTaskFn, "play", 8192, nullptr, 4, &playTaskH, 1) != pdPASS) {
+    playFailed = "no task";
     playHandle.close();
     playing = false;
     playRun = false;
@@ -215,3 +230,4 @@ void playStop() {
 }
 
 bool playActive() { return playing; }
+const char* playError() { return playFailed; }

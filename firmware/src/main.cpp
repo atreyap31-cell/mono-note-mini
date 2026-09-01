@@ -890,7 +890,13 @@ static void drawViewNote() {
     if (pages > 1)
       uiTextCentered(122, String(transcriptPage + 1) + "/" + String(pages), 1);
   }
-  uiRow(6, 132, 188, 24, !hasAudio ? "AUDIO FREED" : (playActive() ? "STOP" : "PLAY"), 2, sel == 0);
+  /* Say why, on the glass. A silent failure that just redraws the same screen
+     is indistinguishable from a button that did not register, and telling the
+     two apart from the outside took an evening. */
+  const char* perr = playError();
+  uiRow(6, 132, 188, 24,
+        !hasAudio ? "AUDIO FREED" : (playActive() ? "STOP" : (perr ? String("X ") + perr : String("PLAY"))),
+        2, sel == 0);
   uiRow(6, 158, 188, 24, confirmDelete ? "SURE? HOLD" : "DELETE", 2, sel == 1);
   uiFillRect(0, 184, 200, 16, 0x00);
   uiTextCentered(188, "holds=pages  2tap=back", 1, 0xff);

@@ -14,5 +14,6 @@ bool playFile(const String& wavPath);
 void playPoll();
 void playStop();
 bool playActive();
+const char* playError();   /* null unless the last attempt failed */
 
 #endif
