@@ -155,11 +155,21 @@ void uiFlushFast(int screenId) {
     return;
   }
   int r0, r1;
-  if (!dirtyRows(r0, r1)) return;      /* identical - nothing to push */
+  if (!dirtyRows(r0, r1)) return;      /* identical - nothing to push at all */
   partialsSince++;
-  /* A margin either side: the waveform disturbs a row or two beyond what was
-     written, and leaving those out shows as a faint seam. */
-  epd->EPD_DisplayPartRows(r0 - 2, r1 + 2);
+  /* The whole buffer, deliberately.
+
+     Pushing only the changed rows was tried and reverted. A partial update
+     works by comparing the controller's new RAM against its previous RAM, and
+     writing part of the frame leaves the rest of that comparison stale - so
+     old highlights were never cleared and several menu rows showed as selected
+     at once. Writing every row re-evaluates every row, which is what makes it
+     self-correcting.
+
+     The saving would have been a few milliseconds of SPI against a panel
+     update measured in hundreds. Skipping updates where nothing changed at all
+     is where the real win was, and that is kept above. */
+  epd->EPD_DisplayPart();
   keepShadow();
 }
 
