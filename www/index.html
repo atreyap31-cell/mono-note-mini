@@ -1,485 +1,415 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Mono Note Mini</title>
 <style>
+/* Served by the device off its SD card, so everything is inline: no fonts, no
+   scripts, no stylesheets from anywhere else. The device is often on a network
+   with no route to the internet at all, and a page that needed a CDN would be
+   a blank screen exactly when you are standing next to the thing it describes. */
 :root{
-  --ink:#000; --paper:#fff; --soft:#F4F4F2;
-  --mono:ui-monospace,"IBM Plex Mono","SFMono-Regular",Menlo,Consolas,monospace;
-  --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --paper:#fff; --ink:#000; --soft:#F4F4F2;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  --shadow:4px 4px 0 var(--ink);
 }
 *{box-sizing:border-box}
+html,body{height:100%;margin:0}
 html{-webkit-text-size-adjust:100%}
-body{
-  margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.5;
-  background-image:repeating-linear-gradient(0deg,transparent 0 27px,rgba(0,0,0,.055) 28px);
-}
-.wrap{max-width:760px;margin:0 auto;padding:20px 16px 64px}
-header{border-bottom:2px solid var(--ink);padding-bottom:12px;margin-bottom:16px}
-h1{font-family:var(--mono);font-size:1.25rem;font-weight:700;text-transform:uppercase;letter-spacing:-.03em;margin:0}
-.meta{font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase;opacity:.6;margin-top:4px}
-.bar{height:10px;border:2px solid var(--ink);margin-top:8px}
+body{background:var(--paper);color:var(--ink);font-family:var(--sans);line-height:1.5;display:flex;flex-direction:column}
+button,input,select,textarea{font:inherit;color:inherit}
+
+.topbar{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:2px solid var(--ink);
+  min-height:64px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 20px}
+.brand{font-family:var(--mono);font-size:1.5rem;font-weight:800;letter-spacing:-.05em;text-transform:uppercase;line-height:1}
+.brand small{display:block;font-size:.56rem;font-weight:600;letter-spacing:.14em;opacity:.6;margin-top:3px}
+.actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.btn{border:2px solid var(--ink);border-radius:0;background:var(--paper);color:var(--ink);padding:8px 14px;
+  font-family:var(--mono);font-size:.72rem;font-weight:600;letter-spacing:.06em;text-transform:uppercase;
+  cursor:pointer;transition:transform .08s,background .12s,box-shadow .08s}
+.btn:hover{background:var(--soft);transform:translate(-1px,-1px);box-shadow:2px 2px 0 var(--ink)}
+.btn:active{transform:translate(1px,1px);box-shadow:none}
+.btn.primary{background:var(--ink);color:var(--paper)}
+.btn.primary:hover{background:var(--ink)}
+.btn.danger:hover{background:var(--ink);color:var(--paper)}
+.btn:disabled{opacity:.35;cursor:not-allowed;transform:none;box-shadow:none}
+.btn.icon{width:40px;height:40px;padding:0;display:inline-grid;place-items:center;font-size:1rem}
+.storage{font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;opacity:.7;text-align:right}
+.bar{height:8px;border:2px solid var(--ink);width:110px;margin-top:4px}
 .bar i{display:block;height:100%;background:var(--ink)}
 
-.tools{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:14px}
-input[type=search],textarea,select{font:inherit;border:2px solid var(--ink);border-radius:0;background:var(--paper);color:var(--ink);padding:7px 9px}
-input[type=search]{flex:1;min-width:150px}
-textarea{width:100%;font-family:var(--mono);font-size:.82rem;resize:vertical}
-button{
-  font-family:var(--mono);font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
-  border:2px solid var(--ink);background:var(--paper);color:var(--ink);padding:6px 10px;cursor:pointer;
-  box-shadow:3px 3px 0 var(--ink);
-}
-button:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
-button.flat{box-shadow:none;padding:4px 8px;font-size:.62rem}
-button[aria-pressed="true"]{background:var(--ink);color:var(--paper)}
-.chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:16px}
+.layout{flex:1;display:grid;grid-template-columns:340px minmax(0,1fr);min-height:0}
+.pane{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.pane.left{border-right:2px solid var(--ink)}
+.pane-head{border-bottom:2px solid var(--ink);padding:10px 12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.eyebrow{font-family:var(--mono);font-size:.6rem;letter-spacing:.14em;text-transform:uppercase;opacity:.6}
+.field{border:2px solid var(--ink);border-radius:0;background:var(--paper);padding:8px 10px;width:100%;font-size:.85rem}
+.field:focus{outline:3px solid var(--ink);outline-offset:-2px}
+input[type=search].field{font-family:var(--mono);font-size:.78rem}
 
-.note{border:2px solid var(--ink);padding:12px;margin-bottom:12px;background:var(--paper);box-shadow:4px 4px 0 var(--ink)}
-.note h2{font-family:var(--mono);font-size:.78rem;font-weight:700;margin:0;letter-spacing:-.01em;word-break:break-all}
-.note .sub{font-family:var(--mono);font-size:.62rem;letter-spacing:.08em;text-transform:uppercase;opacity:.6;margin:3px 0 8px}
-.note p{margin:0 0 10px;white-space:pre-wrap}
-.note p.none{font-family:var(--mono);font-size:.72rem;opacity:.55}
-.acts{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
-.acts select{font-size:.68rem;padding:4px 6px;font-family:var(--mono)}
-audio{width:100%;margin-bottom:10px;display:block}
-.empty{border:2px dashed var(--ink);padding:28px 16px;text-align:center;font-family:var(--mono);font-size:.76rem;opacity:.7}
+.chips{display:flex;gap:6px;flex-wrap:wrap;padding:10px 12px;border-bottom:2px solid var(--ink)}
+.chip{border:2px solid var(--ink);background:var(--paper);padding:6px 12px;cursor:pointer;
+  font-family:var(--mono);font-size:.62rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+.chip:hover{background:var(--soft)}
+.chip.on{background:var(--ink);color:var(--paper)}
+.chip .n{margin-left:6px;opacity:.6}
 
-section{margin-top:30px;border-top:2px solid var(--ink);padding-top:16px}
-section h3{font-family:var(--mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;margin:0 0 10px}
-.todo{display:flex;align-items:flex-start;gap:8px;border:2px solid var(--ink);padding:8px 10px;margin-bottom:6px}
-.todo input{width:18px;height:18px;margin-top:2px;flex:0 0 auto;accent-color:#000}
-.todo span{flex:1}
-.todo.done span{text-decoration:line-through;opacity:.5}
-.addrow{display:flex;gap:8px;margin-top:10px}
-.addrow input{flex:1;font:inherit;border:2px solid var(--ink);padding:7px 9px;background:var(--paper);color:var(--ink)}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px}
-.grid2 input,#ghToken{width:100%;font:inherit;border:2px solid var(--ink);padding:7px 9px;background:var(--paper);color:var(--ink)}
-#ghToken{margin-bottom:8px}
-.fine{font-size:.74rem;opacity:.72;margin:6px 0}
-.check{display:flex;align-items:center;gap:8px;font-size:.82rem;margin-top:4px}
-.check input{width:17px;height:17px;accent-color:#000}
-footer{margin-top:34px;border-top:2px solid var(--ink);padding-top:12px;font-size:.76rem;opacity:.75}
-footer a{color:var(--ink)}
-.toast{
-  position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--paper);
-  font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;padding:8px 14px;
-  opacity:0;pointer-events:none;transition:opacity .18s
-}
+#list{flex:1;overflow:auto}
+.row{border-bottom:2px solid var(--ink);padding:12px;cursor:pointer;display:flex;gap:10px;align-items:flex-start;background:var(--paper)}
+.row:hover{background:var(--soft)}
+.row.on{background:var(--ink);color:var(--paper)}
+.row-main{min-width:0;flex:1}
+.row-name{font-family:var(--mono);font-size:.78rem;font-weight:700;word-break:break-all}
+.row-meta{font-family:var(--mono);font-size:.6rem;letter-spacing:.08em;text-transform:uppercase;opacity:.65;margin-top:3px}
+.row-snip{font-size:.8rem;margin-top:6px;opacity:.85;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.badge{border:2px solid currentColor;padding:2px 7px;font-family:var(--mono);font-size:.55rem;font-weight:700;
+  letter-spacing:.08em;text-transform:uppercase;flex:0 0 auto}
+.empty{padding:40px 20px;text-align:center;font-family:var(--mono);font-size:.76rem;opacity:.6}
+
+.reader-head{border-bottom:2px solid var(--ink);padding:14px 16px;display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap}
+.reader-title{font-family:var(--mono);font-size:1rem;font-weight:800;word-break:break-all;flex:1;min-width:0}
+.reader-body{flex:1;overflow:auto;padding:16px}
+.meta-line{font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;opacity:.65;margin-bottom:14px}
+audio{width:100%;margin-bottom:16px;display:block}
+.transcript{white-space:pre-wrap;font-size:.95rem}
+.transcript.none{font-family:var(--mono);font-size:.78rem;opacity:.55}
+.controls{display:flex;gap:8px;flex-wrap:wrap;padding:12px 16px;border-top:2px solid var(--ink);align-items:center}
+.controls select{border:2px solid var(--ink);padding:8px 10px;background:var(--paper);font-family:var(--mono);font-size:.7rem;text-transform:uppercase}
+
+.todo-item{display:flex;gap:10px;align-items:flex-start;border:2px solid var(--ink);padding:10px 12px;margin-bottom:8px}
+.todo-item input{width:18px;height:18px;margin-top:2px;flex:0 0 auto;accent-color:#000}
+.t-text{flex:1;font-size:.9rem}
+.todo-item.done .t-text{text-decoration:line-through;opacity:.45}
+.add-row{display:flex;gap:8px;margin-top:10px}
+
+dialog{border:2px solid var(--ink);border-radius:0;box-shadow:var(--shadow);padding:0;max-width:520px;
+  width:calc(100% - 32px);background:var(--paper);color:var(--ink)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+.dlg-head{border-bottom:2px solid var(--ink);padding:12px 16px;display:flex;justify-content:space-between;align-items:center}
+.dlg-title{font-family:var(--mono);font-size:.9rem;font-weight:800;text-transform:uppercase}
+.dlg-body{padding:16px;max-height:70vh;overflow:auto}
+.dlg-actions{border-top:2px solid var(--ink);padding:12px 16px;display:flex;gap:8px;justify-content:flex-end}
+.set-group{margin-bottom:20px}
+.set-group h4{font-family:var(--mono);font-size:.66rem;letter-spacing:.14em;text-transform:uppercase;margin:0 0 4px}
+.set-group p{font-size:.78rem;opacity:.7;margin:0 0 10px}
+label.lbl{display:block;font-family:var(--mono);font-size:.6rem;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin:8px 0 3px}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+
+.toast{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);background:var(--ink);color:var(--paper);
+  font-family:var(--mono);font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;padding:10px 16px;
+  opacity:0;pointer-events:none;transition:opacity .18s;z-index:100}
 .toast.on{opacity:1}
+
+@media(max-width:820px){
+  .layout{grid-template-columns:1fr}
+  .pane.left{border-right:none;border-bottom:2px solid var(--ink)}
+  #list{max-height:44vh}
+  .brand{font-size:1.2rem}
+  .storage{display:none}
+}
+@media(pointer:coarse){
+  .btn{min-height:44px}
+  .chip{padding:10px 14px}
+  .row{padding:14px 12px}
+}
 </style></head>
 <body>
-<div class="wrap">
 
-<header>
-  <h1>mono note mini</h1>
-  <div class="meta" id="meta">reading the card…</div>
-  <div class="bar"><i id="bar" style="width:0"></i></div>
+<header class="topbar">
+  <div class="brand">mono note mini<small id="devId">on your network</small></div>
+  <div class="actions">
+    <div class="storage"><span id="storageTxt">reading card…</span><div class="bar"><i id="bar" style="width:0"></i></div></div>
+    <button class="btn" id="todoBtn">To-do</button>
+    <button class="btn" id="refreshBtn">Refresh</button>
+    <button class="btn icon" id="setBtn" title="Settings">&#9881;</button>
+  </div>
 </header>
 
-<div class="tools">
-  <input type="search" id="q" placeholder="Search notes and transcripts…" autocomplete="off">
-  <button id="refresh">Refresh</button>
+<div class="layout">
+  <section class="pane left">
+    <div class="pane-head"><input type="search" id="q" class="field" placeholder="Search notes and transcripts…" autocomplete="off"></div>
+    <div class="chips" id="chips"></div>
+    <div id="list"><div class="empty">reading the card…</div></div>
+  </section>
+  <section class="pane" id="reader">
+    <div class="reader-head"><div class="reader-title">No note selected</div></div>
+    <div class="reader-body"><div class="transcript none">Pick a note on the left.</div></div>
+  </section>
 </div>
-<div class="chips" id="chips"></div>
 
-<div id="list"></div>
-
-<section>
-  <h3>To-do</h3>
-  <div id="todos"></div>
-  <div class="addrow">
-    <input type="text" id="newTodo" placeholder="Add a job…" autocomplete="off">
-    <button id="addTodo">Add</button>
+<dialog id="todoDlg">
+  <div class="dlg-head"><div class="dlg-title">To-do</div><button class="btn" data-close>Close</button></div>
+  <div class="dlg-body">
+    <div id="todoList"></div>
+    <div class="add-row"><input class="field" id="todoNew" placeholder="Add a job…" autocomplete="off"><button class="btn primary" id="todoAdd">Add</button></div>
+    <p style="font-size:.76rem;opacity:.7;margin-top:12px">Kept on the card as <code>/todo.txt</code>, plain text. The device shows the same list.</p>
   </div>
-</section>
+</dialog>
 
-<section>
-  <h3>Publish to your repo</h3>
-  <p class="fine">Optional. Copies your notes into a GitHub repo you own, so the web app can read them when you're away from home. Everything above works without this.</p>
-  <div class="grid2">
-    <input type="text" id="ghOwner" placeholder="owner" autocomplete="off">
-    <input type="text" id="ghRepo" placeholder="repo" autocomplete="off">
-    <input type="text" id="ghBranch" placeholder="branch (main)" autocomplete="off">
-    <input type="text" id="ghPath" placeholder="path (data/notes.json)" autocomplete="off">
+<dialog id="setDlg">
+  <div class="dlg-head"><div class="dlg-title">Settings</div><button class="btn" data-close>Close</button></div>
+  <div class="dlg-body">
+    <div class="set-group">
+      <h4>Wi-Fi</h4>
+      <p>So the device can reach your server and the internet on its own.</p>
+      <label class="lbl">Network</label><input class="field" id="sSsid" autocomplete="off">
+      <label class="lbl">Password</label><input class="field" id="sPass" type="password" placeholder="leave blank to keep" autocomplete="new-password">
+    </div>
+    <div class="set-group">
+      <h4>Transcription server</h4>
+      <p>Where recordings go to become text. Leave blank and sync simply skips that half.</p>
+      <label class="lbl">API base</label><input class="field" id="sApi" placeholder="http://192.168.1.20:8000" autocomplete="off">
+    </div>
+    <div class="set-group">
+      <h4>Publish to your repo</h4>
+      <p>Sync pushes notes to a GitHub repo you own, so the web app can read them from anywhere. This device writes one file of its own, so several devices can share a repo without overwriting each other.</p>
+      <div class="grid2">
+        <div><label class="lbl">Owner</label><input class="field" id="sOwner" autocomplete="off"></div>
+        <div><label class="lbl">Repo</label><input class="field" id="sRepo" autocomplete="off"></div>
+      </div>
+      <label class="lbl">Token</label><input class="field" id="sToken" type="password" placeholder="leave blank to keep" autocomplete="new-password">
+      <p style="margin-top:8px"><b>Use a fine-grained token limited to that one repo, Contents: read and write.</b> It is stored on the device in plain text, so a lost device means a token that can write to that one repo and nothing else.</p>
+    </div>
+    <div class="set-group">
+      <h4>Device</h4>
+      <label class="lbl">Device password (for this page)</label><input class="field" id="sDevpass" type="password" placeholder="leave blank to keep" autocomplete="new-password">
+      <label class="lbl">Auto-sync</label>
+      <select class="field" id="sSync">
+        <option value="0">Off</option><option value="1">Every hour</option><option value="2">Every 2 hours</option>
+        <option value="4">Every 4 hours</option><option value="8">Every 8 hours</option><option value="24">Once a day</option>
+      </select>
+      <p style="margin-top:8px">Syncing more often wakes the radio more often, which drains the battery faster.</p>
+    </div>
   </div>
-  <input type="password" id="ghToken" placeholder="Personal access token — Contents: read and write" autocomplete="off">
-  <label class="check"><input type="checkbox" id="ghAudio"><span>Include audio (base64 WAV)</span></label>
-  <p class="fine" id="audioWarn"></p>
-  <div class="addrow" style="margin-top:10px">
-    <button id="ghPublish">Publish</button>
-    <button id="ghForget" class="flat">Forget token</button>
+  <div class="dlg-actions">
+    <button class="btn" data-close>Cancel</button>
+    <button class="btn primary" id="setSave">Save and reboot</button>
   </div>
-  <p class="fine" id="ghStatus"></p>
-</section>
+</dialog>
 
-<footer>
-  <p>Served by the device itself, off the SD card. These notes never left your network to get here.</p>
-  <p><a href="https://atreyap31-cell.github.io/mono-note-mini/" target="_blank" rel="noopener">About this project ↗</a></p>
-</footer>
-</div>
 <div class="toast" id="toast"></div>
 
 <script>
 const TAGS = ["Work","Projects","Ideas","Quotes","Random"];
 const $ = s => document.querySelector(s);
-let notes = [], filter = "", query = "", todos = [], apiBase = "";
+let notes = [], todos = [], info = {}, filter = "", query = "", picked = null;
 
 function toast(msg){
   const t = $('#toast'); t.textContent = msg; t.classList.add('on');
-  clearTimeout(toast._t); toast._t = setTimeout(()=>t.classList.remove('on'), 1600);
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove('on'), 1800);
 }
-const esc = s => String(s).replace(/[&<>"']/g, c =>
+const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c =>
   ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const mmss = s => { s = s|0; return Math.floor(s/60) + ":" + String(s%60).padStart(2,'0'); };
 
-function mmss(s){
-  s = s|0; return Math.floor(s/60) + ":" + String(s%60).padStart(2,'0');
+/* rec_20260901_103045 becomes a readable date. Anything else - including the
+   rec_noclock_ names made before the clock was ever set - is shown as it is
+   rather than guessed at. */
+function prettyName(base){
+  const m = /^rec_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/.exec(base);
+  if(!m) return base.replace(/^rec_/, '');
+  const d = new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]);
+  return d.toLocaleString(undefined, {month:'short', day:'numeric', hour:'2-digit', minute:'2-digit'});
 }
+
 async function post(url, params){
-  const body = new URLSearchParams(params).toString();
   const r = await fetch(url, {
     method:'POST',
     headers:{'Content-Type':'application/x-www-form-urlencoded'},
-    body
+    body:new URLSearchParams(params).toString()
   });
-  if(!r.ok) throw new Error(await r.text().catch(()=>r.status));
+  if(!r.ok) throw new Error(await r.text().catch(() => r.status));
   return r;
 }
 
 async function loadInfo(){
   try{
-    const i = await (await fetch('/api/info')).json();
-    const pct = i.totalMB ? Math.round(i.usedMB*100/i.totalMB) : 0;
+    info = await (await fetch('/api/info')).json();
+    const pct = info.totalMB ? Math.round(info.usedMB * 100 / info.totalMB) : 0;
     $('#bar').style.width = pct + "%";
-    /* The device already stores the backend address - reuse it rather than
-       asking for it twice. Re-render once known: the Suggest button cannot be
-       drawn before then. */
-    apiBase = (i.api || "").replace(/\/+$/, "");
+    $('#storageTxt').textContent = info.usedMB + " / " + info.totalMB + " MB";
+    if(info.device) $('#devId').textContent = info.device;
 
-    /* The device has no clock until something tells it the time - NTP only
-       arrives once Wi-Fi is set up and reachable, and until then notes are
-       named after milliseconds since boot. This browser knows the time, so
-       just say so. Once set it goes to the RTC and survives power loss. */
+    /* The device has no clock until something tells it the time, and this
+       browser knows it. Once set it goes to the RTC and survives power loss. */
     const now = Math.floor(Date.now() / 1000);
-    if (!i.clock || Math.abs(now - i.clock) > 120) {
-      try {
+    if(!info.clock || Math.abs(now - info.clock) > 120){
+      try{
         await post('/api/time', {t: now});
-        toast(i.clock ? "clock corrected" : "clock set");
-      } catch (e) { /* not fatal - the notes just keep their fallback names */ }
+        toast(info.clock ? "clock corrected" : "clock set");
+      }catch(e){ /* not fatal - notes just keep their fallback names */ }
     }
-    if (apiBase) render();
-    $('#meta').textContent =
-      i.usedMB + " / " + i.totalMB + " MB used · auto-sync " +
-      (i.syncHrs ? "every " + i.syncHrs + "h" : "off") +
-      (i.api ? "" : " · no server set");
-  }catch(e){ $('#meta').textContent = "card info unavailable"; }
+  }catch(e){ $('#storageTxt').textContent = "card unavailable"; }
 }
 
 async function loadNotes(){
-  const r = await fetch('/api/notes');
-  notes = await r.json();
-  notes.reverse();                       /* newest first, as on the device */
+  try{
+    notes = await (await fetch('/api/notes')).json();
+    notes.sort((a, b) => b.base.localeCompare(a.base));    /* newest first */
+  }catch(e){ notes = []; }
   render();
 }
 
-function chips(){
+function visible(){
+  const q = query.trim().toLowerCase();
+  return notes.filter(n =>
+    (!filter || n.tag === filter) &&
+    (!q || n.base.toLowerCase().includes(q) || (n.txt || "").toLowerCase().includes(q)));
+}
+
+function renderChips(){
   const counts = {};
-  notes.forEach(n => { const k = n.tag || "Untagged"; counts[k] = (counts[k]||0)+1; });
-  const all = [["", "All", notes.length]]
-    .concat(TAGS.map(t => [t, t, counts[t]||0]))
-    .concat([["Untagged","Untagged",counts["Untagged"]||0]]);
-  $('#chips').innerHTML = all.map(([v,label,c]) =>
-    `<button class="flat" data-tag="${esc(v)}" aria-pressed="${filter===v}">${esc(label)} ${c}</button>`
-  ).join('');
-  $('#chips').querySelectorAll('button').forEach(b =>
-    b.onclick = ()=>{ filter = b.dataset.tag; render(); });
+  TAGS.forEach(t => counts[t] = 0);
+  notes.forEach(n => { if(counts[n.tag] !== undefined) counts[n.tag]++; });
+  let h = '<button class="chip' + (filter === '' ? ' on' : '') + '" data-tag="">All<span class="n">' + notes.length + '</span></button>';
+  h += TAGS.map(t => '<button class="chip' + (filter === t ? ' on' : '') + '" data-tag="' + t + '">' + t + '<span class="n">' + counts[t] + '</span></button>').join('');
+  $('#chips').innerHTML = h;
+  $('#chips').querySelectorAll('.chip').forEach(c =>
+    c.onclick = () => { filter = c.dataset.tag; render(); });
 }
 
 function render(){
-  chips();
-  const q = query.toLowerCase();
-  const shown = notes.filter(n => {
-    const tagOk = !filter || (filter === "Untagged" ? !n.tag : n.tag === filter);
-    const qOk = !q || n.base.toLowerCase().includes(q) || (n.txt||"").toLowerCase().includes(q);
-    return tagOk && qOk;
-  });
-  if(!shown.length){
-    $('#list').innerHTML = `<div class="empty">${notes.length ? "Nothing matches." : "No notes on the card yet. Hold MAKE NOTE on the device."}</div>`;
+  renderChips();
+  const rows = visible();
+  if(!rows.length){
+    $('#list').innerHTML = '<div class="empty">' + (notes.length ? "nothing matches" : "no notes yet") + '</div>';
     return;
   }
-  $('#list').innerHTML = shown.map(n => {
-    const opts = ['<option value="">— no tag —</option>']
-      .concat(TAGS.map(t => `<option value="${t}"${n.tag===t?' selected':''}>${t}</option>`)).join('');
-    return `<article class="note" data-base="${esc(n.base)}">
-      <h2>${esc(n.base)}</h2>
-      <div class="sub">${n.audio ? mmss(n.secs) + " · " + Math.max(1,Math.round(n.bytes/1024)) + " KB" : "audio freed"}${n.tag ? " · " + esc(n.tag) : ""}</div>
-      ${n.audio ? `<audio controls preload="none" src="/file?n=${encodeURIComponent(n.base)}.wav"></audio>` : ``}
-      ${n.txt ? `<p>${esc(n.txt)}</p>` : `<p class="none">Not transcribed yet.</p>`}
-      <div class="acts">
-        <select data-act="tag">${opts}</select>
-        ${n.txt && apiBase ? `<button class="flat" data-act="suggest">Suggest</button>` : ``}
-        <button class="flat" data-act="del">Delete</button>
-      </div>
-    </article>`;
-  }).join('');
-
-  $('#list').querySelectorAll('.note').forEach(el => {
-    const base = el.dataset.base;
-    el.querySelector('[data-act="tag"]').onchange = async e => {
-      try{
-        await post('/api/tag', {n:base, tag:e.target.value});
-        const n = notes.find(x => x.base === base); if(n) n.tag = e.target.value;
-        toast("filed"); render();
-      }catch(err){ toast("tag failed"); }
-    };
-    const sug = el.querySelector('[data-act="suggest"]');
-    if (sug) sug.onclick = async () => {
-      const note = notes.find(x => x.base === base);
-      const was = sug.textContent;
-      sug.disabled = true; sug.textContent = "...";
-      try {
-        const r = await fetch(apiBase + '/enrich', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json'},
-          body: JSON.stringify({text: note.txt})
-        });
-        if (!r.ok) throw new Error('server said ' + r.status);
-        const out = await r.json();
-        /* File it, but only if the model returned one of the device's tags. */
-        if (out.tag && TAGS.includes(out.tag)) {
-          await post('/api/tag', {n: base, tag: out.tag});
-          note.tag = out.tag;
-        }
-        /* Offer the action items rather than appending them silently. */
-        if (out.todos && out.todos.length) {
-          const ask = (out.title ? out.title + '\n\n' : '') +
-                      'Add these to the to-do list?\n\n- ' + out.todos.join('\n- ');
-          if (confirm(ask)) {
-            out.todos.forEach(t => todos.push({text: t, done: false}));
-            renderTodos();
-            await saveTodos();
-          }
-        }
-        toast(out.tag ? 'filed under ' + out.tag : 'no tag suggested');
-        render();
-      } catch (err) {
-        toast('suggest failed');
-        console.error(err);
-      } finally {
-        sug.disabled = false; sug.textContent = was;
-      }
-    };
-
-    el.querySelector('[data-act="del"]').onclick = async () => {
-      if(!confirm("Delete " + base + "?\n\nRemoves the audio, transcript and tag together. This cannot be undone.")) return;
-      try{
-        await post('/api/delete', {n:base});
-        notes = notes.filter(x => x.base !== base);
-        toast("deleted"); render(); loadInfo();
-      }catch(err){ toast("delete failed"); }
-    };
-  });
+  $('#list').innerHTML = rows.map(n =>
+    '<div class="row' + (picked === n.base ? ' on' : '') + '" data-base="' + esc(n.base) + '">' +
+      '<div class="row-main">' +
+        '<div class="row-name">' + esc(prettyName(n.base)) + '</div>' +
+        '<div class="row-meta">' + (n.audio ? mmss(n.secs) : "text only") + (n.tag ? " &middot; " + esc(n.tag) : "") + '</div>' +
+        (n.txt ? '<div class="row-snip">' + esc(n.txt) + '</div>' : '') +
+      '</div>' +
+      (n.tag ? '<span class="badge">' + esc(n.tag) + '</span>' : '') +
+    '</div>').join('');
+  $('#list').querySelectorAll('.row').forEach(r =>
+    r.onclick = () => { picked = r.dataset.base; render(); showNote(); });
 }
 
-/* ------------------------------------------------------------------ to-do */
-function parseTodos(text){
-  return text.split('\n').map(l => l.trim()).filter(Boolean).map(l =>
-    l.startsWith('[x] ') ? {text:l.slice(4), done:true}
-    : l.startsWith('[ ] ') ? {text:l.slice(4), done:false}
-    : {text:l, done:false});
-}
-const serialiseTodos = () => todos.map(t => (t.done ? "[x] " : "[ ] ") + t.text).join('\n') + '\n';
-
-async function loadTodos(){
-  try{
-    todos = parseTodos(await (await fetch('/api/todo')).text());
-  }catch(e){ todos = []; }
-  renderTodos();
-}
-function renderTodos(){
-  if(!todos.length){ $('#todos').innerHTML = `<div class="empty">No jobs yet.</div>`; return; }
-  $('#todos').innerHTML = todos.map((t,i) =>
-    `<label class="todo${t.done?' done':''}"><input type="checkbox" data-i="${i}"${t.done?' checked':''}><span>${esc(t.text)}</span></label>`
-  ).join('');
-  $('#todos').querySelectorAll('input').forEach(cb =>
-    cb.onchange = async () => {
-      todos[cb.dataset.i].done = cb.checked;
-      renderTodos(); await saveTodos();
-    });
-}
-async function saveTodos(){
-  try{
-    await fetch('/api/todo', {method:'POST', headers:{'Content-Type':'text/plain'}, body:serialiseTodos()});
-    toast("saved");
-  }catch(e){ toast("save failed"); }
-}
-$('#addTodo').onclick = async () => {
-  const v = $('#newTodo').value.trim(); if(!v) return;
-  todos.push({text:v, done:false}); $('#newTodo').value = "";
-  renderTodos(); await saveTodos();
-};
-$('#newTodo').addEventListener('keydown', e => { if(e.key === 'Enter') $('#addTodo').click(); });
-
-/* ------------------------------------------------------- publish to GitHub
-   This page is served over plain HTTP by the device, which is exactly why the
-   push happens here: an HTTP page may call https://api.github.com (the reverse
-   is what browsers block), and GitHub sends permissive CORS headers. The token
-   never touches the device - it lives in this browser only. */
-const GH_KEY = 'mnm-gh';
-const ghFields = ['ghOwner','ghRepo','ghBranch','ghPath','ghToken'];
-let gh = {};
-
-function loadGh(){
-  try{ gh = JSON.parse(localStorage.getItem(GH_KEY)) || {}; }catch(e){ gh = {}; }
-  $('#ghOwner').value  = gh.owner  || '';
-  $('#ghRepo').value   = gh.repo   || '';
-  $('#ghBranch').value = gh.branch || 'main';
-  $('#ghPath').value   = gh.path   || 'data/notes.json';
-  $('#ghToken').value  = gh.token  || '';
-  $('#ghAudio').checked = !!gh.audio;
-  audioWarn();
-  if(gh.lastPublish) ghSay("last published " + new Date(gh.lastPublish).toLocaleString());
-}
-function saveGh(){
-  gh = {
-    owner:$('#ghOwner').value.trim(), repo:$('#ghRepo').value.trim(),
-    branch:$('#ghBranch').value.trim() || 'main',
-    path:$('#ghPath').value.trim() || 'data/notes.json',
-    token:$('#ghToken').value.trim(), audio:$('#ghAudio').checked,
-    lastPublish: gh.lastPublish || 0
+function showNote(){
+  const n = notes.find(x => x.base === picked);
+  if(!n) return;
+  const opts = TAGS.map(t => '<option value="' + t + '"' + (n.tag === t ? ' selected' : '') + '>' + t + '</option>').join('');
+  $('#reader').innerHTML =
+    '<div class="reader-head">' +
+      '<div class="reader-title">' + esc(prettyName(n.base)) + '</div>' +
+      '<span class="badge">' + (n.audio ? mmss(n.secs) : "text only") + '</span>' +
+    '</div>' +
+    '<div class="reader-body">' +
+      '<div class="meta-line">' + esc(n.base) + (n.bytes ? " &middot; " + Math.round(n.bytes / 1024) + " KB" : "") + '</div>' +
+      (n.audio ? '<audio controls preload="none" src="/file?n=' + encodeURIComponent(n.base) + '.wav"></audio>' : '') +
+      '<div class="transcript' + (n.txt ? '' : ' none') + '">' +
+        (n.txt ? esc(n.txt) : "Not transcribed yet. Sync sends it to your server and the text comes back here.") +
+      '</div>' +
+    '</div>' +
+    '<div class="controls">' +
+      '<span class="eyebrow">Tag</span>' +
+      '<select id="tagSel"><option value="">&mdash; none &mdash;</option>' + opts + '</select>' +
+      '<span style="flex:1"></span>' +
+      '<button class="btn danger" id="delBtn">Delete</button>' +
+    '</div>';
+  $('#tagSel').onchange = async e => {
+    try{ await post('/api/tag', {n:n.base, tag:e.target.value}); n.tag = e.target.value; toast("filed"); render(); }
+    catch(err){ toast("tag failed"); }
   };
-  try{ localStorage.setItem(GH_KEY, JSON.stringify(gh)); }catch(e){}
-}
-const ghSay = m => { $('#ghStatus').textContent = m; };
-function audioWarn(){
-  $('#audioWarn').textContent = $('#ghAudio').checked
-    ? "Careful: GitHub's contents API only reads back files up to 1 MB, and base64 audio passes that after two or three clips. Text-only keeps it working."
-    : "Text only — transcripts, tags and timestamps. Audio stays on the card, reachable here on your network.";
-}
-ghFields.forEach(id => $('#' + id).addEventListener('change', saveGh));
-$('#ghAudio').addEventListener('change', ()=>{ audioWarn(); saveGh(); });
-$('#ghForget').onclick = () => {
-  $('#ghToken').value = ''; saveGh(); ghSay("token cleared from this browser");
-};
-
-const ghUrl = () => 'https://api.github.com/repos/' + encodeURIComponent(gh.owner) + '/' +
-  encodeURIComponent(gh.repo) + '/contents/' +
-  gh.path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-const ghHeaders = () => ({
-  'Accept':'application/vnd.github+json',
-  'X-GitHub-Api-Version':'2022-11-28',
-  'Authorization':'Bearer ' + gh.token
-});
-const b64ToUtf8 = b64 => {
-  const bin = atob(String(b64).replace(/\s+/g, ''));
-  const bytes = new Uint8Array(bin.length);
-  for(let i=0;i<bin.length;i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
-};
-const utf8ToB64 = str => {
-  const bytes = new TextEncoder().encode(str);
-  let bin = ''; bytes.forEach(b => bin += String.fromCharCode(b));
-  return btoa(bin);
-};
-/* rec_20260812_101200 -> epoch ms. Device clocks run on UTC (configTime(0,0)). */
-function createdFrom(base){
-  const m = /(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})/.exec(base);
-  if(!m) return Date.now();
-  return Date.UTC(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]);
-}
-async function wavBase64(base){
-  const r = await fetch('/file?n=' + encodeURIComponent(base) + '.wav');
-  if(!r.ok) return null;
-  const bytes = new Uint8Array(await r.arrayBuffer());
-  let bin = '';
-  for(let i=0;i<bytes.length;i+=0x8000)
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i+0x8000));
-  return btoa(bin);
+  $('#delBtn').onclick = async () => {
+    if(!confirm("Delete this note?\n\nThe recording, its transcript and its tag all go, and the card has no undo.")) return;
+    try{
+      await post('/api/delete', {n:n.base});
+      notes = notes.filter(x => x.base !== n.base);
+      picked = null;
+      render(); clearReader(); loadInfo(); toast("deleted");
+    }catch(err){ toast("delete failed"); }
+  };
 }
 
-$('#ghPublish').onclick = async () => {
-  saveGh();
-  if(!gh.owner || !gh.repo){ ghSay("owner and repo are required"); return; }
-  if(!gh.token){ ghSay("a token is required to push"); return; }
-  const btn = $('#ghPublish'); btn.disabled = true; btn.textContent = 'Publishing…';
+function clearReader(){
+  $('#reader').innerHTML =
+    '<div class="reader-head"><div class="reader-title">No note selected</div></div>' +
+    '<div class="reader-body"><div class="transcript none">Pick a note on the left.</div></div>';
+}
+
+async function todoLoad(){
   try{
-    /* read what's already there so nothing another device wrote is lost */
-    let sha = null, payload = null;
-    const got = await fetch(ghUrl() + '?ref=' + encodeURIComponent(gh.branch), {headers:ghHeaders()});
-    if(got.status === 404) payload = null;
-    else if(!got.ok){
-      let detail = ''; try{ detail = (await got.json()).message || ''; }catch(e){}
-      throw new Error('GitHub HTTP ' + got.status + (detail ? ' · ' + detail : ''));
-    } else {
-      const meta = await got.json();
-      sha = meta.sha;
-      if(!meta.content && meta.size > 1000000)
-        throw new Error('the existing file is ' + Math.round(meta.size/1024) +
-                        ' KB, past what the contents API will read back. Turn audio off and start a fresh path.');
-      try{ payload = JSON.parse(b64ToUtf8(meta.content)); }catch(e){ payload = null; }
-    }
-    if(!payload || typeof payload !== 'object') payload = {version:2, todos:[], notes:[]};
-    payload.version = 2;
-    payload.notes = Array.isArray(payload.notes) ? payload.notes : [];
-    payload.todos = Array.isArray(payload.todos) ? payload.todos : [];
+    const t = await (await fetch('/api/todo')).text();
+    todos = t.split('\n').map(l => l.trim()).filter(Boolean).map(l =>
+      l.startsWith('[x] ') ? {text:l.slice(4), done:true}
+      : l.startsWith('[ ] ') ? {text:l.slice(4), done:false}
+      : {text:l, done:false});
+  }catch(e){ todos = []; }
+  todoRender();
+}
+function todoRender(){
+  $('#todoList').innerHTML = todos.length
+    ? todos.map((t, i) =>
+        '<div class="todo-item' + (t.done ? ' done' : '') + '">' +
+          '<input type="checkbox" data-i="' + i + '"' + (t.done ? ' checked' : '') + '>' +
+          '<span class="t-text">' + esc(t.text) + '</span>' +
+          '<button class="btn" data-del="' + i + '">&#10005;</button>' +
+        '</div>').join('')
+    : '<div class="empty">nothing on the list</div>';
+  $('#todoList').querySelectorAll('input[type=checkbox]').forEach(c =>
+    c.onchange = () => { todos[+c.dataset.i].done = c.checked; todoSave(); });
+  $('#todoList').querySelectorAll('[data-del]').forEach(b =>
+    b.onclick = () => { todos.splice(+b.dataset.del, 1); todoSave(); });
+}
+async function todoSave(){
+  const body = todos.map(t => (t.done ? "[x] " : "[ ] ") + t.text).join('\n') + '\n';
+  try{
+    await fetch('/api/todo', {method:'POST', headers:{'Content-Type':'text/plain'}, body});
+    todoRender();
+  }catch(e){ toast("to-do save failed"); }
+}
 
-    const byId = new Map(payload.notes.map(n => [n.id, n]));
-    let audioCount = 0;
-    for(const n of notes){
-      const id = 'dev_' + n.base;
-      const prev = byId.get(id);
-      const entry = {
-        id, name:n.base, created:createdFrom(n.base), edited:Date.now(),
-        tags:n.tag ? [n.tag] : [], transcript:n.txt || '',
-        duration:n.secs || 0, kind:'recording'
-      };
-      if(gh.audio && n.audio){
-        try{ entry.wavData = await wavBase64(n.base); if(entry.wavData) audioCount++; }catch(e){}
-      }
-      /* never drop audio a previous publish already put there */
-      if(!entry.wavData && prev && prev.wavData) entry.wavData = prev.wavData;
-      byId.set(id, entry);
-    }
-    payload.notes = [...byId.values()];
-
-    const seen = new Set(payload.todos.map(t => t.text));
-    todos.forEach((t, i) => {
-      if(!seen.has(t.text)) payload.todos.push({id:'dev_todo_' + i + '_' + Date.now(), text:t.text, done:!!t.done});
-    });
-    payload.todosEdited = Date.now();
-    payload.exportedAt = new Date().toISOString();
-
-    const text = JSON.stringify(payload, null, 2);
-    const body = {
-      message:'Mono Note Mini publish ' + new Date().toISOString(),
-      content:utf8ToB64(text), branch:gh.branch
-    };
-    if(sha) body.sha = sha;
-    const put = await fetch(ghUrl(), {method:'PUT', headers:ghHeaders(), body:JSON.stringify(body)});
-    if(!put.ok){
-      let detail = ''; try{ detail = (await put.json()).message || ''; }catch(e){}
-      throw new Error('GitHub HTTP ' + put.status + (detail ? ' · ' + detail : ''));
-    }
-    gh.lastPublish = Date.now(); saveGh();
-    ghSay("published " + payload.notes.length + " notes" +
-          (audioCount ? " (" + audioCount + " with audio)" : " (text only)") +
-          ", " + payload.todos.length + " jobs · " + Math.round(text.length/1024) + " KB");
-    toast("published");
-  }catch(err){
-    ghSay("failed: " + (err.message || err));
-    toast("publish failed");
-  }finally{
-    btn.disabled = false; btn.textContent = 'Publish';
-  }
+function settingsOpen(){
+  $('#sSsid').value = info.ssid || "";
+  $('#sApi').value = info.api || "";
+  $('#sOwner').value = info.ghOwner || "";
+  $('#sRepo').value = info.ghRepo || "";
+  $('#sPass').value = ""; $('#sToken').value = ""; $('#sDevpass').value = "";
+  $('#sSync').value = String(info.syncHrs != null ? info.syncHrs : 4);
+  $('#setDlg').showModal();
+}
+$('#setSave').onclick = async () => {
+  const p = {
+    ssid: $('#sSsid').value.trim(),
+    api: $('#sApi').value.trim(),
+    ghowner: $('#sOwner').value.trim(),
+    ghrepo: $('#sRepo').value.trim(),
+    ghbranch: 'main',
+    ghpath: '',
+    synchrs: $('#sSync').value
+  };
+  /* Blank means "keep what is already there" for the three secrets. The page is
+     never sent them, so writing blank back would quietly wipe them. */
+  if($('#sPass').value) p.pass = $('#sPass').value;
+  if($('#sToken').value) p.ghtoken = $('#sToken').value;
+  if($('#sDevpass').value) p.devpass = $('#sDevpass').value;
+  try{
+    await post('/save', p);
+    $('#setDlg').close();
+    toast("saved - the device is rebooting");
+  }catch(e){ toast("save failed"); }
 };
 
-/* ------------------------------------------------------------------- boot */
-$('#q').addEventListener('input', e => { query = e.target.value; render(); });
-$('#refresh').onclick = () => { loadNotes(); loadInfo(); loadTodos(); toast("reloaded"); };
+document.querySelectorAll('[data-close]').forEach(b =>
+  b.onclick = e => e.target.closest('dialog').close());
+$('#setBtn').onclick = settingsOpen;
+$('#todoBtn').onclick = () => { todoLoad(); $('#todoDlg').showModal(); };
+$('#todoAdd').onclick = () => {
+  const v = $('#todoNew').value.trim();
+  if(!v) return;
+  todos.push({text:v, done:false});
+  $('#todoNew').value = "";
+  todoSave();
+};
+$('#todoNew').onkeydown = e => { if(e.key === 'Enter') $('#todoAdd').click(); };
+$('#refreshBtn').onclick = () => { loadInfo(); loadNotes(); toast("refreshed"); };
+$('#q').oninput = e => { query = e.target.value; render(); };
 
-(async () => {
-  try{ await loadNotes(); }
-  catch(e){ $('#list').innerHTML = `<div class="empty">Could not reach the device.<br>Is this page being served from it?</div>`; }
-  loadInfo(); loadTodos(); loadGh();
-})();
+loadInfo();
+loadNotes();
 </script>
 </body></html>
