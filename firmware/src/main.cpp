@@ -387,7 +387,7 @@ static void drawTourStep(int step) {
       lines[2] = "A notebook you talk to.";
       lines[3] = "";
       lines[4] = "This tour shows every";
-      lines[5] = "feature. Hold the TOP";
+      lines[5] = "feature. Press either";
       lines[6] = "button to move on.";
       break;
     case 1:
@@ -398,7 +398,7 @@ static void drawTourStep(int step) {
       lines[3] = "     hold = choose";
       lines[4] = "     x2   = back";
       lines[5] = "BOT  tap  = record";
-      lines[6] = "     hold = scroll down";
+      lines[6] = "     hold = scroll";
       break;
     case 2:
       title = "ON & OFF";
@@ -550,8 +550,8 @@ static void drawTourStep(int step) {
     uiTextCentered(44, soundOn() ? "NOW: ON" : "NOW: OFF", 1);
     uiRow(10, 62, 84, 32, "ON",  2, sel == 0);
     uiRow(106, 62, 84, 32, "OFF", 2, sel == 1);
-    uiTextCentered(104, "Tap TOP to switch,", 1);
-    uiTextCentered(118, "hold TOP to carry on.", 1);
+    uiTextCentered(104, "Tap to switch,", 1);
+    uiTextCentered(118, "hold to carry on.", 1);
   } else {
     for (int i = 0; i < 7; i++)
       if (lines[i] && lines[i][0]) uiText(4, 26 + i * 15, lines[i], 1);
@@ -561,9 +561,10 @@ static void drawTourStep(int step) {
 
   if (step != TOUR_SOUND) {
     uiFillRect(0, 154, 200, 46, 0x00);
-    uiTextCentered(160, step == TOUR_STEPS - 1 ? "HOLD TOP = FINISH"
-                                               : "HOLD TOP = NEXT", 1, 0xff);
-    if (step > 0) uiTextCentered(176, "DOUBLE-TAP = BACK", 1, 0xff);
+    uiTextCentered(160, step == TOUR_STEPS - 1 ? "PRESS = FINISH" : "PRESS = NEXT", 1, 0xff);
+    /* The way out has to be on the screen. A tour you cannot leave is worse
+       than no tour, and nobody guesses a gesture that was never shown. */
+    uiTextCentered(176, step > 0 ? "2 TAPS = BACK" : "2 TAPS = SKIP", 1, 0xff);
   }
   uiFlushFull();
 }
@@ -1050,24 +1051,19 @@ void setup() {
   countRecordings();
   /* No first_boot_done key means this card/device has never been set up -
      a fresh unit, or one that was just factory reset. Run the tour. */
-  /* The tour used to run automatically on a new device and could not be
-     skipped. That is a wall in front of a device nobody can use yet, and if
-     the button it asks for is the one that does not work on this board, there
-     is no way through it at all. It now lives in Settings > Extra, where it is
-     something you choose rather than something you are trapped in. */
-  /* Boot marker: proves the panel is actually being refreshed. If the screen
-     still shows something older than this, the display is not updating and no
-     amount of UI work will ever be visible. */
-  epd->EPD_Clear();
-  uiFillRect(0, 0, 200, 60, 0x00);
-  uiTextCentered(20, "HELLO", 3, 0xff);
-  uiTextCentered(80, "screen is live", 2);
-  uiTextCentered(110, "press any button", 1);
-  uiFlushFull();
-  delay(2500);
-
-  netSetBool("first_boot_done", true);
-  drawHome();
+  /* The tour greets a new device again. What it must never do is trap anyone:
+     the first version ran automatically, demanded one specific button, and had
+     no exit - so a device whose button was not the one it wanted could not be
+     used at all. Now every screen takes either button, and a double-tap always
+     walks back and then out. */
+  if (!netHasKey("first_boot_done")) {
+    tourFromExtra = false;
+    walkStep = 0;
+    state = ST_WALKTHROUGH;
+    drawTourStep(walkStep);
+  } else {
+    drawHome();
+  }
   lastActivity = millis();
   printf("[boot] setup complete - device is running\n");
   if (state != ST_WALKTHROUGH) maybeAutoSync();
@@ -1218,8 +1214,16 @@ void loop() {
           drawTourStep(walkStep);
         }
       } else {
-        if ((ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) && walkStep > 0) {
-          walkStep--; if (soundOn()) beep(); drawTourStep(walkStep);
+        if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
+          if (walkStep > 0) {
+            walkStep--; if (soundOn()) beep(); drawTourStep(walkStep);
+          } else {
+            /* Back from the first screen means "I do not want this" - honour
+               it, and do not ask again. Settings > Extra still has it. */
+            netSetBool("first_boot_done", true);
+            if (tourFromExtra) { tourFromExtra = false; selReset(3); state = ST_EXTRA; drawExtra(); }
+            else { state = ST_HOME; drawHome(); }
+          }
         } else if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD | BTN_TOP_TAP | BTN_BOT_TAP)) {
           walkStep++;
           if (walkStep >= TOUR_STEPS) {
