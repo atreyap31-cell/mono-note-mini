@@ -123,7 +123,11 @@ static void sleepNow() {
   esp_deep_sleep_start();
 }
 
-static bool soundOn() { return netGet("sound", "0") == "1"; }
+/* On by default. An e-paper panel takes a moment to catch up with a press, and
+   without any feedback in that gap the device reads as unresponsive - which
+   costs far more than a tick is worth. The tour still asks, so anyone who
+   dislikes it turns it off in the first minute. */
+static bool soundOn() { return netGet("sound", "1") == "1"; }
 
 static const uint32_t SYNC_OPTS[6] = {0, 1, 2, 4, 8, 24};
 

@@ -176,6 +176,11 @@ label.lbl{display:block;font-family:var(--mono);font-size:.6rem;letter-spacing:.
       <label class="lbl">Time zone</label>
       <select class="field" id="sTz"></select>
       <p style="margin-top:6px">Note names use this. The device's clock runs on UTC, so without it a note spoken at ten in the morning is filed under whatever hour it is in Greenwich.</p>
+      <label class="lbl" style="display:flex;align-items:center;gap:10px;text-transform:none;font-size:.85rem;opacity:1;font-family:var(--sans)">
+        <input type="checkbox" id="sSound" style="width:18px;height:18px;accent-color:#000">
+        <span>Button sounds</span>
+      </label>
+      <p style="margin:4px 0 0">A soft tick on each press. E-paper takes a moment to redraw, and without it the device reads as unresponsive.</p>
       <label class="lbl">Auto-sync</label>
       <select class="field" id="sSync">
         <option value="0">Off</option><option value="1">Every hour</option><option value="2">Every 2 hours</option>
@@ -393,6 +398,7 @@ function settingsOpen(){
   $('#sRepo').value = info.ghRepo || "";
   $('#sPass').value = ""; $('#sToken').value = ""; $('#sDevpass').value = "";
   $('#sSync').value = String(info.syncHrs != null ? info.syncHrs : 4);
+  $('#sSound').checked = info.sound !== false;
   $('#setDlg').showModal();
 }
 $('#setSave').onclick = async () => {
@@ -404,6 +410,7 @@ $('#setSave').onclick = async () => {
     ghbranch: 'main',
     ghpath: '',
     tzmin: $('#sTz').value,
+    soundset: '1',
     synchrs: $('#sSync').value
   };
   /* Blank means "keep what is already there" for the three secrets. The page is
@@ -411,6 +418,7 @@ $('#setSave').onclick = async () => {
   if($('#sPass').value) p.pass = $('#sPass').value;
   if($('#sToken').value) p.ghtoken = $('#sToken').value;
   if($('#sDevpass').value) p.devpass = $('#sDevpass').value;
+  if($('#sSound').checked) p.sound = '1';
   try{
     await post('/save', p);
     $('#setDlg').close();

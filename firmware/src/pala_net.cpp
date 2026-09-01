@@ -112,7 +112,7 @@ static void handleApp() {
   page += "<textarea id=todo rows=6 style='width:100%'>" + htmlEscape(todoText) + "</textarea>";
   page += "<button onclick=\"fetch('/api/todo',{method:'POST',body:document.getElementById('todo').value}).then(()=>location.reload())\">Save to-do</button>";
   page += "<h3>Upload</h3><p>Recordings (<code>.wav</code>), transcripts (<code>.txt</code>) or tags (<code>.tag</code>).</p><form method=POST action=/up enctype=multipart/form-data><input type=file name=f accept='.wav,.txt,.tag'><button>Upload</button></form>";
-  page += "<h3>Settings</h3><form method=POST action=/save>";
+  page += "<h3>Settings</h3><form method=POST action=/save><input type=hidden name=soundset value=1>";
   page += "SSID <input name=ssid value='" + netGet("ssid") + "'><br>";
   page += "Password <input name=pass type=password value='" + netGet("pass") + "'><br>";
   page += "API base <input name=api value='" + netGet("api") + "'><br>";
@@ -137,7 +137,7 @@ static void handleApp() {
     }
     page += "</select><br><small>Syncing more often drains the battery faster — every 4 h is the default</small><br>";
   }
-  page += "Button sounds <input type=checkbox name=sound " + String(netGet("sound", "0") == "1" ? "checked" : "") + "><br><small>Clean soft tick — off by default</small><br>";
+  page += "Button sounds <input type=checkbox name=sound " + String(netGet("sound", "1") == "1" ? "checked" : "") + "><br><small>A soft tick on each press — covers the moment the panel takes to redraw</small><br>";
   page += "<button>Save &amp; reboot</button></form></body>";
   server.send(200, "text/html", page);
 }
@@ -258,6 +258,7 @@ static void handleApiInfo() {
   j += ",\"ghOwner\":\"" + jsonEscape(netGet("ghOwner")) + "\"";
   j += ",\"ghRepo\":\"" + jsonEscape(netGet("ghRepo")) + "\"";
   j += ",\"clock\":" + String((uint32_t)time(nullptr));
+  j += ",\"sound\":" + String(netGet("sound", "1") == "1" ? "true" : "false");
   j += ",\"tzset\":" + String(netGetU32("tzmin", 0) ? "true" : "false");
   uint32_t tzs = netGetU32("tzmin", 0);
   if (tzs) j += ",\"tzmin\":" + String((int)tzs - 1000);
@@ -317,7 +318,12 @@ static void handleSave() {
      placeholder back would destroy it. */
   String gt = server.arg("ghtoken");
   if (gt.length() && gt != "________") netSet("ghToken", gt);
-  netSet("sound", server.hasArg("sound") ? "1" : "0");
+  /* An unchecked checkbox sends nothing, which is indistinguishable from a form
+     that never had the field. Without this guard, saving anything from a page
+     that does not carry a sound control silently turns sounds off - which is
+     exactly what the rebuilt device page was doing. `soundset` says "this form
+     did handle sound", so absence means leave it alone. */
+  if (server.hasArg("soundset")) netSet("sound", server.hasArg("sound") ? "1" : "0");
   if (server.hasArg("synchrs")) {
     uint32_t h = (uint32_t)server.arg("synchrs").toInt();
     if (h == 0 || h == 1 || h == 2 || h == 4 || h == 8 || h == 24) netSetU32("syncHrs", h);
