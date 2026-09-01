@@ -154,6 +154,18 @@ async function loadInfo(){
        asking for it twice. Re-render once known: the Suggest button cannot be
        drawn before then. */
     apiBase = (i.api || "").replace(/\/+$/, "");
+
+    /* The device has no clock until something tells it the time - NTP only
+       arrives once Wi-Fi is set up and reachable, and until then notes are
+       named after milliseconds since boot. This browser knows the time, so
+       just say so. Once set it goes to the RTC and survives power loss. */
+    const now = Math.floor(Date.now() / 1000);
+    if (!i.clock || Math.abs(now - i.clock) > 120) {
+      try {
+        await post('/api/time', {t: now});
+        toast(i.clock ? "clock corrected" : "clock set");
+      } catch (e) { /* not fatal - the notes just keep their fallback names */ }
+    }
     if (apiBase) render();
     $('#meta').textContent =
       i.usedMB + " / " + i.totalMB + " MB used · auto-sync " +

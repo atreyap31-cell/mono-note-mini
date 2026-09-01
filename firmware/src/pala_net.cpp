@@ -1,5 +1,7 @@
 #include "pala_net.h"
 #include "pala_sync.h"
+#include "pala_rtc.h"
+#include <sys/time.h>
 #include <WiFi.h>
 #include <WebServer.h>
 #include <WiFiClientSecure.h>
@@ -241,7 +243,8 @@ static void handleApiInfo() {
   j += ",\"ssid\":\"" + jsonEscape(netGet("ssid")) + "\"";
   j += ",\"device\":\"" + syncDeviceId() + "\"";
   j += ",\"ghOwner\":\"" + jsonEscape(netGet("ghOwner")) + "\"";
-  j += ",\"ghRepo\":\"" + jsonEscape(netGet("ghRepo")) + "\"}";
+  j += ",\"ghRepo\":\"" + jsonEscape(netGet("ghRepo")) + "\"";
+  j += ",\"clock\":" + String((uint32_t)time(nullptr)) + "}";
   server.send(200, "application/json", j);
 }
 
@@ -305,6 +308,30 @@ static void handleSave() {
 
 static void handleUpload() { if(needAuth()) return; server.send(200, "text/plain", "ok"); }
 
+/* Set the clock from whatever is talking to the device.
+
+   NTP only arrives once Wi-Fi is configured and reachable, so a device that
+   has never been on a network has no idea what year it is, and its notes are
+   named accordingly. A browser opening this page knows the time perfectly
+   well; letting it say so means the clock solves itself the first time anyone
+   looks at the device, with no setup at all.
+
+   The value is written straight through to the RTC, which keeps it across
+   power loss. */
+static void handleApiTime() {
+  if (needAuth()) return;
+  String v = server.arg("t");
+  long long epoch = atoll(v.c_str());
+  if (epoch < 1700000000LL) {           /* sometime after this was written */
+    server.send(400, "text/plain", "implausible time");
+    return;
+  }
+  struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
+  settimeofday(&tv, nullptr);
+  bool saved = rtcSaveSystemTime();
+  server.send(200, "text/plain", saved ? "ok, clock kept" : "ok, but the RTC did not take it");
+}
+
 static void handleTodoGet() {
   if(needAuth()) return;
   String out = "";
@@ -361,6 +388,7 @@ static void beginServerRoutes() {
   server.on("/file", handleFile);
   server.on("/save", HTTP_POST, handleSave);
   server.on("/up", HTTP_POST, handleUpload, onUploadFile);
+  server.on("/api/time", HTTP_POST, handleApiTime);
   server.on("/api/todo", HTTP_GET, handleTodoGet);
   server.on("/api/todo", HTTP_POST, handleTodoPost);
   server.serveStatic("/www/", SD_MMC, "/www/");

@@ -14,6 +14,7 @@
 #include "pala_record.h"
 #include "pala_net.h"
 #include "pala_sync.h"
+#include "pala_rtc.h"
 #include "logo_mn.h"
 #include "soc/usb_serial_jtag_struct.h"
 
@@ -202,7 +203,9 @@ static String timestampName() {
              t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
     return String(buf);
   }
-  return "rec_" + String(millis()) + ".wav";
+  /* No clock and no sync yet. Say so, rather than emitting a number that
+     looks like a timestamp, sorts wrongly and means nothing. */
+  return "rec_noclock_" + String(millis() / 1000) + ".wav";
 }
 
 /* A note is a base name - rec_20260812_101200 - and up to three files beside
@@ -1040,7 +1043,12 @@ static void syncAll(bool autoRun) {
   }
 
   time_t now = time(nullptr);
-  if (now > 1600000000) netSetU64("lastSync", (uint64_t)now);
+  if (now > 1600000000) {
+    netSetU64("lastSync", (uint64_t)now);
+    /* NTP is the only source of truth the device gets. Hand it to the clock
+       chip so the next cold boot starts out knowing the date. */
+    rtcSaveSystemTime();
+  }
   staDisconnect();
   state = prev;
   if (prev == ST_SETTINGS) drawSettings();
@@ -1105,6 +1113,9 @@ void setup() {
   delay(200);
 
   i2c = I2cMasterBus::requestInstance(ESP32_I2C_SCL_PIN, ESP32_I2C_SDA_PIN, ESP32_I2C_DEV_NUM);
+  /* The clock kept running while the device was off. Ask it before anything
+     needs a timestamp, so a note made before any sync still gets a real name. */
+  if (rtcBegin()) rtcRestoreSystemTime();
   inputBegin();
   epd = new epaper_driver_display(EPD_WIDTH, EPD_HEIGHT,
       {EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN, EPD_MOSI_PIN, EPD_SCK_PIN, EPD_SPI_NUM, EPD_WIDTH * EPD_HEIGHT / 8});
