@@ -4,7 +4,7 @@
 <title>Mono Note Mini — Manual</title>
 <style>
 :root{
-  --paper:#fff; --ink:#000; --soft:#F4F4F2; --dim:#5a5a5a;
+  --paper:#fff; --ink:#000; --soft:#F4F4F2;
   --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
   --sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
 }
@@ -51,222 +51,257 @@ footer{border-top:3px solid var(--ink);margin-top:56px;padding-top:20px;font-siz
 
 <header>
   <h1>Mono Note Mini</h1>
-  <p>A notebook you talk to. It records what you say, files it under a tag, and keeps it on a card in your pocket — not on anyone's server.</p>
-  <div class="stamp">Full manual · setup, use, troubleshooting, and the things that will catch you out</div>
+  <p>A notebook you talk to. Press a button, say the thing, and it is filed — on a card in your pocket, not on anyone's server.</p>
+  <div class="stamp">Owner's manual · everything it does and how to set it up</div>
 </header>
 
 <nav>
   <h2>Contents</h2>
   <ol>
     <li><a href="#what">What it is</a></li>
-    <li><a href="#need">What you need</a></li>
-    <li><a href="#first">First setup</a></li>
+    <li><a href="#first">Turning it on</a></li>
     <li><a href="#buttons">The two buttons</a></li>
     <li><a href="#record">Making a note</a></li>
     <li><a href="#tags">Tags</a></li>
     <li><a href="#play">Playing a note back</a></li>
     <li><a href="#todo">The to-do list</a></li>
+    <li><a href="#battery">Battery and charging</a></li>
     <li><a href="#wifi">Wi-Fi</a></li>
-    <li><a href="#web">The device's web page</a></li>
+    <li><a href="#web">The device's own page</a></li>
     <li><a href="#transcribe">Transcription</a></li>
-    <li><a href="#github">Reading notes anywhere</a></li>
-    <li><a href="#battery">Battery</a></li>
+    <li><a href="#github">Reading your notes anywhere</a></li>
     <li><a href="#settings">Every setting</a></li>
-    <li><a href="#trouble">When something is wrong</a></li>
-    <li><a href="#flash">Flashing and recovery</a></li>
-    <li><a href="#hardware">Hardware reference</a></li>
+    <li><a href="#files">Your notes are files</a></li>
+    <li><a href="#trouble">If something is wrong</a></li>
+    <li><a href="#care">Looking after it</a></li>
   </ol>
 </nav>
 
 <h2 class="sec" id="what">1 · What it is</h2>
-<p>A Waveshare ESP32-S3 with a 1.54-inch e-paper screen, a microphone, a speaker and an SD card slot, running firmware written for this project. You press a button, say something, and press again. The recording lands on the card as a plain <code>.wav</code> file with a plain <code>.txt</code> transcript beside it.</p>
-<p>Everything is a normal file on a normal FAT32 card. If the firmware, this manual and every server involved disappeared tomorrow, you could still put the card in a laptop and read your notes. That is the point.</p>
-<div class="note"><b>Three things are optional</b>
-Transcription needs a server you run. Reading notes away from home needs a GitHub repo you own. Running unplugged needs a battery. The device records, plays back, tags and shows notes with none of them.</div>
+<p>You think of something and it is gone five seconds later. Reaching for a phone means unlocking it, finding the app, and passing three other things that want your attention on the way.</p>
+<p>This does one thing. Press, speak, press. It is filed under a tag and the screen goes back to sleep. The whole interaction is a few seconds and never opens a feed.</p>
+<p>Everything is kept as ordinary files on an ordinary memory card. Your recordings do not go to a company, there is no account, and there is nothing to subscribe to. If this device stopped existing tomorrow, the card would still open on any computer.</p>
+<div class="note"><b>Two features are optional</b>
+Turning speech into text needs a computer of yours to do the work. Reading notes while away from home needs a free GitHub account. The device records, plays back, tags and shows your notes with neither of them set up.</div>
 
-<h2 class="sec" id="need">2 · What you need</h2>
-<table>
-  <tr><th>Thing</th><th>Detail</th></tr>
-  <tr><td>The board</td><td>Waveshare ESP32-S3 1.54inch e-Paper AIoT board, 200×200, black/white. <b>Non-touch.</b> The firmware is built for two buttons.</td></tr>
-  <tr><td>microSD card</td><td>Formatted <b>FAT32</b>. Any size; 8–32 GB is sensible. It must be in the device before power-on.</td></tr>
-  <tr><td>USB-C cable</td><td>A <b>data</b> cable. Charge-only cables power the board but never appear on the computer, which looks exactly like a dead board.</td></tr>
-  <tr><td>Battery <i>(optional)</i></td><td>3.7 V LiPo with an <b>MX1.25</b> 2-pin plug. Most cells ship with JST-PH 2.0 mm, which does not fit.</td></tr>
-</table>
+<h2 class="sec" id="first">2 · Turning it on</h2>
+<p>It arrives assembled, with the battery and memory card already fitted. Charge it for an hour first with any USB-C cable.</p>
+<p>The first time it starts, a short tour walks through every feature. <b>Press either button</b> to move on. <b>Press twice quickly</b> to go back, or to skip the tour entirely from the first screen — it will not ask again. You can run it again later from Settings.</p>
+<div class="note"><b>Set the clock</b>
+Out of the box the device does not know the date, so early notes are named <code>rec_noclock_…</code>. Two ways to fix it, either is a one-off: connect it to your Wi-Fi (section 9), or open its own page in a browser (section 10), which sets the clock from your phone or computer automatically. After that it keeps time on its own, including while switched off.</div>
 
-<h2 class="sec" id="first">3 · First setup</h2>
-<ol>
-  <li><b>Format the card as FAT32</b> and put it in the device while it is off. The device creates <code>/recordings</code> and <code>/www</code> itself on first boot.</li>
-  <li><b>Copy the web page onto the card</b> at <code>/www/index.html</code>. Get it from <a href="https://github.com/atreyap31-cell/mono-note-mini/blob/main/www/index.html">the repo</a>. Without it the device falls back to a plain built-in page.</li>
-  <li><b>Power it up</b> over USB.</li>
-  <li><b>The tour runs</b> — 17 screens covering every feature. Press either button to move on, or <b>double-tap to skip</b>; it will not ask again. Settings → Extra → Redo tutorial brings it back.</li>
-</ol>
-<div class="note"><b>The clock</b>
-The device has no idea what time it is until something tells it. Open its web page once and your browser sets the clock automatically — that goes into a battery-backed clock chip and survives being switched off. Until then, notes are named <code>rec_noclock_…</code> instead of a date.</div>
-
-<h2 class="sec" id="buttons">4 · The two buttons</h2>
-<p>There is no touchscreen. Everything is two buttons.</p>
+<h2 class="sec" id="buttons">3 · The two buttons</h2>
+<p>There is no touchscreen. Everything is these two.</p>
 <table>
   <tr><th>Gesture</th><th>What it does</th></tr>
-  <tr><td><kbd>TOP</kbd> tap</td><td>Move the highlight to the next option</td></tr>
-  <tr><td><kbd>TOP</kbd> hold ≈1s</td><td>Choose the highlighted option</td></tr>
-  <tr><td><kbd>TOP</kbd> double-tap</td><td>Go back</td></tr>
-  <tr><td><kbd>BOTTOM</kbd> tap</td><td>Start/stop recording — and play/stop a note when you are looking at one</td></tr>
+  <tr><td><kbd>TOP</kbd> press</td><td>Move to the next option</td></tr>
+  <tr><td><kbd>TOP</kbd> hold about a second</td><td>Choose the highlighted option</td></tr>
+  <tr><td><kbd>TOP</kbd> press twice</td><td>Go back</td></tr>
+  <tr><td><kbd>BOTTOM</kbd> press</td><td>Start or stop recording. When looking at a note, plays it.</td></tr>
   <tr><td><kbd>BOTTOM</kbd> hold</td><td>Scroll down a long list</td></tr>
-  <tr><td><kbd>BOTTOM</kbd> hold 5s</td><td>Power off — <i>see the warning below</i></td></tr>
+  <tr><td><kbd>BOTTOM</kbd> hold five seconds</td><td>Switch the device off</td></tr>
 </table>
-<div class="warn"><b>The bottom button is not a normal button</b>
-On this board the PWR button is wired to a power-path controller, not to the processor. Software cannot see it at all. Holding it switches the device off <b>in hardware</b>, and that only works when running on battery — you cannot cut power that a USB cable is still supplying. The firmware's own power-off is on the top button instead.</div>
-<p>The highlighted row is drawn as a solid black bar with the label reversed out. That is the thing a hold will choose.</p>
+<p>The highlighted option is the solid black bar with the label reversed out — that is what a hold will choose.</p>
+<p>Each press gives a soft tick. The screen takes a moment to redraw, and the sound tells you the press registered before the picture catches up. If you would rather have silence, it is a setting.</p>
 
-<h2 class="sec" id="record">5 · Making a note</h2>
-<p><b>Tap the bottom button.</b> It works straight from the menu — catching a thought is one press, not four. A filled circle appears while it records.</p>
-<p><b>Tap it again to stop.</b> A square appears, then the tag picker.</p>
-<p>Notes stop by themselves at <b>two minutes</b>. Audio is 16 kHz mono, roughly 1.9 MB per minute.</p>
-<div class="note"><b>Why a circle and not a timer</b>
-E-paper redraws by inverting the whole panel, which takes about two seconds and wears the display. A running clock would repaint hundreds of times per note to tell you something already written into the file. The circle is drawn once, the square once, and nothing in between.</div>
+<h2 class="sec" id="record">4 · Making a note</h2>
+<p><b>Press the bottom button.</b> It works from anywhere in the menu — catching a thought should be one press, not four. A filled circle shows it is recording.</p>
+<p><b>Press it again to stop.</b> A square confirms it saved, then the tag picker appears.</p>
+<p>Notes stop by themselves at <b>two minutes</b>.</p>
+<div class="note"><b>Why there is no timer counting up</b>
+The screen is e-paper. It costs a full redraw to change anything, and a running clock would redraw hundreds of times per note to tell you something the file already knows. A circle while it records and a square when it stops, and nothing in between.</div>
 
-<h2 class="sec" id="tags">6 · Tags</h2>
-<p>Five, fixed: <b>Work, Projects, Ideas, Quotes, Random</b>. The picker appears the moment a recording saves. Tap to move, hold to choose, or pick SKIP.</p>
-<p>A tag is a file: <code>rec_20260901_103045.tag</code> containing one word. Re-tag any time from the note list on the device, or from the web page.</p>
+<h2 class="sec" id="tags">5 · Tags</h2>
+<p>Five: <b>Work, Projects, Ideas, Quotes, Random</b>. The picker appears the moment a recording saves — press to move, hold to choose, or pick SKIP to leave it untagged.</p>
+<p>You can change a note's tag later, either on the device or from its web page.</p>
 
-<h2 class="sec" id="play">7 · Playing a note back</h2>
-<p><b>VIEW NOTES → pick a tag → tap the bottom button.</b> That plays the highlighted note without opening it. Tap again to stop.</p>
-<p>Holding the top button opens the note instead, showing its transcript, with PLAY and DELETE inside. Delete asks twice and removes the audio, transcript and tag together.</p>
+<h2 class="sec" id="play">6 · Playing a note back</h2>
+<p><b>VIEW NOTES → choose a tag → press the bottom button.</b> That plays whichever note is highlighted, without opening it. Press again to stop.</p>
+<p>Holding the top button opens the note instead, showing its transcript with PLAY and DELETE inside. Deleting asks twice, and removes the recording, its transcript and its tag together.</p>
 
-<h2 class="sec" id="todo">8 · The to-do list</h2>
-<p>A checklist kept as <code>/todo.txt</code> in plain text. Hold the top button on a row to tick it off. Add and edit items from the web page, or by editing the file directly — <code>[ ]</code> and <code>[x]</code> are all the syntax there is.</p>
+<h2 class="sec" id="todo">7 · The to-do list</h2>
+<p>A checklist that lives on the device. Hold the top button on a row to tick it off. Add and edit items from the web page, where typing is easier.</p>
+
+<h2 class="sec" id="battery">8 · Battery and charging</h2>
+<p><b>Charge it with any USB-C cable</b> — a phone charger, a laptop, a power bank. There is no separate charger and no dock. A full charge takes roughly two to three hours.</p>
+<p>The bar at the top of the home screen shows the level in quarters. It reads in quarters rather than a percentage because a number that twitches by one would redraw the screen to tell you nothing.</p>
+<p>Expect <b>one to three weeks</b> between charges with everyday use. Almost all of that is standby: the screen costs nothing to keep showing an image, so the battery mostly goes on waking up to sync. If you want longer, set auto-sync to a longer interval or turn it off — it is the single largest drain.</p>
+<p><b>To switch it off,</b> hold the bottom button for five seconds. To switch it on, press it.</p>
+<div class="note"><b>Charging while it runs</b>
+Plugging in charges the battery and powers the device at the same time. It also stays awake while plugged in rather than sleeping on its usual timer.</div>
 
 <h2 class="sec" id="wifi">9 · Wi-Fi</h2>
-<p>Two ways in:</p>
+<p>Only needed for transcription, for syncing, or to set the clock. It works entirely offline otherwise.</p>
+<p>Two ways to set it up:</p>
 <ul>
-  <li><b>Settings → Wi-Fi</b> starts a hotspot from the device called <code>MonoNote-XXXX</code>, key <code>record123</code>. Join it and browse to <code>192.168.4.1</code>.</li>
-  <li><b>Settings → IP</b> joins the network already configured and shows the address it was given.</li>
+  <li><b>Settings → Wi-Fi</b> — the device makes its own network called <code>MonoNote-XXXX</code> with the key <code>record123</code>. Join it from your phone, and a setup page opens at <code>192.168.4.1</code>.</li>
+  <li><b>Settings → IP</b> — if it already knows your network, this joins it and shows the address to visit.</li>
 </ul>
-<p>Joining a network also sets the clock from NTP, which is written into the clock chip so it survives a power cut.</p>
+<p>Connecting also sets the clock, which it then keeps on its own.</p>
 
-<h2 class="sec" id="web">10 · The device's web page</h2>
-<p>With the device on your network, open the address from <b>Settings → IP</b> in any browser. Log in with <code>admin</code> and the device password (<code>record123</code> unless you changed it).</p>
-<p>You get search, tag filters with counts, audio playback, transcripts, re-tagging, deletion, the to-do list, and every setting.</p>
-<div class="warn"><b>Change the device password</b>
-It is <code>record123</code> out of the box and that default is published in a public repository. It is the only thing standing between your notes and everyone else on your network. Settings → Device password.</div>
-<p>This page is served by the device itself from the SD card. It needs no internet at all — which is the point, since it works on a network with no route out.</p>
+<h2 class="sec" id="web">10 · The device's own page</h2>
+<p>With the device on your Wi-Fi, open the address from <b>Settings → IP</b> in any browser. Log in with the user <code>admin</code> and the password <code>record123</code>.</p>
+<p>From there you get search, tag filters, playback, transcripts, re-tagging, deleting, the to-do list, and every setting — with a proper keyboard.</p>
+<div class="warn"><b>Change the password</b>
+It is <code>record123</code> until you change it, and that default is public. It is the only thing between your notes and anyone else on the same Wi-Fi. Settings → Device password.</div>
+<p>This page comes from the device itself, not from the internet. It works on a network with no connection at all.</p>
 
 <h2 class="sec" id="transcribe">11 · Transcription</h2>
-<p>Optional, and it runs on your own machine. The repo ships a server in <code>server/</code> using Whisper on your GPU and Ollama for the rest — nothing leaves your network.</p>
+<p>Optional, and it runs on your own computer rather than anyone's cloud. Your recordings never leave your home.</p>
+<p>It needs a reasonably capable computer left running, with the transcription software from the project page installed. Once it is running:</p>
 <ol>
-  <li>Run <code>server/run.ps1</code> on your PC.</li>
-  <li>Find that PC's LAN address (<code>ipconfig</code>).</li>
-  <li>Put <code>http://THAT-ADDRESS:8000</code> into the device's <b>API base</b> setting.</li>
-  <li>Allow port 8000 through the firewall.</li>
+  <li>Find that computer's address on your network</li>
+  <li>Put <code>http://THAT-ADDRESS:8000</code> into the device's <b>API base</b> setting</li>
+  <li>Press <b>Sync</b></li>
 </ol>
-<p>Press <b>Sync</b>. Every clip without a transcript is uploaded, and the text comes back as a <code>.txt</code> beside it. Leave the field blank and sync skips this half without complaining.</p>
+<p>Recordings without text are sent over, and the transcript comes back and sits beside the recording. Leave the setting blank and sync quietly skips this part.</p>
+<div class="note"><b>If you would rather not run a computer</b>
+Everything else works without it. Your recordings are ordinary audio files, so you can also transcribe them later, with whatever tool you like, whenever you like. Nothing about this device locks that decision in.</div>
 
 <h2 class="sec" id="github">12 · Reading your notes anywhere</h2>
-<p>Sync can also push notes to a GitHub repo you own, which the <a href="https://atreyap31-cell.github.io/mono-note-mini/">web app</a> reads from anywhere.</p>
-<h3>Make the repo</h3>
-<p><a href="https://github.com/new">github.com/new</a> — any name, <b>Private</b>, no README. The device creates the file itself.</p>
+<p>Everything so far works on your own network. This section is about the other case: you are out, you want a note you made yesterday, and the device is at home in a drawer.</p>
+<p>The device pushes your notes to a GitHub repository you own. The <a href="https://atreyap31-cell.github.io/mono-note-mini/">web app</a> reads that repository. Nothing else is involved — no account with anyone else, no server of yours left running, no subscription.</p>
+<div class="note"><b>Why a repository and not a service</b>
+It is free, private if you say so, and it outlives this device. If it breaks tomorrow your notes are still readable in a place you control. That is not true of anything that syncs to its manufacturer.</div>
+
+<h3>Step 1 — Make the repository</h3>
+<p>You need a free GitHub account. Then go to <a href="https://github.com/new">github.com/new</a>.</p>
+<ul>
+  <li><b>Name</b> — anything. <code>my-notes</code> is fine.</li>
+  <li><b>Visibility</b> — <b>Private</b>. See the warning below.</li>
+  <li><b>Do not</b> tick "Add a README". It should be completely empty; the device creates the file itself.</li>
+</ul>
 <div class="warn"><b>Private, not public</b>
-A public repo means anyone on the internet can read every transcript. Private costs you one extra step: the web app needs a token to read it too.</div>
-<h3>Make a token</h3>
-<p><a href="https://github.com/settings/personal-access-tokens/new">github.com/settings/personal-access-tokens/new</a> — it is buried at the very bottom of GitHub's settings sidebar under Developer settings, so use the direct link.</p>
-<ul>
-  <li><b>Repository access</b> → Only select repositories → your notes repo</li>
-  <li><b>Permissions</b> → Repository permissions → <b>Contents: Read and write</b>. Nothing else.</li>
-  <li>Copy it immediately — GitHub shows it once.</li>
-</ul>
-<p>That scoping is what makes this acceptable: the token sits on the device in plain text, which is unavoidable if the device is to push on its own. Scoped this way, a lost device means someone could write to one notes repo, not touch your account.</p>
-<h3>Put it on the device</h3>
-<p>Web page → Settings → <b>Publish to your repo</b>: owner, repo, token. The page also shows your <b>device ID</b>, like <code>mnm-1dd81ab0</code>. Write it down.</p>
-<h3>Read them</h3>
-<pre><code>https://atreyap31-cell.github.io/mono-note-mini/?o=OWNER&amp;r=REPO&amp;d=mnm-xxxxxxxx</code></pre>
-<p>Same site for everyone; the link decides whose notes load, and it is remembered after the first visit. Each device writes one file of its own, so several can share a repo without overwriting each other.</p>
-<div class="note"><b>Text only</b>
-GitHub's contents API refuses to read back anything over 1 MB, and base64 audio crosses that within a few clips — at which point the file stops being readable by the app meant to display it. Audio stays on the card, reachable over your own network.</div>
+A public repository means every transcript you ever make is readable by anyone on the internet, and indexed by search engines. Private costs you one extra step later — the web app needs a token to read it too. Take the step.</div>
 
-<h2 class="sec" id="battery">13 · Battery</h2>
-<p>Optional. Without one the device runs only while USB supplies power, and stops the instant you unplug it — with the last image still on the glass, which looks alarmingly like a crash.</p>
-<ul>
-  <li><b>Connector: MX1.25</b>, 1.25 mm pitch. Most LiPo cells ship with JST-PH at 2.0 mm, which is visibly chunkier and will not fit.</li>
-  <li><b>Check polarity before plugging anything in.</b> Probe from a ground point (the USB shell) to each battery pin with a multimeter on continuity: <b>the pin that beeps is negative.</b> Reversed polarity destroys the board and possibly the cell, and unlike everything else here it is not recoverable.</li>
-  <li>The board charges the cell over USB.</li>
-  <li>The gauge reads in quarters, using the chip's factory-calibrated ADC.</li>
-</ul>
-<p>Getting to the connector means opening the case. Take the SD card out first, work on a hard surface, touch something earthed, and treat the e-paper's ribbon cable as the one part that will not forgive you.</p>
+<h3>Step 2 — Make an access token</h3>
+<p>A token is how the device proves it is allowed to write to that repository. Go to:</p>
+<pre><code>https://github.com/settings/personal-access-tokens/new</code></pre>
+<p>Use that link rather than hunting for it. It lives at the very bottom of GitHub's settings sidebar under <b>Developer settings</b>, below everything else, and is easy to scroll straight past.</p>
+<ol>
+  <li><b>Token name</b> — anything you will recognise later.</li>
+  <li><b>Expiration</b> — your choice. When it expires, syncing stops until you make a new one and paste it in. Longer means fewer interruptions; shorter limits the damage if the device is lost.</li>
+  <li><b>Repository access</b> → <b>Only select repositories</b> → pick the one you just made. Not "All repositories".</li>
+  <li><b>Permissions</b> → <b>Repository permissions</b> → find <b>Contents</b> → set it to <b>Read and write</b>. Leave everything else alone.</li>
+  <li><b>Generate token</b>, then <b>copy it immediately.</b> GitHub shows it once and never again. If you lose it, delete it and make another.</li>
+</ol>
+<p>It looks like <code>github_pat_</code> followed by a long string.</p>
+<div class="warn"><b>Why those two settings matter</b>
+The token lives on the device, because the device has to prove who it is with nobody present to type a password. Limited as above, someone who steals it can write to one notes repository and nothing else. Set to "all repositories", they would have your whole account. Those two steps are what make this safe.</div>
 
-<h2 class="sec" id="settings">14 · Every setting</h2>
+<h3>Step 3 — Tell the device</h3>
+<p>Open the device's page (section 10), then <b>Settings</b> (the gear, top right) and find <b>Publish to your repo</b>:</p>
+<table>
+  <tr><th>Field</th><th>What to put</th></tr>
+  <tr><td>Owner</td><td>Your GitHub username, exactly as it appears in your profile address</td></tr>
+  <tr><td>Repo</td><td>The repository name on its own — not the full address</td></tr>
+  <tr><td>Token</td><td>Paste it. Leaving it blank keeps whatever is stored, so you can change other settings later without retyping it.</td></tr>
+</table>
+<p>Note the <b>device ID</b> at the top of that page — <code>mnm-</code> and eight characters. Write it down; step 5 needs it.</p>
+<p>Save. The device restarts, which takes a few seconds.</p>
+
+<h3>Step 4 — The first sync</h3>
+<p>Press <b>Sync now</b> on the device. It joins your Wi-Fi, sends anything untranscribed to your server if you have one, then pushes every note to your repository.</p>
+<p>Look at the repository on GitHub afterwards. There should be a <code>data</code> folder with one file named after your device. Open it — it is readable text: each note's name, date, tag and transcript.</p>
+<p>If it failed, the device shows GitHub's own message rather than a generic error. The table at the end of this section says what each means.</p>
+
+<h3>Step 5 — Reading them</h3>
+<p>Open the web app with your details in the address:</p>
+<pre><code>https://atreyap31-cell.github.io/mono-note-mini/?o=OWNER&amp;r=REPO&amp;d=DEVICE-ID</code></pre>
+<p>For example:</p>
+<pre><code>https://atreyap31-cell.github.io/mono-note-mini/?o=yourname&amp;r=my-notes&amp;d=mnm-1dd81ab0</code></pre>
+<table>
+  <tr><th>Part</th><th>Meaning</th></tr>
+  <tr><td><code>o=</code></td><td>Owner — your GitHub username</td></tr>
+  <tr><td><code>r=</code></td><td>Repo — the repository name</td></tr>
+  <tr><td><code>d=</code></td><td>Device — whose notes to show</td></tr>
+</table>
+<p>Everyone opens the same website; the link decides whose notes load. It remembers after the first visit, so the plain address works afterwards. <b>Bookmark it on your phone</b> — that is the entire point of this section.</p>
+<p>If the repository is <b>private</b>, the app needs the token to read it as well. Open its settings and paste the same one in. It stays in that browser and goes nowhere except GitHub.</p>
+
+<h3>What syncs, and what does not</h3>
+<table>
+  <tr><th>Synced</th><th>Not synced</th></tr>
+  <tr><td>Note names and dates</td><td><b>The audio</b> — see below</td></tr>
+  <tr><td>Transcripts</td><td>Anything you deleted</td></tr>
+  <tr><td>Tags</td><td>Settings, Wi-Fi details, the token</td></tr>
+  <tr><td>The to-do list</td><td></td></tr>
+</table>
+<div class="note"><b>Why the audio stays home</b>
+GitHub will not read back a file larger than a megabyte, and audio crosses that within a handful of clips — at which point the file stops being readable by the app meant to show it. Text is a few kilobytes for hundreds of notes. The recordings stay on the card, playable on the device and over your own network.</div>
+
+<h3>More than one device</h3>
+<p>Each device writes only its own file and never touches another's, so several can share one repository safely. Switch between them by changing <code>d=</code> in the address.</p>
+
+<h3>Automatic syncing</h3>
+<p>Settings → Extra → Auto-sync does all of this on a schedule: off, or every 1, 2, 4, 8 or 24 hours. Default is 4. Syncing more often means waking the radio more often, which is the largest single drain on the battery.</p>
+
+<h3>When sync fails</h3>
+<table>
+  <tr><th>What it shows</th><th>What it means</th></tr>
+  <tr><td><code>401</code></td><td>The token is wrong, expired or was revoked. Make a new one.</td></tr>
+  <tr><td><code>404</code></td><td>Usually a misspelled owner or repository name. It also appears when the token was not limited to that repository — GitHub reports a repository you cannot see as missing rather than forbidden.</td></tr>
+  <tr><td><code>403</code></td><td>The token does not have <b>Contents: Read and write</b>.</td></tr>
+  <tr><td><code>409</code></td><td>The file changed while the device was writing it. Sync again.</td></tr>
+  <tr><td><code>tls/network</code></td><td>The connection failed rather than the request. Usually Wi-Fi.</td></tr>
+  <tr><td><code>not configured</code></td><td>Owner, repo or token is empty. Sync skipped this part and did the rest.</td></tr>
+</table>
+
+<h2 class="sec" id="settings">13 · Every setting</h2>
 <table>
   <tr><th>Setting</th><th>What it does</th></tr>
-  <tr><td>Wi-Fi network / password</td><td>The network the device joins on its own to sync and to fetch the time</td></tr>
-  <tr><td>API base</td><td>Your transcription server, e.g. <code>http://192.168.1.20:8000</code>. Blank disables that half of sync.</td></tr>
-  <tr><td>Owner / Repo / Token</td><td>Where sync publishes notes</td></tr>
-  <tr><td>Device password</td><td>Protects the web page. Change it.</td></tr>
-  <tr><td>Time zone</td><td>Note names use it. The clock runs on UTC, so without this a note spoken at ten in the morning is filed under whatever hour it is in Greenwich.</td></tr>
-  <tr><td>Auto-sync</td><td>Off, 1, 2, 4, 8 or 24 hours. Default 4. More often means waking the radio more often, which drains the battery faster.</td></tr>
-  <tr><td>Sound</td><td>A soft tick on each press</td></tr>
-  <tr><td>Storage → Free space</td><td>Deletes the <i>audio</i> of clips that already have a transcript, keeping the words. Asks twice.</td></tr>
-  <tr><td>Extra → Factory reset</td><td>Erases the whole card and every setting. Asks twice. No undo.</td></tr>
+  <tr><td>Wi-Fi network and password</td><td>The network the device joins to sync and to fetch the time</td></tr>
+  <tr><td>API base</td><td>Your transcription computer. Blank turns that half off.</td></tr>
+  <tr><td>Owner / Repo / Token</td><td>Where your notes are published</td></tr>
+  <tr><td>Device password</td><td>Protects the device's own page. Change it.</td></tr>
+  <tr><td>Time zone</td><td>Note names use it, so they read in your local time</td></tr>
+  <tr><td>Auto-sync</td><td>Off, 1, 2, 4, 8 or 24 hours. Default 4. The main influence on battery life.</td></tr>
+  <tr><td>Button sounds</td><td>A soft tick on each press. On by default.</td></tr>
+  <tr><td>Storage → Free space</td><td>Deletes the <i>audio</i> of notes that already have a transcript, keeping the words. Asks twice.</td></tr>
+  <tr><td>Extra → Redo tutorial</td><td>Runs the tour again. Changes nothing else.</td></tr>
+  <tr><td>Extra → Factory reset</td><td>Erases everything on the card and every setting. Asks twice. No undo.</td></tr>
 </table>
 
-<h2 class="sec" id="trouble">15 · When something is wrong</h2>
+<h2 class="sec" id="files">14 · Your notes are files</h2>
+<p>Worth knowing, because it is the thing that makes this device different from an app.</p>
+<p>Every note is ordinary files on the memory card:</p>
+<pre><code>rec_20260901_103045.wav    the recording
+rec_20260901_103045.txt    the transcript, once you have one
+rec_20260901_103045.tag    one word: which tag</code></pre>
+<p>Put the card in a computer and they open in anything. No export, no proprietary format, no account to close. If you ever stop using this device, your notes come with you.</p>
 
-<h3>The screen never changes, no matter what</h3>
-<p>E-paper keeps its last image with <b>no power at all</b>, so a frozen picture is indistinguishable from a working one. Check whether it is actually running before assuming the software is stuck.</p>
+<h2 class="sec" id="trouble">15 · If something is wrong</h2>
 
-<h3>Nothing responds and the screen is frozen</h3>
-<p>Most likely the chip is sitting in its ROM bootloader, which happens on <b>every</b> reset while GPIO 0 is held low — a stuck BOOT button will do it. The firmware never starts. Confusingly, flashing still succeeds, because the bootloader is exactly what flashing talks to.</p>
-<div class="warn"><b>A successful flash is not evidence that any code is running</b>
-This one cost most of a day. Make sure no button is held or jammed, then unplug and replug with nothing pressed.</div>
+<h3>The screen shows something but nothing responds</h3>
+<p>The battery is probably flat. This screen keeps its last picture <b>with no power at all</b>, so a dead device looks exactly like a working one. Charge it for a few minutes and press a button.</p>
 
-<h3>The computer does not see the device</h3>
+<h3>It will not turn on</h3>
+<p>Charge it for at least fifteen minutes with a different cable, ideally one you know carries data rather than a charge-only lead. Then hold the bottom button.</p>
+
+<h3>A note will not play</h3>
+<p>Make sure you are pressing the <b>bottom</b> button. If the screen shows a message beginning with <code>X</code>, that message is the reason.</p>
+
+<h3>Notes are called rec_noclock_something</h3>
+<p>The device does not know the date yet. Open its page in a browser once, or connect it to Wi-Fi. It keeps time by itself afterwards.</p>
+
+<h3>It cannot find my Wi-Fi</h3>
+<p>The device uses 2.4 GHz networks. If yours is set to 5 GHz only, it will not appear. Check the name and password for capital letters.</p>
+
+<h3>The web page will not open</h3>
+<p>Your phone or computer has to be on the same network as the device. Take the address from Settings → IP each time — routers hand out different ones.</p>
+
+<h2 class="sec" id="care">16 · Looking after it</h2>
 <ul>
-  <li><b>Charge-only cable</b> — by far the most common cause. The board powers on and never enumerates.</li>
-  <li><b>It went to sleep.</b> Press a button. On USB it stays awake, but only if it booted with the cable already attached.</li>
-  <li><b>The port is wedged.</b> Unplug, hold the top button, plug in while holding, release after 2 seconds. That forces ROM download mode, which uses a separate USB stack.</li>
-  <li><b>Try a different USB port</b>, ideally straight into the machine.</li>
+  <li><b>Keep it dry.</b> It is not sealed.</li>
+  <li><b>Do not leave it in a hot car.</b> The battery dislikes heat more than anything else.</li>
+  <li><b>Charge it every few weeks</b> if you are not using it. A battery left completely flat for months may not come back.</li>
+  <li><b>Do not press on the screen.</b> The glass is thin, and it is the one part that cannot be replaced.</li>
+  <li><b>Back up occasionally.</b> Copy the card's contents to a computer now and then, or set up syncing so it happens by itself. Memory cards do fail.</li>
 </ul>
 
-<h3>Playback does nothing</h3>
-<p>Make sure you are pressing the <b>bottom</b> button. If the row shows <code>X</code> and a reason, that names the fault directly.</p>
-
-<h3>Notes are called rec_noclock_…</h3>
-<p>The device does not know the time. Open its web page once, or connect it to Wi-Fi.</p>
-
-<h3>Sync fails</h3>
-<p>The device shows GitHub's own error message. <code>401</code> means the token is wrong or expired; <code>404</code> usually means the owner or repo name is wrong, or the token is not scoped to that repo.</p>
-
-<h2 class="sec" id="flash">16 · Flashing and recovery</h2>
-<pre><code>cd firmware
-.\flash.ps1              # build, upload, then open the serial monitor
-.\flash.ps1 -Build       # build only
-.\flash.ps1 -Monitor     # just watch the serial output</code></pre>
-<p>If the upload fails it is nearly always one of three things, in this order: a charge-only cable, needing the top button held while it connects, or another program holding the port.</p>
-<h3>Going back to a known-good state</h3>
-<p>Tagged milestones in the repo carry the exact binaries that were running when everything worked. Restoring flashes those directly, so it does not depend on the source still building. The SD card and your saved settings are left alone.</p>
-
-<h2 class="sec" id="hardware">17 · Hardware reference</h2>
-<p>Each of these contradicts the board's own header file, and each was established by measuring rather than reading.</p>
-<table>
-  <tr><th>Fact</th><th>Why it matters</th></tr>
-  <tr><td><b>8 MB flash</b>, not 16</td><td>A 16 MB partition table overruns the chip and boot-loops the device</td></tr>
-  <tr><td><b>No touch controller</b></td><td>This is the non-touch variant; nothing answers at 0x38 on any pin</td></tr>
-  <tr><td><b>PWR is not a GPIO</b></td><td>Wired to a power-path controller. Invisible to software on every pin.</td></tr>
-  <tr><td><b>GPIO 0</b> is the only readable button</td><td>Everything the firmware reacts to comes from it</td></tr>
-  <tr><td>Battery ADC on <b>GPIO 4</b>, ÷2 divider</td><td>Confirmed against Waveshare's own example code</td></tr>
-  <tr><td>RTC <b>PCF85063</b> at 0x51</td><td>Battery-backed; keeps time across power loss</td></tr>
-  <tr><td>Temp/humidity <b>SHTC3</b> at 0x70</td><td>Present, currently unused by this firmware</td></tr>
-  <tr><td>Codec <b>ES8311</b> at 0x18</td><td>Microphone and speaker, 16 kHz mono</td></tr>
-</table>
-<h3>Files on the card</h3>
-<pre><code>/recordings/rec_20260901_103045.wav    16 kHz mono audio
-/recordings/rec_20260901_103045.txt    transcript, if synced
-/recordings/rec_20260901_103045.tag    one word
-/todo.txt                              [ ] and [x] lines
-/www/index.html                        the page the device serves</code></pre>
-
 <footer>
-  <p><b>Source, issues and releases:</b> <a href="https://github.com/atreyap31-cell/mono-note-mini">github.com/atreyap31-cell/mono-note-mini</a><br>
-  <b>Web app:</b> <a href="https://atreyap31-cell.github.io/mono-note-mini/">atreyap31-cell.github.io/mono-note-mini</a><br>
-  <b>Board documentation:</b> <a href="https://docs.waveshare.com/ESP32-S3-ePaper-1.54">docs.waveshare.com/ESP32-S3-ePaper-1.54</a></p>
+  <p><b>Web app:</b> <a href="https://atreyap31-cell.github.io/mono-note-mini/">atreyap31-cell.github.io/mono-note-mini</a><br>
+  <b>Project and source:</b> <a href="https://github.com/atreyap31-cell/mono-note-mini">github.com/atreyap31-cell/mono-note-mini</a></p>
   <p>Made by Atreya Patil. Inspired by PALA NOTE.</p>
 </footer>
 
