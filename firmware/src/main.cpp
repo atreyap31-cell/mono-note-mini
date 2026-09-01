@@ -1008,11 +1008,36 @@ void setup() {
   analogSetAttenuation(ADC_11db);
   pwr.VBAT_POWER_ON();
   pwr.POWEER_EPD_ON();
+  /* The panel's rail is switched by a GPIO and needs time to come up. Init used
+     to run the instant it was asked for, and a panel that is not ready yet
+     holds BUSY high - which, before read_busy() had a timeout, hung setup()
+     forever with the previous image still on the glass. */
+  delay(200);
+
   i2c = I2cMasterBus::requestInstance(ESP32_I2C_SCL_PIN, ESP32_I2C_SDA_PIN, ESP32_I2C_DEV_NUM);
   inputBegin();
   epd = new epaper_driver_display(EPD_WIDTH, EPD_HEIGHT,
       {EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN, EPD_MOSI_PIN, EPD_SCK_PIN, EPD_SPI_NUM, EPD_WIDTH * EPD_HEIGHT / 8});
+  /* One retry: the rail coming up late is the likely reason a first attempt
+     fails, and by the second the extra delay has usually settled it. */
+  /* Boot diagnostics, printed once. Deliberately not in any loop and never in
+     the button path: a write to the USB console can block until a host drains
+     it, and that is what froze the input task earlier. */
+  printf("[boot] busy level before init = %d (1 means busy or absent)\n",
+         gpio_get_level((gpio_num_t)EPD_BUSY_PIN));
   epd->EPD_Init();
+  printf("[boot] panel responded first try: %s\n",
+         epd->panelResponded() ? "yes" : "NO");
+  if (!epd->panelResponded()) {
+    pwr.POWEER_EPD_OFF();
+    delay(500);
+    pwr.POWEER_EPD_ON();
+    delay(600);
+    epd->EPD_Init();
+    printf("[boot] after power-cycle retry: %s\n",
+           epd->panelResponded() ? "yes" : "NO");
+    printf("[boot] busy level now = %d\n", gpio_get_level((gpio_num_t)EPD_BUSY_PIN));
+  }
   uiBegin(epd);
 
   if (!SD_MMC.setPins(SDMMC_CLK_PIN, SDMMC_CMD_PIN, SDMMC_D0_PIN)) showError("sd pins rejected");
@@ -1025,15 +1050,26 @@ void setup() {
   countRecordings();
   /* No first_boot_done key means this card/device has never been set up -
      a fresh unit, or one that was just factory reset. Run the tour. */
-  if (!netHasKey("first_boot_done")) {
-    tourFromExtra = false;
-    walkStep = 0;
-    state = ST_WALKTHROUGH;
-    drawTourStep(walkStep);
-  } else {
-    drawHome();
-  }
+  /* The tour used to run automatically on a new device and could not be
+     skipped. That is a wall in front of a device nobody can use yet, and if
+     the button it asks for is the one that does not work on this board, there
+     is no way through it at all. It now lives in Settings > Extra, where it is
+     something you choose rather than something you are trapped in. */
+  /* Boot marker: proves the panel is actually being refreshed. If the screen
+     still shows something older than this, the display is not updating and no
+     amount of UI work will ever be visible. */
+  epd->EPD_Clear();
+  uiFillRect(0, 0, 200, 60, 0x00);
+  uiTextCentered(20, "HELLO", 3, 0xff);
+  uiTextCentered(80, "screen is live", 2);
+  uiTextCentered(110, "press any button", 1);
+  uiFlushFull();
+  delay(2500);
+
+  netSetBool("first_boot_done", true);
+  drawHome();
   lastActivity = millis();
+  printf("[boot] setup complete - device is running\n");
   if (state != ST_WALKTHROUGH) maybeAutoSync();
 }
 
@@ -1051,7 +1087,7 @@ void loop() {
 
   switch (state) {
     case ST_HOME:
-      if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD)) {
+      if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD | BTN_BOT_HOLD)) {
         if (soundOn()) beep();
         selReset(4);
         state = ST_MENU;
@@ -1066,8 +1102,8 @@ void loop() {
          device is that catching a thought is one press, not four. */
       if (ev & BTN_BOT_TAP) { if (soundOn()) beep(); startRecording(); break; }
       if (ev & BTN_TOP_TAP)    { selNext(); drawMenu(); }
-      if (ev & BTN_TOP_DOUBLE) { state = ST_HOME; drawHome(); break; }
-      if (ev & BTN_TOP_HOLD) {
+      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) { state = ST_HOME; drawHome(); break; }
+      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
         if (soundOn()) beep();
         switch (sel) {
           case 0: viewTag = ""; selReset(5); state = ST_VIEW_TAGS; drawViewTags(); break;
@@ -1174,17 +1210,17 @@ void loop() {
     case ST_WALKTHROUGH:
       /* Gated: only a deliberate hold moves on, so no screen gets skipped. */
       if (walkStep == TOUR_SOUND) {
-        if (ev & BTN_TOP_TAP) { sel = sel ? 0 : 1; drawTourStep(walkStep); }
-        if (ev & BTN_TOP_HOLD) {
+        if (ev & (BTN_TOP_TAP | BTN_BOT_TAP)) { sel = sel ? 0 : 1; drawTourStep(walkStep); }
+        if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
           netSet("sound", sel == 0 ? "1" : "0");
           if (soundOn()) beep();
           walkStep++; sel = 0;
           drawTourStep(walkStep);
         }
       } else {
-        if ((ev & BTN_TOP_DOUBLE) && walkStep > 0) {
+        if ((ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) && walkStep > 0) {
           walkStep--; if (soundOn()) beep(); drawTourStep(walkStep);
-        } else if (ev & BTN_TOP_HOLD) {
+        } else if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD | BTN_TOP_TAP | BTN_BOT_TAP)) {
           walkStep++;
           if (walkStep >= TOUR_STEPS) {
             netSetBool("first_boot_done", true);

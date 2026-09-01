@@ -3,6 +3,7 @@
 #include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "epaper_driver_bsp.h"
+#include "esp_timer.h"
 #include "esp_log.h"
 
 #include "esp_heap_caps.h" 
@@ -118,12 +119,25 @@ void epaper_driver_display::spi_port_init() {
   	ESP_ERROR_CHECK(ret);
 }
 
-void epaper_driver_display::read_busy() {
+/* A panel that never answers must not take the device with it.
+
+   This used to spin forever while BUSY stayed high. EPD_Init calls it before
+   anything else in setup(), so an unresponsive panel meant setup() never
+   returned: no UI, no button handling, no crash and no reboot - just the last
+   image frozen on the glass, which on e-paper persists with no power at all.
+   From the outside that is indistinguishable from software that ignores every
+   button, and it is exactly what happened.
+
+   Five seconds is far longer than any real refresh - a full update is about
+   2.7s - so a timeout here means the panel is genuinely not talking. */
+bool epaper_driver_display::read_busy() {
     int busy = lcd_spi_data.busy;
-    while(gpio_get_level((gpio_num_t)busy) == 1) 
-	{
+    const int64_t start = esp_timer_get_time();
+    while (gpio_get_level((gpio_num_t)busy) == 1) {
+        if (esp_timer_get_time() - start > 5000000) return false;   /* gave up */
         vTaskDelay(pdMS_TO_TICKS(5));   //LOW: idle, HIGH: busy
     }
+    return true;
 }
 
 void epaper_driver_display::SPI_SendByte(uint8_t data) {
@@ -233,7 +247,10 @@ void epaper_driver_display::EPD_TurnOnDisplayPart() {
     read_busy();
 }
 
+bool epaper_driver_display::panelResponded() const { return panel_ok; }
+
 void epaper_driver_display::EPD_Init() {
+    panel_ok = true;
     set_rst_1();
   	vTaskDelay(pdMS_TO_TICKS(50));
   	set_rst_0();
@@ -241,9 +258,9 @@ void epaper_driver_display::EPD_Init() {
   	set_rst_1();
   	vTaskDelay(pdMS_TO_TICKS(50));
 
-    read_busy();
+    if (!read_busy()) panel_ok = false;
     EPD_SendCommand(0x12);  //SWRESET
-    read_busy();
+    if (!read_busy()) panel_ok = false;
 
     EPD_SendCommand(0x01); //Driver output control
     EPD_SendData(0xC7);

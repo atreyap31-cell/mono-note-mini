@@ -32,7 +32,11 @@ private:
 
     void spi_gpio_init();
     void spi_port_init();
-    void read_busy();
+    bool read_busy();   /* false = panel never went idle */
+    bool panel_ok = true;
+public:
+    bool panelResponded() const;
+private:
 
     void set_cs_1(){gpio_set_level((gpio_num_t)lcd_spi_data.cs,1);}
     void set_cs_0(){gpio_set_level((gpio_num_t)lcd_spi_data.cs,0);}
