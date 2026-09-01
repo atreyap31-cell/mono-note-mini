@@ -23,10 +23,15 @@ void uiRow(int x, int y, int w, int h, const String& label, int scale, bool sele
 void uiBitmap(int x, int y, int w, int h, const unsigned char* data, uint8_t color = 0x00);
 void uiFlushFull();
 /* Fast redraw for moving a highlight around a screen that is otherwise
-   unchanged: no black/white flash, and a fraction of the time. The panel
-   accumulates ghosting under repeated partial updates, so this falls back to a
-   full refresh periodically on its own. */
-void uiFlushFast();
+   unchanged: no flash, and a fraction of the time.
+
+   `screenId` is what makes it safe. A partial update only moves the pixels that
+   differ, which is right for a highlight sliding down a list and quite wrong
+   for arriving from a different screen entirely - the old image ghosts
+   straight through, so the wordmark from the sleep screen sat on top of the
+   menu. A different id than last time forces a full refresh; the same id
+   updates only what changed. */
+void uiFlushFast(int screenId);
 void uiFlushPartialPrepare();
 void uiFlushPartial();
 

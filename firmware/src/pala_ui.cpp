@@ -91,28 +91,36 @@ void uiTextCenteredIn(int x, int w, int y, const String& text, int scale, uint8_
    moving a menu highlight cost a two second flash to change one row. */
 static int  partialsSince = 0;
 static bool inPartialMode = false;
-static const int PARTIAL_LIMIT = 8;   /* before ghosting needs clearing */
+static int  lastScreenId  = 0;
+static const int PARTIAL_LIMIT = 4;   /* before ghosting needs clearing */
 
 void uiFlushFull() {
   if (inPartialMode) { epd->EPD_Init(); inPartialMode = false; }
   epd->EPD_Display();
   partialsSince = 0;
+  lastScreenId = 0;          /* whatever comes next is a new screen */
 }
 
-void uiFlushFast() {
-  if (!inPartialMode) {
-    /* First fast draw on a screen loads the partial waveform and lays down the
-       base image the later updates are differences against. */
+void uiFlushFast(int screenId) {
+  /* Arriving from somewhere else: clear properly. A partial update here leaves
+     the previous screen showing through, which is the whole complaint. */
+  if (screenId != lastScreenId || !inPartialMode) {
+    if (inPartialMode) { epd->EPD_Init(); inPartialMode = false; }
+    epd->EPD_Display();                 /* full, clean, no ghost */
     epd->EPD_Init_Partial();
-    epd->EPD_DisplayPartBaseImage();
+    epd->EPD_DisplayPartBaseImage();    /* base for the updates that follow */
     inPartialMode = true;
     partialsSince = 0;
+    lastScreenId  = screenId;
     return;
   }
   if (++partialsSince >= PARTIAL_LIMIT) {
     epd->EPD_Init();
     inPartialMode = false;
     epd->EPD_Display();
+    epd->EPD_Init_Partial();
+    epd->EPD_DisplayPartBaseImage();
+    inPartialMode = true;
     partialsSince = 0;
     return;
   }

@@ -325,7 +325,7 @@ static void drawMenu() {
   uiRow(6, 76, 188, 36, "MAKE NOTE",  2, sel == 1);
   uiRow(6, 116, 188, 36, "TO-DO",     2, sel == 2);
   uiRow(6, 156, 188, 36, "SETTINGS",  2, sel == 3);
-  uiFlushFast();
+  uiFlushFast(1);
 }
 
 struct TodoItem { String text; bool done; };
@@ -378,7 +378,7 @@ static void drawTodo() {
   }
   uiFillRect(0, 182, 200, 18, 0x00);
   uiTextCentered(187, "hold=tick  2tap=back", 1, 0xff);
-  uiFlushFast();
+  uiFlushFast(6);
 }
 
 #define MAKE_MAX_SECONDS 120
@@ -421,7 +421,7 @@ static void drawTagScreen() {
   uiRow(6, 158, 188, 22, "SKIP", 1, sel == 5);
   uiFillRect(0, 184, 200, 16, 0x00);
   uiTextCentered(188, "hold to file it", 1, 0xff);
-  uiFlushFast();
+  uiFlushFast(8);
 }
 
 static void drawHowTo() {
@@ -650,7 +650,7 @@ static void drawSettings() {
   uiRect(0, 26, 200, 1);
   static const char* ROWS[6] = {"WI-FI", "SYNC NOW", "STORAGE", "IP ADDRESS", "HOW TO", "EXTRA"};
   for (int i = 0; i < 6; i++) uiRow(6, 32 + i * 27, 188, 25, ROWS[i], 2, sel == i);
-  uiFlushFast();
+  uiFlushFast(2);
 }
 
 static void drawExtra() {
@@ -661,7 +661,7 @@ static void drawExtra() {
   uiRow(6, 84, 188, 36, "SYNC RATE",  2, sel == 1);
   uiRow(6, 128, 188, 36, "RESET",     2, sel == 2);
   uiTextCentered(174, "double-tap = back", 1);
-  uiFlushFast();
+  uiFlushFast(3);
 }
 
 static void drawSyncRate() {
@@ -682,7 +682,7 @@ static void drawSyncRate() {
   uiTextCentered(162, "the battery faster", 1);
   uiFillRect(0, 182, 200, 18, 0x00);
   uiTextCentered(187, "hold=pick  2tap=back", 1, 0xff);
-  uiFlushFast();
+  uiFlushFast(7);
 }
 
 static void drawFactory() {
@@ -711,7 +711,7 @@ static void drawFactory() {
 
   uiFillRect(0, 184, 200, 16, 0x00);
   uiTextCentered(188, "< back", 1, 0xff);
-  uiFlushFast();
+  uiFlushFast(10);
 }
 
 /* A clip whose transcript already exists doesn't need its audio on the card
@@ -852,7 +852,7 @@ static void drawViewTags() {
   }
   uiFillRect(0, 182, 200, 18, 0x00);
   uiTextCentered(187, "hold=open  2tap=back", 1, 0xff);
-  uiFlushFast();
+  uiFlushFast(4);
 }
 
 static void drawViewList() {
@@ -877,7 +877,7 @@ static void drawViewList() {
                                : (perr ? String("X ") + perr : String("BOT=play  hold=open"));
     uiTextCentered(187, hint, 1, 0xff);
   }
-  uiFlushFast();
+  uiFlushFast(5);
 }
 
 #define NOTE_LINES 5
@@ -912,7 +912,7 @@ static void drawViewNote() {
   /* Say what actually works. This used to claim "holds=pages", which is what
      a long hold does to a transcript - not how anything gets played. */
   uiTextCentered(188, "BOT=play  TOP hold=pick  2tap=back", 1, 0xff);
-  uiFlushFast();
+  uiFlushFast(9);
 }
 
 static void drawSyncScreen(int done, int total, const String& name) {
