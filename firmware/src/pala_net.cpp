@@ -16,7 +16,20 @@ static Preferences prefs;
 static WebServer server(80);
 static bool portalUp = false;
 
-void netBegin() { prefs.begin("pala", false); if(!prefs.isKey("devpass")) prefs.putString("devpass","record123"); }
+/* POSIX TZ strings run the opposite way round to everyone else: a zone two
+   hours ahead of UTC is written "UTC-2". JS getTimezoneOffset already returns
+   minutes behind UTC, so its sign is the one POSIX wants. */
+void applyTimezone() {
+  uint32_t stored = netGetU32("tzmin", 0);
+  if (!stored) return;                       /* never set - stay on UTC */
+  int mins = (int)stored - 1000;
+  char tz[24];
+  snprintf(tz, sizeof(tz), "UTC%+d:%02d", mins / 60, abs(mins % 60));
+  setenv("TZ", tz, 1);
+  tzset();
+}
+
+void netBegin() { prefs.begin("pala", false); applyTimezone(); if(!prefs.isKey("devpass")) prefs.putString("devpass","record123"); }
 String base64Encode(const String& s){ static const char tbl[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"; String out; out.reserve(((s.length()+2)/3)*4); for(size_t i=0;i<s.length();i+=3){ uint32_t v=(uint8_t)s[i]<<16 | (i+1<s.length()?(uint8_t)s[i+1]<<8:0) | (i+2<s.length()?(uint8_t)s[i+2]:0); out+=tbl[(v>>18)&63]; out+=tbl[(v>>12)&63]; out+=(i+1<s.length()?tbl[(v>>6)&63]:'='); out+=(i+2<s.length()?tbl[v&63]:'='); } return out; }
 bool isAuthenticated(){ String pass=netGet("devpass","record123"); if(pass.length()==0) return true; String h=server.header("Authorization"); if(!h.startsWith("Basic ")) return false; String b64=h.substring(6); b64.trim(); String e1=base64Encode("admin:"+pass), e2=base64Encode(":"+pass), e3=base64Encode("user:"+pass); return b64==e1||b64==e2||b64==e3; }
 bool needAuth(){ if(isAuthenticated()) return false; server.sendHeader("WWW-Authenticate","Basic realm=\"Mono Note Mini\""); server.send(401,"text/plain","Auth required"); return true; }
@@ -244,7 +257,11 @@ static void handleApiInfo() {
   j += ",\"device\":\"" + syncDeviceId() + "\"";
   j += ",\"ghOwner\":\"" + jsonEscape(netGet("ghOwner")) + "\"";
   j += ",\"ghRepo\":\"" + jsonEscape(netGet("ghRepo")) + "\"";
-  j += ",\"clock\":" + String((uint32_t)time(nullptr)) + "}";
+  j += ",\"clock\":" + String((uint32_t)time(nullptr));
+  j += ",\"tzset\":" + String(netGetU32("tzmin", 0) ? "true" : "false");
+  uint32_t tzs = netGetU32("tzmin", 0);
+  if (tzs) j += ",\"tzmin\":" + String((int)tzs - 1000);
+  j += "}";
   server.send(200, "application/json", j);
 }
 
@@ -292,6 +309,10 @@ static void handleSave() {
   netSet("ghRepo",   server.arg("ghrepo"));
   netSet("ghBranch", server.arg("ghbranch").length() ? server.arg("ghbranch") : String("main"));
   netSet("ghPath",   server.arg("ghpath"));
+  if (server.hasArg("tzmin")) {
+    int mins = server.arg("tzmin").toInt();
+    if (mins > -900 && mins < 900) { netSetU32("tzmin", (uint32_t)(mins + 1000)); applyTimezone(); }
+  }
   /* The form shows a placeholder rather than the real token, so writing that
      placeholder back would destroy it. */
   String gt = server.arg("ghtoken");
@@ -325,6 +346,17 @@ static void handleApiTime() {
   if (epoch < 1700000000LL) {           /* sometime after this was written */
     server.send(400, "text/plain", "implausible time");
     return;
+  }
+  /* The clock is UTC - configTime is given no offset - so without this the
+     device names a note made at ten in the morning after whatever hour it is
+     in Greenwich. The browser knows the offset; store it and apply it, so the
+     name matches the time on the wall where the note was actually spoken. */
+  if (server.hasArg("tzmin")) {
+    int mins = server.arg("tzmin").toInt();      /* JS getTimezoneOffset: minutes BEHIND utc */
+    if (mins > -900 && mins < 900) {
+      netSetU32("tzmin", (uint32_t)(mins + 1000));   /* biased, NVS stores unsigned */
+      applyTimezone();
+    }
   }
   struct timeval tv = { .tv_sec = (time_t)epoch, .tv_usec = 0 };
   settimeofday(&tv, nullptr);

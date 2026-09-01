@@ -173,6 +173,9 @@ label.lbl{display:block;font-family:var(--mono);font-size:.6rem;letter-spacing:.
     <div class="set-group">
       <h4>Device</h4>
       <label class="lbl">Device password (for this page)</label><input class="field" id="sDevpass" type="password" placeholder="leave blank to keep" autocomplete="new-password">
+      <label class="lbl">Time zone</label>
+      <select class="field" id="sTz"></select>
+      <p style="margin-top:6px">Note names use this. The device's clock runs on UTC, so without it a note spoken at ten in the morning is filed under whatever hour it is in Greenwich.</p>
       <label class="lbl">Auto-sync</label>
       <select class="field" id="sSync">
         <option value="0">Off</option><option value="1">Every hour</option><option value="2">Every 2 hours</option>
@@ -233,9 +236,9 @@ async function loadInfo(){
     /* The device has no clock until something tells it the time, and this
        browser knows it. Once set it goes to the RTC and survives power loss. */
     const now = Math.floor(Date.now() / 1000);
-    if(!info.clock || Math.abs(now - info.clock) > 120){
+    if(!info.clock || Math.abs(now - info.clock) > 120 || !info.tzset){
       try{
-        await post('/api/time', {t: now});
+        await post('/api/time', {t: now, tzmin: new Date().getTimezoneOffset()});
         toast(info.clock ? "clock corrected" : "clock set");
       }catch(e){ /* not fatal - notes just keep their fallback names */ }
     }
@@ -363,7 +366,27 @@ async function todoSave(){
   }catch(e){ toast("to-do save failed"); }
 }
 
+/* Whole and half hours from -12 to +14, which covers every zone in use. The
+   browser's own offset is offered first and preselected, because it is right
+   nearly always and saves reading a list. */
+function fillZones(){
+  const sel = $('#sTz');
+  if(sel.options.length) return;
+  const mine = new Date().getTimezoneOffset();      /* minutes BEHIND utc */
+  const opts = [];
+  for(let m = -14*60; m <= 12*60; m += 30){
+    const ahead = -m;                                /* minutes AHEAD of utc */
+    const sign = ahead < 0 ? "-" : "+";
+    const a = Math.abs(ahead);
+    opts.push({v:m, label:"UTC" + sign + String(Math.floor(a/60)).padStart(2,'0') + ":" + String(a%60).padStart(2,'0')});
+  }
+  sel.innerHTML = opts.map(o =>
+    '<option value="' + o.v + '">' + o.label + (o.v === mine ? "  (this browser)" : "") + '</option>').join('');
+}
+
 function settingsOpen(){
+  fillZones();
+  $('#sTz').value = String(info.tzmin != null ? info.tzmin : new Date().getTimezoneOffset());
   $('#sSsid').value = info.ssid || "";
   $('#sApi').value = info.api || "";
   $('#sOwner').value = info.ghOwner || "";
@@ -380,6 +403,7 @@ $('#setSave').onclick = async () => {
     ghrepo: $('#sRepo').value.trim(),
     ghbranch: 'main',
     ghpath: '',
+    tzmin: $('#sTz').value,
     synchrs: $('#sSync').value
   };
   /* Blank means "keep what is already there" for the three secrets. The page is

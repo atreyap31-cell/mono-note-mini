@@ -7,6 +7,7 @@
 #define SYNC_HOURS_DEFAULT 4
 
 void netBegin();
+void applyTimezone();   /* local time for note names, not UTC */
 String netGet(const char* key, const String& def = "");
 void netSet(const char* key, const String& value);
 uint64_t netGetU64(const char* key, uint64_t def);

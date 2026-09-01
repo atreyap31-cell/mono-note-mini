@@ -16,6 +16,7 @@
 #include "pala_sync.h"
 #include "pala_rtc.h"
 #include "logo_mn.h"
+#include "qr_manual.h"
 #include "soc/usb_serial_jtag_struct.h"
 
 #define BAT_ADC_PIN 4
@@ -427,22 +428,40 @@ static void drawTagScreen() {
   uiFlushFast(8);
 }
 
+/* Two pages. The first is the reference you want while holding the device and
+   cannot look anything up; the second is a QR to the full manual, for when the
+   answer is longer than a 200x200 screen.
+
+   The old version of this screen was written for a touchscreen this board does
+   not have, and told people to tap and swipe. A wrong instruction is worse than
+   none: it makes someone doubt the hardware rather than the label. */
+static int howtoPage = 0;
+
 static void drawHowTo() {
   epd->EPD_Clear();
-  uiTextCentered(4, "HOW TO", 2);
-  uiRect(0, 24, 200, 1);
-  uiText(4, 30, "TOP button", 2);
-  uiText(4, 50, " tap  = next", 1);
-  uiText(4, 64, " hold = choose", 1);
-  uiText(4, 78, " x2   = back", 1);
-  uiText(4, 96, "BOTTOM button", 2);
-  uiText(4, 116, " tap  = record/stop", 1);
-  uiText(4, 130, " hold = scroll down", 1);
-  uiText(4, 144, " 5s   = power off", 1);
-  uiRect(0, 158, 200, 1);
-  uiTextCentered(163, "Made by Atreya Patil", 1);
-  uiTextCentered(176, "insp. PALA NOTE  (c) 2026", 1);
-  uiFlushFull();
+  if (howtoPage == 0) {
+    uiTextCentered(4, "HOW TO", 2);
+    uiRect(0, 24, 200, 1);
+    uiText(4, 30, "TOP button", 2);
+    uiText(4, 50, " tap   next option", 1);
+    uiText(4, 63, " hold  choose it", 1);
+    uiText(4, 76, " x2    go back", 1);
+    uiText(4, 94, "BOTTOM button", 2);
+    uiText(4, 114, " tap   record / play", 1);
+    uiText(4, 127, " hold  scroll down", 1);
+    uiText(4, 140, " 5s    power off*", 1);
+    uiText(4, 156, "*needs a battery -", 1);
+    uiText(4, 167, " it cannot cut USB power", 1);
+    uiFillRect(0, 180, 200, 20, 0x00);
+    uiTextCentered(186, "TAP FOR THE MANUAL", 1, 0xff);
+  } else {
+    uiTextCentered(2, "FULL MANUAL", 1);
+    uiBitmap((200 - QR_MANUAL_W) / 2, 16, QR_MANUAL_W, QR_MANUAL_H, QR_MANUAL);
+    uiTextCentered(168, "scan with your phone", 1);
+    uiFillRect(0, 180, 200, 20, 0x00);
+    uiTextCentered(186, "2 TAPS = BACK", 1, 0xff);
+  }
+  uiFlushFull();          /* a QR must be clean - no partial-refresh ghosting */
 }
 
 /* ---- guided tour -------------------------------------------------------
@@ -1268,15 +1287,20 @@ void loop() {
             if (staConnect(20000)) { serverStartSta(); state = ST_SET_IP; drawIpScreen(); }
             else { showError("wifi failed"); drawSettings(); }
             break;
-          case 4: state = ST_HOWTO; drawHowTo(); break;
+          case 4: howtoPage = 0; state = ST_HOWTO; drawHowTo(); break;
           case 5: selReset(3); state = ST_EXTRA; drawExtra(); break;
         }
       }
       break;
 
     case ST_HOWTO:
-      if (ev & (BTN_TOP_TAP | BTN_TOP_HOLD | BTN_TOP_DOUBLE)) {
-        selReset(6); state = ST_SETTINGS; drawSettings();
+      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
+        howtoPage = 0; selReset(6); state = ST_SETTINGS; drawSettings();
+        break;
+      }
+      if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD)) {
+        howtoPage = howtoPage ? 0 : 1;
+        drawHowTo();
       }
       break;
 
