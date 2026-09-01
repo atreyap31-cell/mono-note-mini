@@ -230,9 +230,27 @@ static String tagOf(const String& base) {
   return v;
 }
 
+/* The tag files on a real card came back zero bytes: created, but with nothing
+   in them, so every note read back as untagged. close() is supposed to flush,
+   but this device loses power abruptly and often - so flush explicitly, and
+   check the write actually took rather than assuming it did. */
 static void saveTag(const char* tag) {
-  File f = SD_MMC.open(notePath(baseOf(lastSavedName), ".tag"), "w");
-  if (f) { f.println(tag); f.close(); }
+  if (!tag || !*tag) return;                 /* no tag is not an empty file */
+  const String path = notePath(baseOf(lastSavedName), ".tag");
+  File f = SD_MMC.open(path, "w");
+  if (!f) return;
+  f.print(tag);
+  f.print("\n");
+  f.flush();
+  f.close();
+  /* If it still landed empty, the card did not take it - drop the stub so the
+     note reads as untagged rather than as a tag that is not there. */
+  File check = SD_MMC.open(path, "r");
+  if (check) {
+    size_t n = check.size();
+    check.close();
+    if (n == 0) SD_MMC.remove(path);
+  }
 }
 
 /* Distinct notes in directory order, counting a clip whose audio has been
@@ -1348,6 +1366,14 @@ void loop() {
 
     case ST_VIEW_NOTE:
       playPoll();
+      /* Playback runs in its own task now, so the screen has to notice when it
+         finishes on its own - otherwise the row keeps offering STOP for a note
+         that stopped playing a minute ago. */
+      {
+        static bool wasPlaying = false;
+        if (wasPlaying && !playActive()) { wasPlaying = false; drawViewNote(); }
+        else if (playActive()) wasPlaying = true;
+      }
       if (ev & BTN_TOP_DOUBLE) {
         playStop();
         selReset(noteList.size());

@@ -20,7 +20,9 @@ static volatile bool recRun = false;
 static TaskHandle_t recTaskH = nullptr;
 
 static File playHandle;
-static bool playing = false;
+static volatile bool playing = false;
+static volatile bool playRun = false;
+static TaskHandle_t playTaskH = nullptr;
 static int16_t* stereoBuf = nullptr;
 static int16_t* beepBuf = nullptr;
 static void makeBeep();
@@ -155,29 +157,59 @@ void recDiscard() {
   monoLen = 0;
 }
 
+/* Playback streams from its own task, exactly as recording does.
+
+   It used to be driven from the UI loop - one buffer per pass, with a delay(10)
+   between them - which cannot keep up with real-time audio and stops dead for
+   the ~2.7 seconds an e-paper refresh takes. Since pressing play redraws the
+   screen immediately afterwards, the first thing playback did was stall for
+   longer than most notes are worth listening to.
+
+   A task writes continuously and the codec paces it: esp_codec_dev_write blocks
+   until the I2S has room, so the loop needs no timing of its own. */
+static void playTaskFn(void*) {
+  int16_t* buf = (int16_t*)heap_caps_malloc(PLAY_FRAMES * 2 * sizeof(int16_t), MALLOC_CAP_SPIRAM);
+  int16_t mono[PLAY_FRAMES];
+  while (playRun && buf) {
+    int got = playHandle.read((uint8_t*)mono, PLAY_FRAMES * sizeof(int16_t)) / sizeof(int16_t);
+    if (got <= 0) break;                       /* end of the recording */
+    for (int i = 0; i < got; i++) {
+      buf[2 * i]     = mono[i];
+      buf[2 * i + 1] = mono[i];
+    }
+    audio_playback_write(buf, got * 2 * sizeof(int16_t));
+  }
+  if (buf) heap_caps_free(buf);
+  if (playHandle) playHandle.close();
+  playing  = false;
+  playRun  = false;
+  playTaskH = nullptr;
+  vTaskDelete(NULL);
+}
+
 bool playFile(const String& wavPath) {
   if (recording) return false;
   if (playing) playStop();
   playHandle = SD_MMC.open(wavPath, "r");
   if (!playHandle) return false;
-  playHandle.seek(44);
+  playHandle.seek(44);                         /* past the RIFF header */
   playing = true;
+  playRun = true;
+  if (xTaskCreatePinnedToCore(playTaskFn, "play", 4096, nullptr, 4, &playTaskH, 1) != pdPASS) {
+    playHandle.close();
+    playing = false;
+    playRun = false;
+    return false;
+  }
   return true;
 }
 
-void playPoll() {
-  if (!playing || !stereoBuf) return;
-  int16_t mono[PLAY_FRAMES];
-  int got = playHandle.read((uint8_t*)mono, PLAY_FRAMES * sizeof(int16_t)) / sizeof(int16_t);
-  if (got <= 0) { playStop(); return; }
-  for (int i = 0; i < got; i++) {
-    stereoBuf[2 * i] = mono[i];
-    stereoBuf[2 * i + 1] = mono[i];
-  }
-  audio_playback_write(stereoBuf, got * 2 * sizeof(int16_t));
-}
+/* Kept so the UI can call it every pass; the task does the work now. */
+void playPoll() {}
 
 void playStop() {
+  playRun = false;
+  for (int i = 0; i < 200 && playTaskH; i++) delay(5);   /* let it wind down */
   playing = false;
   if (playHandle) playHandle.close();
 }
