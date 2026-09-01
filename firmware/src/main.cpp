@@ -15,6 +15,7 @@
 #include "pala_net.h"
 #include "pala_sync.h"
 #include "logo_mn.h"
+#include "soc/usb_serial_jtag_struct.h"
 
 #define BAT_ADC_PIN 4
 #define BAT_EMPTY_MV 3300
@@ -76,10 +77,31 @@ static int transcriptPage = 0;
 
 
 static void drawRestingScreen();
+static void drawHome();
+
+/* Deep sleep switches off the USB-Serial-JTAG peripheral, so a plugged-in
+   device drops off the bus and cannot be reflashed until somebody presses a
+   button. On battery that timeout is right; on a desk with a cable in it is
+   just obstructive.
+
+   Detection asks the USB peripheral, not the battery. An earlier attempt
+   inferred "on USB" from cell voltage and did nothing at all, because with no
+   cell fitted that reading never crosses the threshold. A host sends a
+   start-of-frame packet every millisecond whether or not a battery exists, so
+   clearing the SOF flag and looking 4ms later answers the real question.
+
+   Only the idle timeout consults this. Holding the button to sleep is an
+   instruction and is always obeyed. */
+static bool usbHostPresent() {
+  USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
+  delay(4);
+  return USB_SERIAL_JTAG.int_raw.sof_int_raw != 0;
+}
 
 static void sleepNow() {
-  drawRestingScreen();
-  uiFlushFull();
+  /* Exactly the same call the home screen makes, so what it leaves on the
+     glass is what it wakes up to - byte for byte, not merely similar. */
+  drawHome();
   delay(300);
   pwr.POWEER_Audio_OFF();
   pwr.POWEER_EPD_OFF();
@@ -107,33 +129,55 @@ static String syncRateLabel() {
   return "every " + String(h) + "h";
 }
 
+/* One analogRead on a rail that sags under load answers differently every time
+   it is asked. That is why the sleep screen and the home screen used to show
+   different levels: they were two screens, each taking its own single sample.
+   Average eight, discarding two while the ADC settles. */
 static int batteryPct() {
-  uint32_t raw = analogRead(BAT_ADC_PIN);
-  uint32_t mv = raw * 3300 / 4095 * 2;
-  if (mv > 4650) return -1;
+  analogRead(BAT_ADC_PIN);
+  analogRead(BAT_ADC_PIN);
+  uint32_t sum = 0;
+  for (int i = 0; i < 8; i++) { sum += analogRead(BAT_ADC_PIN); delay(2); }
+  uint32_t mv = (sum / 8) * 3300 / 4095 * 2;
+  if (mv > 4650) return -1;                  /* on charge, or no cell fitted */
   int pct = (int)(mv - BAT_EMPTY_MV) * 100 / (BAT_FULL_MV - BAT_EMPTY_MV);
   if (pct < 0) pct = 0;
   if (pct > 100) pct = 100;
   return pct;
 }
 
-/* The resting screen carries one bar and nothing else. A charging device reads
-   as full rather than showing a meaningless number. */
-static void drawBatteryBar() {
+/* Reported in quarters, not percent. Changing anything on e-paper costs a full
+   refresh, so a reading that wobbles by a percent would repaint the screen to
+   say nothing new - and four steps is all anyone reads off a battery gauge. */
+static int batteryQuarter() {
   int pct = batteryPct();
-  uiRect(20, 10, 160, 12);
-  if (pct < 0) pct = 100;
-  int w = 156 * pct / 100;
-  if (w < 2) w = 2;
-  uiFillRect(22, 12, w, 8, 0x00);
+  if (pct < 0) return 4;                     /* charging shows as full */
+  if (pct >= 75) return 4;
+  if (pct >= 50) return 3;
+  if (pct >= 25) return 2;
+  if (pct >= 10) return 1;
+  return 0;
 }
 
-/* Battery bar at the top, script wordmark centred in what is left. Used for
-   both the home screen and the deep-sleep screen: on e-paper the image costs
-   nothing to hold, so what you leave behind is what the device looks like. */
+static void drawBatteryBar(int quarter) {
+  const int x = 20, y = 10, w = 160, h = 14;
+  uiRect(x, y, w, h);
+  uiFillRect(x + w, y + 4, 3, 6, 0x00);      /* the little terminal nub */
+  const int cell = (w - 4) / 4;
+  for (int i = 0; i < 4; i++) {
+    int cx = x + 2 + i * cell;
+    if (i < quarter) uiFillRect(cx + 1, y + 3, cell - 2, h - 6, 0x00);
+    if (i > 0)       uiFillRect(cx, y + 1, 1, h - 2, 0x00);   /* divider */
+  }
+}
+
+/* There is one home screen. It is what the device shows awake and what it
+   leaves on the glass asleep, so waking changes nothing and there is no second
+   version to disagree with the first. */
 static void drawRestingScreen() {
+  int q = batteryQuarter();
   uiFillRect(0, 0, 200, 200, 0xff);
-  drawBatteryBar();
+  drawBatteryBar(q);
   uiBitmap((200 - LOGO_W) / 2, 84, LOGO_W, LOGO_H, LOGO_MN);
 }
 
@@ -1089,7 +1133,7 @@ void loop() {
         state = ST_MENU;
         drawMenu();
       }
-      if (millis() - lastActivity > 30000 && !inputAnyHeld()) sleepNow();
+      if (millis() - lastActivity > 30000 && !inputAnyHeld() && !usbHostPresent()) sleepNow();
       if (millis() - lastAutoCheck > 300000UL) { lastAutoCheck = millis(); maybeAutoSync(); }
       break;
 
@@ -1108,7 +1152,7 @@ void loop() {
           case 3: selReset(6); state = ST_SETTINGS; drawSettings(); break;
         }
       }
-      if (millis() - lastActivity > 60000 && !inputAnyHeld()) sleepNow();
+      if (millis() - lastActivity > 60000 && !inputAnyHeld() && !usbHostPresent()) sleepNow();
       break;
 
     case ST_MAKE:
