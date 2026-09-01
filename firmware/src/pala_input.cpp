@@ -31,53 +31,12 @@ struct Btn {
 static Btn top, bot;
 static uint32_t lastActivity = 0;
 
-/* Buttons are sampled in their own task rather than from the main loop.
-
-   A full e-paper refresh takes about 2.7 seconds, and while it runs the UI
-   loop is inside the panel driver waiting on the BUSY line - so nothing polls
-   the buttons. A trace of real presses showed every hold reporting exactly
-   2782ms no matter how long it was actually held: the release was simply not
-   noticed until the refresh finished. Short presses during a redraw were lost
-   outright.
-
-   read_busy() waits with vTaskDelay, so it yields; a task at 5ms keeps timing
-   honest through any redraw. Events accumulate into a mask that the loop
-   drains whenever it gets back round. */
-static portMUX_TYPE evMux = portMUX_INITIALIZER_UNLOCKED;
-static volatile uint16_t pendingEvents = 0;
-
-static void step(Btn& b, uint32_t now, uint16_t& ev,
-                 uint16_t tapBit, uint16_t doubleBit, uint16_t holdBit,
-                 uint16_t repeatBit, bool isPower);
-
-/* Nothing in here may print. A write to the USB console blocks until the host
-   drains it, and on a device in normal use nobody ever does - so a single
-   printf in this task is enough to freeze every button on the device. That is
-   not theoretical: it shipped, and the symptom was a screen stuck on the first
-   page of the tutorial with no way forward. Diagnostics belong on the BUTTONS
-   screen, which the device can draw for itself. */
-static void inputTask(void*) {
-  for (;;) {
-    uint16_t ev = BTN_NONE;
-    uint32_t now = millis();
-    step(top, now, ev, BTN_TOP_TAP, BTN_TOP_DOUBLE, BTN_TOP_HOLD, BTN_TOP_REPEAT, false);
-    step(bot, now, ev, BTN_BOT_TAP, BTN_BOT_DOUBLE, BTN_BOT_HOLD, BTN_BOT_REPEAT, true);
-    if (ev) {
-      portENTER_CRITICAL(&evMux);
-      pendingEvents |= ev;
-      portEXIT_CRITICAL(&evMux);
-    }
-    vTaskDelay(pdMS_TO_TICKS(5));
-  }
-}
-
 void inputBegin() {
   top.pin = BTN_TOP_PIN;
   bot.pin = BTN_BOT_PIN;
   pinMode(top.pin, INPUT_PULLUP);
   pinMode(bot.pin, INPUT_PULLUP);
   lastActivity = millis();
-  xTaskCreatePinnedToCore(inputTask, "buttons", 6144, nullptr, 2, nullptr, 0);
 }
 
 /* One button's worth of edge and timing work. Emits into `ev`, using the four
@@ -117,11 +76,7 @@ static void step(Btn& b, uint32_t now, uint16_t& ev,
   if (b.down) {
     lastActivity = now;
     uint32_t held = now - b.downAt;
-    if (isPower && held >= POWER_MS) {
-      ev |= BTN_POWER_OFF;
-      b.consumed = true;
-      return;
-    }
+    if (isPower && held >= POWER_MS) { ev |= BTN_POWER_OFF; b.consumed = true; return; }
     if (!b.holdFired && held >= HOLD_MS) { b.holdFired = true; b.consumed = true; ev |= holdBit; }
     if (held >= REPEAT_FIRST && now >= b.nextRepeat) {
       b.nextRepeat = now + REPEAT_EVERY;
@@ -138,10 +93,10 @@ static void step(Btn& b, uint32_t now, uint16_t& ev,
 }
 
 uint16_t inputPoll() {
-  portENTER_CRITICAL(&evMux);
-  uint16_t ev = pendingEvents;
-  pendingEvents = 0;
-  portEXIT_CRITICAL(&evMux);
+  uint16_t ev = BTN_NONE;
+  uint32_t now = millis();
+  step(top, now, ev, BTN_TOP_TAP, BTN_TOP_DOUBLE, BTN_TOP_HOLD, BTN_TOP_REPEAT, false);
+  step(bot, now, ev, BTN_BOT_TAP, BTN_BOT_DOUBLE, BTN_BOT_HOLD, BTN_BOT_REPEAT, true);
   return ev;
 }
 
