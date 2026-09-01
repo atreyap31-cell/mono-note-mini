@@ -68,6 +68,13 @@ public:
     void EPD_DisplayPartBaseImage();
     void EPD_Init_Partial();
     void EPD_DisplayPart();
+    /* Pushes only buffer rows r0..r1 inclusive. The panel's update waveform
+       drives just the windowed rows, so a narrow window finishes sooner - a
+       highlight moving between two menu rows is a few hundred bytes and a
+       fraction of the panel time, instead of all 5000 bytes and the lot. */
+    void EPD_DisplayPartRows(int r0, int r1);
+    const uint8_t* frameBuffer() const { return buffer; }
+    int frameStride() const { return 25; }
     void EPD_DrawColorPixel(uint16_t x, uint16_t y,uint8_t color);
 };
 #endif

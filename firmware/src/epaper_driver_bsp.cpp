@@ -344,6 +344,28 @@ void epaper_driver_display::EPD_Init_Partial() {
 	read_busy();
 }
 
+/* The full-frame case sets the window to (0, H-1, W-1, 0) with the cursor at
+   (0, H-1) and data entry decrementing Y, so buffer row r lands on panel row
+   H-1-r. Everything here is that same mapping, narrowed - derived from the
+   working full-frame path rather than from the datasheet, so it cannot drift
+   away from whatever convention this panel actually uses. */
+void epaper_driver_display::EPD_DisplayPartRows(int r0, int r1) {
+    if (r0 < 0) r0 = 0;
+    if (r1 > Height - 1) r1 = Height - 1;
+    if (r1 < r0) return;
+
+    EPD_SetWindows(0, Height - 1 - r0, Width - 1, Height - 1 - r1);
+    EPD_SetCursor(0, Height - 1 - r0);
+    EPD_SendCommand(0x24);
+    assert(buffer);
+    writeBytes(buffer + r0 * 25, (r1 - r0 + 1) * 25);
+    EPD_TurnOnDisplayPart();
+
+    /* Leave the window as the rest of the driver expects to find it. */
+    EPD_SetWindows(0, Height - 1, Width - 1, 0);
+    EPD_SetCursor(0, Height - 1);
+}
+
 void epaper_driver_display::EPD_DisplayPart() {
     EPD_SendCommand(0x24);
     assert(buffer);

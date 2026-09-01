@@ -1,4 +1,6 @@
 #include "pala_ui.h"
+#include <esp_heap_caps.h>
+#include <string.h>
 #include <math.h>
 #include "epaper_driver_bsp.h"
 #include "glcdfont.h"
@@ -89,6 +91,13 @@ void uiTextCenteredIn(int x, int w, int y, const String& text, int scale, uint8_
    screen twice on its way to the new image - the flash. Partial uses 0xcf and
    simply moves the pixels that changed. Every screen used the full path, so
    moving a menu highlight cost a two second flash to change one row. */
+/* A copy of the last thing pushed to the panel. Diffing against it says which
+   rows actually changed, so the window can be narrowed without any draw
+   function having to declare what it touched - they all clear and repaint the
+   whole buffer, so asking them would get "everything" every time. 5000 bytes
+   in PSRAM to avoid pushing 5000 bytes over SPI and driving 200 rows of
+   waveform to move a highlight down by one. */
+static uint8_t* shadow = nullptr;
 static int  partialsSince = 0;
 static bool inPartialMode = false;
 static int  lastScreenId  = 0;
@@ -99,11 +108,36 @@ static int  lastScreenId  = 0;
    refresh, so in practice the count rarely gets near this. */
 static const int PARTIAL_LIMIT = 16;
 
+/* Rows [r0,r1] that differ from what the panel is currently showing.
+   Returns false when nothing changed at all - which happens more often than
+   expected, and skipping those saves a whole panel update. */
+static bool dirtyRows(int& r0, int& r1) {
+  const uint8_t* buf = epd->frameBuffer();
+  const int stride = epd->frameStride();
+  if (!shadow || !buf) return false;
+  r0 = -1; r1 = -1;
+  for (int y = 0; y < 200; y++) {
+    if (memcmp(buf + y * stride, shadow + y * stride, stride) != 0) {
+      if (r0 < 0) r0 = y;
+      r1 = y;
+    }
+  }
+  return r0 >= 0;
+}
+
+static void keepShadow() {
+  const uint8_t* buf = epd->frameBuffer();
+  if (!shadow) shadow = (uint8_t*)heap_caps_malloc(5000, MALLOC_CAP_SPIRAM);
+  if (!shadow) shadow = (uint8_t*)malloc(5000);
+  if (shadow && buf) memcpy(shadow, buf, 5000);
+}
+
 void uiFlushFull() {
   if (inPartialMode) { epd->EPD_Init(); inPartialMode = false; }
   epd->EPD_Display();
   partialsSince = 0;
   lastScreenId = 0;          /* whatever comes next is a new screen */
+  keepShadow();
 }
 
 void uiFlushFast(int screenId) {
@@ -117,10 +151,16 @@ void uiFlushFast(int screenId) {
     inPartialMode = true;
     partialsSince = 0;
     lastScreenId  = screenId;
+    keepShadow();
     return;
   }
+  int r0, r1;
+  if (!dirtyRows(r0, r1)) return;      /* identical - nothing to push */
   partialsSince++;
-  epd->EPD_DisplayPart();
+  /* A margin either side: the waveform disturbs a row or two beyond what was
+     written, and leaving those out shows as a faint seam. */
+  epd->EPD_DisplayPartRows(r0 - 2, r1 + 2);
+  keepShadow();
 }
 
 /* The cleanup no longer interrupts navigation. Rather than flashing on the nth
@@ -138,6 +178,7 @@ void uiClearGhosting() {
   epd->EPD_DisplayPartBaseImage();
   inPartialMode = true;
   partialsSince = 0;
+  keepShadow();
 }
 
 void uiFlushPartialPrepare() {
