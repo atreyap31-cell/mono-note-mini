@@ -1170,6 +1170,16 @@ void loop() {
     return;
   }
 
+  /* Clear accumulated ghosting during a lull rather than mid-navigation. Two
+     seconds without a press means nobody is scrolling, so the flash costs
+     nothing anyone is waiting on. Never while recording or playing - a full
+     refresh blocks for over two seconds and the audio tasks should not be
+     competing with the panel for that. */
+  if (state != ST_MAKE && !playActive() && !inputAnyHeld() &&
+      millis() - lastActivity > 2000 && uiGhostingDue()) {
+    uiClearGhosting();
+  }
+
   switch (state) {
     case ST_HOME:
       if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD | BTN_BOT_HOLD)) {

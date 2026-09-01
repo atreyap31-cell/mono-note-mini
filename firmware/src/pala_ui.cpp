@@ -92,7 +92,12 @@ void uiTextCenteredIn(int x, int w, int y, const String& text, int scale, uint8_
 static int  partialsSince = 0;
 static bool inPartialMode = false;
 static int  lastScreenId  = 0;
-static const int PARTIAL_LIMIT = 4;   /* before ghosting needs clearing */
+/* How many partial updates before the panel wants clearing. This was 4, set
+   while chasing ghosting that turned out to be a screen-change bug rather than
+   accumulated residue - so it fired on the fifth press of every menu, which is
+   exactly where it is most annoying. Entering any screen is already a full
+   refresh, so in practice the count rarely gets near this. */
+static const int PARTIAL_LIMIT = 16;
 
 void uiFlushFull() {
   if (inPartialMode) { epd->EPD_Init(); inPartialMode = false; }
@@ -114,17 +119,25 @@ void uiFlushFast(int screenId) {
     lastScreenId  = screenId;
     return;
   }
-  if (++partialsSince >= PARTIAL_LIMIT) {
-    epd->EPD_Init();
-    inPartialMode = false;
-    epd->EPD_Display();
-    epd->EPD_Init_Partial();
-    epd->EPD_DisplayPartBaseImage();
-    inPartialMode = true;
-    partialsSince = 0;
-    return;
-  }
+  partialsSince++;
   epd->EPD_DisplayPart();
+}
+
+/* The cleanup no longer interrupts navigation. Rather than flashing on the nth
+   press - always mid-scroll, always when someone is looking at it - the loop
+   asks whether one is due and does it during a pause instead. The panel is
+   just as clean; the flash simply happens when nobody is pressing anything. */
+bool uiGhostingDue() { return inPartialMode && partialsSince >= PARTIAL_LIMIT; }
+
+void uiClearGhosting() {
+  if (!inPartialMode) return;
+  epd->EPD_Init();
+  inPartialMode = false;
+  epd->EPD_Display();                 /* same image, cleanly rendered */
+  epd->EPD_Init_Partial();
+  epd->EPD_DisplayPartBaseImage();
+  inPartialMode = true;
+  partialsSince = 0;
 }
 
 void uiFlushPartialPrepare() {

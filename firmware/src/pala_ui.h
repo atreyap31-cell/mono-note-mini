@@ -32,6 +32,10 @@ void uiFlushFull();
    menu. A different id than last time forces a full refresh; the same id
    updates only what changed. */
 void uiFlushFast(int screenId);
+
+/* Ghosting cleanup, deferred to a moment when nobody is pressing anything. */
+bool uiGhostingDue();
+void uiClearGhosting();
 void uiFlushPartialPrepare();
 void uiFlushPartial();
 
