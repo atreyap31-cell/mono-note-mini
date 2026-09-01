@@ -1,6 +1,5 @@
 #include "pala_input.h"
 #include "user_config.h"
-#include <stdio.h>
 
 /* Both buttons are active low with the internal pull-up. Measured on the real
    board: a deliberate tap lands around 100-150ms and shows no bounce, so a
@@ -51,6 +50,12 @@ static void step(Btn& b, uint32_t now, uint16_t& ev,
                  uint16_t tapBit, uint16_t doubleBit, uint16_t holdBit,
                  uint16_t repeatBit, bool isPower);
 
+/* Nothing in here may print. A write to the USB console blocks until the host
+   drains it, and on a device in normal use nobody ever does - so a single
+   printf in this task is enough to freeze every button on the device. That is
+   not theoretical: it shipped, and the symptom was a screen stuck on the first
+   page of the tutorial with no way forward. Diagnostics belong on the BUTTONS
+   screen, which the device can draw for itself. */
 static void inputTask(void*) {
   for (;;) {
     uint16_t ev = BTN_NONE;
@@ -87,10 +92,6 @@ static void step(Btn& b, uint32_t now, uint16_t& ev,
     b.down = raw;
     lastActivity = now;
     if (raw) {
-      /* Bring-up trace on the USB console. Which physical button is which was
-         inferred from the order two presses arrived in - exactly the kind of
-         assumption worth printing rather than trusting. */
-      printf("[btn] gpio%d down%s\n", b.pin, isPower ? " (power)" : ""); fflush(stdout);
       b.downAt     = now;
       b.holdFired  = false;
       b.repeating  = false;
@@ -99,7 +100,6 @@ static void step(Btn& b, uint32_t now, uint16_t& ev,
       ev |= BTN_ANY_DOWN;
     } else {
       uint32_t held = now - b.downAt;
-      printf("[btn] gpio%d up after %lums\n", b.pin, (unsigned long)held); fflush(stdout);
       if (!b.consumed && held <= TAP_MAX_MS) {
         /* A tap only counts once we know no second tap is coming, so hold it
            back and let the timeout below release it as a single. */
@@ -118,7 +118,6 @@ static void step(Btn& b, uint32_t now, uint16_t& ev,
     lastActivity = now;
     uint32_t held = now - b.downAt;
     if (isPower && held >= POWER_MS) {
-      printf("[btn] gpio%d POWER OFF at %lums\n", b.pin, (unsigned long)held); fflush(stdout);
       ev |= BTN_POWER_OFF;
       b.consumed = true;
       return;

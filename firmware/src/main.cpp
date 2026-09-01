@@ -104,13 +104,11 @@ static void sleepNow() {
      exactly like the button doing nothing. Wait for the release first.
      The timeout is for a stuck button: better to sleep and wake in a loop than
      to hang here forever with the screen saying it has gone to sleep. */
-  printf("[pwr] sleepNow: waiting for release\n");
   uint32_t guard = millis();
   while ((digitalRead(BOOT_BUTTON_PIN) == LOW || digitalRead(PWR_BUTTON_PIN) == LOW)
          && millis() - guard < 10000) {
     delay(10);
   }
-  printf("[pwr] released after %lums - entering deep sleep\n", (unsigned long)(millis() - guard));
   delay(150);   /* let the contact settle so the release is not read as a press */
 
   pwr.POWEER_Audio_OFF();
@@ -1191,10 +1189,9 @@ void loop() {
      not being able to switch a device off is worse than losing your place in
      it. Recording is the one exception: losing a note because a thumb lingered
      would be the worst failure this device has, so it must be stopped first. */
-  if (ev & BTN_POWER_OFF) {
-    printf("[pwr] power-off event in state %d\n", (int)state);
-    if (state != ST_MAKE) { sleepNow(); return; }
-    printf("[pwr] refused - recording in progress\n");
+  if ((ev & BTN_POWER_OFF) && state != ST_MAKE) {
+    sleepNow();
+    return;
   }
 
   switch (state) {
