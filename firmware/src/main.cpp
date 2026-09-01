@@ -142,11 +142,16 @@ static String syncRateLabel() {
    different levels: they were two screens, each taking its own single sample.
    Average eight, discarding two while the ADC settles. */
 static int batteryPct() {
-  analogRead(BAT_ADC_PIN);
-  analogRead(BAT_ADC_PIN);
+  /* analogReadMilliVolts applies the chip's factory ADC calibration from
+     eFuse. The raw-count conversion this replaced ignored it, and the S3's ADC
+     is non-linear enough for that to be worth over 100mV - most of a quarter
+     on a 3.3-4.2V cell. Waveshare's own ADC example calibrates for the same
+     reason; the divider is 2x, which their code confirms. */
+  analogReadMilliVolts(BAT_ADC_PIN);
+  analogReadMilliVolts(BAT_ADC_PIN);
   uint32_t sum = 0;
-  for (int i = 0; i < 8; i++) { sum += analogRead(BAT_ADC_PIN); delay(2); }
-  uint32_t mv = (sum / 8) * 3300 / 4095 * 2;
+  for (int i = 0; i < 8; i++) { sum += analogReadMilliVolts(BAT_ADC_PIN); delay(2); }
+  uint32_t mv = (sum / 8) * 2;
   if (mv > 4650) return -1;                  /* on charge, or no cell fitted */
   int pct = (int)(mv - BAT_EMPTY_MV) * 100 / (BAT_FULL_MV - BAT_EMPTY_MV);
   if (pct < 0) pct = 0;
