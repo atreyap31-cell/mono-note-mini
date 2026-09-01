@@ -22,6 +22,11 @@ void uiRow(int x, int y, int w, int h, const String& label, int scale, bool sele
 /* 1bpp row-major bitmap, MSB leftmost; only set bits are drawn. */
 void uiBitmap(int x, int y, int w, int h, const unsigned char* data, uint8_t color = 0x00);
 void uiFlushFull();
+/* Fast redraw for moving a highlight around a screen that is otherwise
+   unchanged: no black/white flash, and a fraction of the time. The panel
+   accumulates ghosting under repeated partial updates, so this falls back to a
+   full refresh periodically on its own. */
+void uiFlushFast();
 void uiFlushPartialPrepare();
 void uiFlushPartial();
 

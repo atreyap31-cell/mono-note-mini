@@ -85,8 +85,38 @@ void uiTextCenteredIn(int x, int w, int y, const String& text, int scale, uint8_
   uiText(tx, y, text, scale, color);
 }
 
+/* Full refresh drives the panel with waveform 0xc7, which inverts the whole
+   screen twice on its way to the new image - the flash. Partial uses 0xcf and
+   simply moves the pixels that changed. Every screen used the full path, so
+   moving a menu highlight cost a two second flash to change one row. */
+static int  partialsSince = 0;
+static bool inPartialMode = false;
+static const int PARTIAL_LIMIT = 8;   /* before ghosting needs clearing */
+
 void uiFlushFull() {
+  if (inPartialMode) { epd->EPD_Init(); inPartialMode = false; }
   epd->EPD_Display();
+  partialsSince = 0;
+}
+
+void uiFlushFast() {
+  if (!inPartialMode) {
+    /* First fast draw on a screen loads the partial waveform and lays down the
+       base image the later updates are differences against. */
+    epd->EPD_Init_Partial();
+    epd->EPD_DisplayPartBaseImage();
+    inPartialMode = true;
+    partialsSince = 0;
+    return;
+  }
+  if (++partialsSince >= PARTIAL_LIMIT) {
+    epd->EPD_Init();
+    inPartialMode = false;
+    epd->EPD_Display();
+    partialsSince = 0;
+    return;
+  }
+  epd->EPD_DisplayPart();
 }
 
 void uiFlushPartialPrepare() {
