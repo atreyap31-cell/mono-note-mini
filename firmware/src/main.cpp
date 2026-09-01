@@ -866,7 +866,12 @@ static void drawViewList() {
     uiText(10, y + 6, n, 2, on ? 0xff : 0x00);
   }
   uiFillRect(0, 182, 200, 18, 0x00);
-  uiTextCentered(187, "hold=open  2tap=back", 1, 0xff);
+  {
+    const char* perr = playError();
+    String hint = playActive() ? "BOT=stop  hold=open"
+                               : (perr ? String("X ") + perr : String("BOT=play  hold=open"));
+    uiTextCentered(187, hint, 1, 0xff);
+  }
   uiFlushFull();
 }
 
@@ -899,7 +904,9 @@ static void drawViewNote() {
         2, sel == 0);
   uiRow(6, 158, 188, 24, confirmDelete ? "SURE? HOLD" : "DELETE", 2, sel == 1);
   uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "holds=pages  2tap=back", 1, 0xff);
+  /* Say what actually works. This used to claim "holds=pages", which is what
+     a long hold does to a transcript - not how anything gets played. */
+  uiTextCentered(188, "BOT=play  TOP hold=pick  2tap=back", 1, 0xff);
   uiFlushFull();
 }
 
@@ -1358,6 +1365,15 @@ void loop() {
       if (ev & BTN_TOP_TAP)    { selNext(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
       if (ev & BTN_TOP_REPEAT) { selPrev(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
       if (ev & BTN_BOT_REPEAT) { selNext(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
+      /* Play the highlighted note without opening it first. Hearing a note
+         back is the whole point of the list, and burying it behind "hold to
+         open, then find the right row, then hold again" is how a working
+         device comes to look broken. */
+      if (ev & BTN_BOT_TAP) {
+        if (playActive()) playStop();
+        else if (noteHasAudio(noteList[sel])) playFile(notePath(noteList[sel], ".wav"));
+        drawViewList();
+      }
       if (ev & BTN_TOP_HOLD) {
         if (soundOn()) beep();
         noteRow = sel;
@@ -1396,6 +1412,16 @@ void loop() {
       if (ev & BTN_BOT_REPEAT) {
         int pages = ((int)transcriptLines.size() + NOTE_LINES - 1) / NOTE_LINES;
         if (transcriptPage < pages - 1) { transcriptPage++; drawViewNote(); }
+      }
+      /* The bottom button plays and stops, with one plain press and no
+         selection to get right first. Holding to activate a highlighted row is
+         fine on a menu, but on the one screen where the obvious action is
+         "let me hear it", asking for a hold on the correct row is a way to
+         make a working device look broken. */
+      if (ev & BTN_BOT_TAP) {
+        if (playActive()) playStop();
+        else if (noteHasAudio(noteList[noteRow])) playFile(notePath(noteList[noteRow], ".wav"));
+        drawViewNote();
       }
       if (ev & BTN_TOP_TAP) { selNext(); confirmDelete = false; drawViewNote(); }
       if (ev & BTN_TOP_HOLD) {

@@ -16,7 +16,7 @@ void audio_play_init(void);
 
 void audio_playback_read(void *data_ptr,uint32_t len);
 
-void audio_playback_write(void *data_ptr,uint32_t len);
+int audio_playback_write(void *data_ptr,uint32_t len);   /* 0 = ok */
 
 #ifdef __cplusplus
 }

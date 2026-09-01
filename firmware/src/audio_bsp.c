@@ -43,7 +43,11 @@ void audio_playback_read(void *data_ptr, uint32_t len)
   esp_codec_dev_read(record, data_ptr, len);
 }
 
-void audio_playback_write(void *data_ptr, uint32_t len)
+/* Returns the codec's own error code instead of discarding it. A write that
+   quietly fails looks exactly like a speaker that is not connected, and there
+   is no way to tell them apart from outside the device. */
+int audio_playback_write(void *data_ptr, uint32_t len)
 {
-  esp_codec_dev_write(playback, data_ptr, len);
+  if (!playback) return -9999;             /* no playback device at all */
+  return esp_codec_dev_write(playback, data_ptr, len);
 }

@@ -189,7 +189,13 @@ static void playTaskFn(void*) {
       buf[2 * i]     = mono[i];
       buf[2 * i + 1] = mono[i];
     }
-    audio_playback_write(buf, got * 2 * sizeof(int16_t));
+    int werr = audio_playback_write(buf, got * 2 * sizeof(int16_t));
+    if (werr != 0 && !playFailed) {
+      static char msg[24];
+      snprintf(msg, sizeof(msg), "wr %d", werr);
+      playFailed = msg;
+      break;
+    }
   }
   if (buf)  free(buf);
   if (mono) free(mono);
