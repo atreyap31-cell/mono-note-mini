@@ -84,18 +84,26 @@ static void drawHome();
    button. On battery that timeout is right; on a desk with a cable in it is
    just obstructive.
 
-   Detection asks the USB peripheral, not the battery. An earlier attempt
-   inferred "on USB" from cell voltage and did nothing at all, because with no
-   cell fitted that reading never crosses the threshold. A host sends a
-   start-of-frame packet every millisecond whether or not a battery exists, so
-   clearing the SOF flag and looking 4ms later answers the real question.
+   Asking "is a host there right now" does not work. A host sends a
+   start-of-frame packet every millisecond, but Windows suspends a device that
+   no program has open - and a suspended bus sends nothing at all. Checked in
+   the idle path, that reads as "no USB" within seconds of the last tool
+   closing the port, which is exactly when the answer needs to be yes. It was
+   measured doing precisely that: still asleep 100 seconds after a reset.
 
-   Only the idle timeout consults this. Holding the button to sleep is an
-   instruction and is always obeyed. */
-static bool usbHostPresent() {
-  USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
-  delay(4);
-  return USB_SERIAL_JTAG.int_raw.sof_int_raw != 0;
+   So the question is asked once, at boot, when the host is unambiguously
+   awake - a device that has just been reset or flashed is being worked on.
+   Booting with a cable attached means someone is at a desk with it, and that
+   holds for the session. Unplugging afterwards does not resume the timeout
+   until the next boot, which is the honest cost of not being able to ask. */
+static bool bootedOnUsb = false;
+
+static void detectUsbAtBoot() {
+  for (int i = 0; i < 12; i++) {          /* ~60ms of looking */
+    USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
+    delay(5);
+    if (USB_SERIAL_JTAG.int_raw.sof_int_raw) { bootedOnUsb = true; return; }
+  }
 }
 
 static void sleepNow() {
@@ -1051,6 +1059,7 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   analogSetAttenuation(ADC_11db);
+  detectUsbAtBoot();
   pwr.VBAT_POWER_ON();
   pwr.POWEER_EPD_ON();
   /* The panel's rail is switched by a GPIO and needs time to come up. Init used
@@ -1133,7 +1142,7 @@ void loop() {
         state = ST_MENU;
         drawMenu();
       }
-      if (millis() - lastActivity > 30000 && !inputAnyHeld() && !usbHostPresent()) sleepNow();
+      if (millis() - lastActivity > 30000 && !inputAnyHeld() && !bootedOnUsb) sleepNow();
       if (millis() - lastAutoCheck > 300000UL) { lastAutoCheck = millis(); maybeAutoSync(); }
       break;
 
@@ -1152,7 +1161,7 @@ void loop() {
           case 3: selReset(6); state = ST_SETTINGS; drawSettings(); break;
         }
       }
-      if (millis() - lastActivity > 60000 && !inputAnyHeld() && !usbHostPresent()) sleepNow();
+      if (millis() - lastActivity > 60000 && !inputAnyHeld() && !bootedOnUsb) sleepNow();
       break;
 
     case ST_MAKE:
