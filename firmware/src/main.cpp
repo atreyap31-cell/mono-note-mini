@@ -25,7 +25,7 @@ static board_power_bsp_t pwr(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 static I2cMasterBus* i2c = nullptr;
 static epaper_driver_display* epd = nullptr;
 
-enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_SYNCRATE, ST_FACTORY };
+enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_SYNCRATE, ST_FACTORY, ST_DEBUG };
 static State state = ST_HOME;
 static State syncReturnTo = ST_HOME;
 
@@ -76,7 +76,7 @@ static std::vector<String> transcriptLines;
 static int transcriptPage = 0;
 
 
-static void drawHome(bool force = true);
+static void drawHome(bool force = true, bool asleep = false);
 
 /* Deep sleep switches off the USB-Serial-JTAG peripheral, so a plugged-in
    device drops off the bus and cannot be reflashed until somebody presses a
@@ -96,7 +96,7 @@ static bool usbHostPresent() {
 }
 
 static void sleepNow() {
-  drawHome(true);      /* same screen awake or asleep, so waking changes nothing */
+  drawHome(true, true);   /* same screen, marked so "off" is visibly off */
 
   /* ext1 wakes the chip whenever one of these pins is LOW, and powering off is
      itself a held button - so at this moment the wake condition is already
@@ -104,11 +104,13 @@ static void sleepNow() {
      exactly like the button doing nothing. Wait for the release first.
      The timeout is for a stuck button: better to sleep and wake in a loop than
      to hang here forever with the screen saying it has gone to sleep. */
+  printf("[pwr] sleepNow: waiting for release\n");
   uint32_t guard = millis();
   while ((digitalRead(BOOT_BUTTON_PIN) == LOW || digitalRead(PWR_BUTTON_PIN) == LOW)
          && millis() - guard < 10000) {
     delay(10);
   }
+  printf("[pwr] released after %lums - entering deep sleep\n", (unsigned long)(millis() - guard));
   delay(150);   /* let the contact settle so the release is not read as a press */
 
   pwr.POWEER_Audio_OFF();
@@ -192,16 +194,21 @@ static void drawBatteryBar(int quarter) {
 
    Callers force by default. Only waking from deep sleep passes false, and only
    because the panel is still holding this very picture. */
-static void drawHome(bool force) {
+static void drawHome(bool force, bool asleep) {
   int q = batteryQuarter();
   /* Skipping is only ever safe when the panel already shows this screen -
      coming back from a menu it is showing something else entirely. */
   if (!force && q == rtcShownQuarter) return;
-  rtcShownQuarter = q;
+  rtcShownQuarter = asleep ? -1 : q;   /* waking must always repaint off the off-screen */
   epd->EPD_Clear();
   uiFillRect(0, 0, 200, 200, 0xff);
   drawBatteryBar(q);
   uiBitmap((200 - LOGO_W) / 2, 84, LOGO_W, LOGO_H, LOGO_MN);
+  /* Merging the home and sleep screens removed the only way to tell a sleeping
+     device from an awake one - the picture was identical, so holding the power
+     button looked like it had done nothing at all. One word fixes that without
+     bringing back a second screen to disagree with the first. */
+  if (asleep) uiTextCentered(170, "off - press to wake", 1);
   uiFlushFull();
 }
 
@@ -643,10 +650,82 @@ static void drawExtra() {
   epd->EPD_Clear();
   uiTextCentered(6, "EXTRA", 2);
   uiRect(0, 26, 200, 1);
-  uiRow(6, 40, 188, 36, "REDO TOUR",  2, sel == 0);
-  uiRow(6, 84, 188, 36, "SYNC RATE",  2, sel == 1);
-  uiRow(6, 128, 188, 36, "RESET",     2, sel == 2);
-  uiTextCentered(174, "double-tap = back", 1);
+  uiRow(6, 32, 188, 30, "REDO TOUR", 2, sel == 0);
+  uiRow(6, 66, 188, 30, "SYNC RATE", 2, sel == 1);
+  uiRow(6, 100, 188, 30, "BUTTONS",  2, sel == 2);
+  uiRow(6, 134, 188, 30, "RESET",    2, sel == 3);
+  uiTextCentered(172, "double-tap = back", 1);
+  uiFlushFull();
+}
+
+/* Live button test, reachable from Extra.
+
+   This exists because diagnosing the buttons meant flashing a bare scanner
+   over the firmware, which left the device looking broken with no way back
+   except a cable. A screen that reports what the hardware is doing belongs on
+   the device itself.
+
+   The candidates are every pin not already spoken for by the display, SD card,
+   I2C, audio or the power rails. Whichever one drops LOW under a press is the
+   pin that button is really wired to - which is worth asking, because the
+   board's own header names GPIO18 for the power button and GPIO18 has never
+   once registered a press. */
+static const int DBG_PINS[] = {0, 1, 2, 3, 5, 7, 18, 19, 20, 21, 43, 44};
+static const int DBG_N = sizeof(DBG_PINS) / sizeof(DBG_PINS[0]);
+static uint32_t dbgPresses[DBG_N] = {0};
+static int dbgLast[DBG_N];
+static bool dbgReady = false;
+
+static void debugBegin() {
+  for (int i = 0; i < DBG_N; i++) {
+    /* leave the two real buttons alone - the input task owns their mode */
+    if (DBG_PINS[i] != BOOT_BUTTON_PIN && DBG_PINS[i] != PWR_BUTTON_PIN)
+      pinMode(DBG_PINS[i], INPUT_PULLUP);
+    dbgLast[i] = digitalRead(DBG_PINS[i]);
+    dbgPresses[i] = 0;
+  }
+  dbgReady = true;
+}
+
+/* Returns true when something changed and the screen is worth repainting - a
+   full refresh is 2.7 seconds, so it must not repaint on every sample. */
+static bool debugSample() {
+  if (!dbgReady) return false;
+  bool changed = false;
+  for (int i = 0; i < DBG_N; i++) {
+    int v = digitalRead(DBG_PINS[i]);
+    if (v != dbgLast[i]) {
+      if (v == 0) { dbgPresses[i]++; changed = true; }
+      dbgLast[i] = v;
+    }
+  }
+  return changed;
+}
+
+static void drawDebug() {
+  epd->EPD_Clear();
+  uiTextCentered(4, "BUTTONS", 2);
+  uiRect(0, 24, 200, 1);
+  uiText(4, 28, "press each button", 1);
+  uiText(4, 40, "pin: presses  now", 1);
+  int row = 0;
+  for (int i = 0; i < DBG_N && row < 8; i++) {
+    /* only pins that have actually seen a press, plus the two configured
+       ones, so the list stays readable rather than listing every candidate */
+    bool interesting = dbgPresses[i] > 0 ||
+                       DBG_PINS[i] == BOOT_BUTTON_PIN || DBG_PINS[i] == PWR_BUTTON_PIN;
+    if (!interesting) continue;
+    int y = 54 + row * 16;
+    String line = "gpio" + String(DBG_PINS[i]);
+    while (line.length() < 7) line += " ";
+    line += String(dbgPresses[i]);
+    while (line.length() < 12) line += " ";
+    line += dbgLast[i] == 0 ? "DOWN" : "up";
+    uiText(4, y, line, 1);
+    row++;
+  }
+  uiRect(0, 176, 200, 1);
+  uiTextCentered(182, "double-tap = back", 1);
   uiFlushFull();
 }
 
@@ -1098,7 +1177,7 @@ void setup() {
        nothing to redraw, and we skip a two-second full refresh on every wake.
        A cold boot has no idea what is on the glass, so it always repaints. */
     const bool fromSleep = esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_EXT1;
-    drawHome(!fromSleep);
+    drawHome(true);   /* woken onto the off-screen, so always repaint */
   }
   lastActivity = millis();
   if (state != ST_WALKTHROUGH) maybeAutoSync();
@@ -1112,9 +1191,10 @@ void loop() {
      not being able to switch a device off is worse than losing your place in
      it. Recording is the one exception: losing a note because a thumb lingered
      would be the worst failure this device has, so it must be stopped first. */
-  if ((ev & BTN_POWER_OFF) && state != ST_MAKE) {
-    sleepNow();
-    return;
+  if (ev & BTN_POWER_OFF) {
+    printf("[pwr] power-off event in state %d\n", (int)state);
+    if (state != ST_MAKE) { sleepNow(); return; }
+    printf("[pwr] refused - recording in progress\n");
   }
 
   switch (state) {
@@ -1195,7 +1275,7 @@ void loop() {
             else { showError("wifi failed"); drawSettings(); }
             break;
           case 4: state = ST_HOWTO; drawHowTo(); break;
-          case 5: selReset(3); state = ST_EXTRA; drawExtra(); break;
+          case 5: selReset(4); state = ST_EXTRA; drawExtra(); break;
         }
       }
       break;
@@ -1214,13 +1294,14 @@ void loop() {
         switch (sel) {
           case 0: tourFromExtra = true; walkStep = 0; sel = 0; state = ST_WALKTHROUGH; drawTourStep(walkStep); break;
           case 1: selReset(6); state = ST_SYNCRATE; drawSyncRate(); break;
-          case 2: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
+          case 2: debugBegin(); state = ST_DEBUG; drawDebug(); break;
+          case 3: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
         }
       }
       break;
 
     case ST_SYNCRATE:
-      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_EXTRA; drawExtra(); break; }
+      if (ev & BTN_TOP_DOUBLE) { selReset(4); state = ST_EXTRA; drawExtra(); break; }
       if (ev & BTN_TOP_TAP)    { selNext(); drawSyncRate(); }
       if (ev & BTN_TOP_HOLD) {
         netSetU32("syncHrs", SYNC_OPTS[sel]);
@@ -1230,10 +1311,10 @@ void loop() {
       break;
 
     case ST_FACTORY:
-      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_EXTRA; drawExtra(); break; }
+      if (ev & BTN_TOP_DOUBLE) { selReset(4); state = ST_EXTRA; drawExtra(); break; }
       if (ev & BTN_TOP_TAP)    { selNext(); drawFactory(); }
       if (ev & BTN_TOP_HOLD) {
-        if (sel == 0) { selReset(3); state = ST_EXTRA; drawExtra(); }
+        if (sel == 0) { selReset(4); state = ST_EXTRA; drawExtra(); }
         else if (factoryStage == 0) { factoryStage = 1; selReset(2); drawFactory(); }
         else doFactoryReset();
       }
@@ -1256,7 +1337,7 @@ void loop() {
           walkStep++;
           if (walkStep >= TOUR_STEPS) {
             netSetBool("first_boot_done", true);
-            if (tourFromExtra) { tourFromExtra = false; selReset(3); state = ST_EXTRA; drawExtra(); }
+            if (tourFromExtra) { tourFromExtra = false; selReset(4); state = ST_EXTRA; drawExtra(); }
             else { state = ST_HOME; drawHome(); }
           } else {
             if (soundOn()) beep();
