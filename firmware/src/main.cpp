@@ -15,6 +15,7 @@
 #include "pala_net.h"
 #include "pala_sync.h"
 #include "pala_rtc.h"
+#include "pala_ble.h"
 #include "logo_mn.h"
 #include "qr_manual.h"
 #include "soc/usb_serial_jtag_struct.h"
@@ -27,7 +28,7 @@ static board_power_bsp_t pwr(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 static I2cMasterBus* i2c = nullptr;
 static epaper_driver_display* epd = nullptr;
 
-enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_SYNCRATE, ST_FACTORY };
+enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_SYNCRATE, ST_FACTORY, ST_BLE };
 static State state = ST_HOME;
 static State syncReturnTo = ST_HOME;
 
@@ -674,8 +675,9 @@ static void drawSettings() {
   epd->EPD_Clear();
   uiTextCentered(6, "SETTINGS", 2);
   uiRect(0, 26, 200, 1);
-  static const char* ROWS[6] = {"WI-FI", "SYNC NOW", "STORAGE", "IP ADDRESS", "HOW TO", "EXTRA"};
-  for (int i = 0; i < 6; i++) uiRow(6, 32 + i * 27, 188, 25, ROWS[i], 2, sel == i);
+  static const char* ROWS[7] = {"WI-FI", "BLUETOOTH", "SYNC NOW", "STORAGE",
+                                "IP ADDRESS", "HOW TO", "EXTRA"};
+  for (int i = 0; i < 7; i++) uiRow(6, 30 + i * 24, 188, 22, ROWS[i], 2, sel == i);
   uiFlushFast(2);
 }
 
@@ -688,6 +690,43 @@ static void drawExtra() {
   uiRow(6, 128, 188, 36, "RESET",     2, sel == 2);
   uiTextCentered(174, "double-tap = back", 1);
   uiFlushFast(3);
+}
+
+/* Bluetooth transfer. Deliberately not automatic: the radio costs battery and
+   nobody wants their notes offered to the room by default, so it advertises
+   only while someone is looking at this screen. */
+static void drawBle() {
+  epd->EPD_Clear();
+  uiTextCentered(4, "BLUETOOTH", 2);
+  uiRect(0, 24, 200, 1);
+
+  if (!bleAdvertising()) {
+    uiText(4, 32, "Send notes to a", 1);
+    uiText(4, 45, "browser next to you.", 1);
+    uiText(4, 63, "No wi-fi, no account,", 1);
+    uiText(4, 76, "nothing to install.", 1);
+    uiText(4, 96, "Open the web app in", 1);
+    uiText(4, 109, "Chrome or Edge and", 1);
+    uiText(4, 122, "press Connect.", 1);
+    uiRow(6, 140, 188, 26, "TURN ON", 2, true);
+  } else {
+    uiTextCentered(34, bleConnected() ? "CONNECTED" : "DISCOVERABLE", 2);
+    uiTextCentered(58, bleStatus(), 1);
+    int p = bleProgress();
+    if (p >= 0) {
+      uiRect(20, 78, 160, 16);
+      uiFillRect(23, 81, (int)(154L * p / 100), 10, 0x00);
+      uiTextCentered(100, String(p) + "%", 1);
+    } else if (!bleConnected()) {
+      uiTextCentered(80, "look for", 1);
+      uiTextCentered(93, "Mono Note Mini", 1);
+    }
+    uiRow(6, 140, 188, 26, "TURN OFF", 2, true);
+  }
+  uiFillRect(0, 176, 200, 24, 0x00);
+  uiTextCentered(182, "hold = switch", 1, 0xff);
+  uiTextCentered(190, "2 taps = back", 1, 0xff);
+  uiFlushFull();
 }
 
 static void drawSyncRate() {
@@ -1238,7 +1277,7 @@ void loop() {
           case 0: viewTag = ""; selReset(5); state = ST_VIEW_TAGS; drawViewTags(); break;
           case 1: startRecording(); break;
           case 2: todoLoad(); todoTop = 0; selReset(todos.size()); state = ST_TODO; drawTodo(); break;
-          case 3: selReset(6); state = ST_SETTINGS; drawSettings(); break;
+          case 3: selReset(7); state = ST_SETTINGS; drawSettings(); break;
         }
       }
       if (millis() - lastActivity > 60000 && !inputAnyHeld() && !bootedOnUsb) sleepNow();
@@ -1299,7 +1338,7 @@ void loop() {
 
     case ST_HOWTO:
       if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
-        howtoPage = 0; selReset(6); state = ST_SETTINGS; drawSettings();
+        howtoPage = 0; selReset(7); state = ST_SETTINGS; drawSettings();
         break;
       }
       if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD)) {
@@ -1309,7 +1348,7 @@ void loop() {
       break;
 
     case ST_EXTRA:
-      if (ev & BTN_TOP_DOUBLE) { selReset(6); state = ST_SETTINGS; drawSettings(); break; }
+      if (ev & BTN_TOP_DOUBLE) { selReset(7); state = ST_SETTINGS; drawSettings(); break; }
       if (ev & BTN_TOP_TAP)    { selNext(); drawExtra(); }
       if (ev & BTN_TOP_HOLD) {
         if (soundOn()) beep();
@@ -1317,6 +1356,32 @@ void loop() {
           case 0: tourFromExtra = true; walkStep = 0; sel = 0; state = ST_WALKTHROUGH; drawTourStep(walkStep); break;
           case 1: selReset(6); state = ST_SYNCRATE; drawSyncRate(); break;
           case 2: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
+        }
+      }
+      break;
+
+    case ST_BLE:
+      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
+        /* Leaving the screen stops the radio. Advertising quietly forever is
+           not something to leave running behind someone's back. */
+        bleStop();
+        selReset(7); state = ST_SETTINGS; drawSettings();
+        break;
+      }
+      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
+        if (bleAdvertising()) bleStop(); else bleBegin();
+        drawBle();
+      }
+      /* Redraw when the transfer moves on meaningfully - not every percent,
+         which would repaint the panel a hundred times per note. */
+      {
+        static int lastShown = -2;
+        static bool lastConn = false;
+        int p = bleProgress();
+        int bucket = p < 0 ? -1 : p / 10;
+        if (bleAdvertising() && (bucket != lastShown || bleConnected() != lastConn)) {
+          lastShown = bucket; lastConn = bleConnected();
+          drawBle();
         }
       }
       break;
@@ -1378,7 +1443,7 @@ void loop() {
 
     case ST_SET_WIFI:
       portalPoll();
-      if (ev & BTN_TOP_DOUBLE) { portalStop(); selReset(6); state = ST_SETTINGS; drawSettings(); }
+      if (ev & BTN_TOP_DOUBLE) { portalStop(); selReset(7); state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_SYNC:
@@ -1386,7 +1451,7 @@ void loop() {
       break;
 
     case ST_STORAGE:
-      if (ev & BTN_TOP_DOUBLE) { confirmFree = false; selReset(6); state = ST_SETTINGS; drawSettings(); break; }
+      if (ev & BTN_TOP_DOUBLE) { confirmFree = false; selReset(7); state = ST_SETTINGS; drawSettings(); break; }
       if (ev & BTN_TOP_HOLD) {
         if (confirmFree) { freeTranscribedAudio(); confirmFree = false; if (soundOn()) beep(); }
         else confirmFree = true;
@@ -1396,7 +1461,7 @@ void loop() {
 
     case ST_SET_IP:
       portalPoll();
-      if (ev & BTN_TOP_DOUBLE) { portalStop(); staDisconnect(); selReset(6); state = ST_SETTINGS; drawSettings(); }
+      if (ev & BTN_TOP_DOUBLE) { portalStop(); staDisconnect(); selReset(7); state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_VIEW_TAGS:

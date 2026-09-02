@@ -168,6 +168,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <div class="brand">Mono Note Mini</div>
   <div class="actions">
     <button class="btn" id="todoBtn">Tasks</button>
+    <button class="btn" id="bleBtn" title="Connect to a Mono Note Mini next to you">Bluetooth</button>
     <button class="btn" id="syncBtn">Sync now</button>
     <span class="eyebrow" id="lastSyncTop"></span>
     <button class="btn gear" id="settingsBtn" aria-label="Settings" title="Settings">&#9881;</button>
@@ -198,6 +199,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
       <div class="controls">
         <button class="btn primary" id="transcribeOneBtn">Transcribe</button>
         <button class="btn primary" id="speakBtn">Read aloud</button>
+        <button class="btn" id="bleAudioBtn" hidden>Get audio from device</button>
       </div>
       <div class="eyebrow transcript-label">Transcript</div>
       <div id="transcript" class="placeholder">Nothing here yet.</div>
@@ -424,6 +426,7 @@ updateButtons();
 }
 
 function renderReader(active){
+try{ updateBleAudioBtn(active); }catch(e){}
 const player=$('#player'),transcript=$('#transcript'),chipsEl=$('#chips'),tBtn=$('#transcribeOneBtn'),sBtn=$('#speakBtn');
 if(objectUrl){URL.revokeObjectURL(objectUrl);objectUrl='';}
 if(!active){
@@ -1020,6 +1023,195 @@ render();
 setStatus('The local audio library could not be opened. WAV storage is unavailable in this browser profile.',true);
 });
 })();
+
+/* ---- Bluetooth transfer -------------------------------------------------
+
+   Pulls notes straight off the device over BLE, with no Wi-Fi, no server, no
+   account and nothing installed. It also sidesteps a wall the Wi-Fi route runs
+   into: this page is served over HTTPS, and every browser forbids an HTTPS page
+   from calling an http:// address on the local network - which is exactly what
+   the device is. Bluetooth is not HTTP, so that restriction does not apply.
+
+   Chrome and Edge on desktop, Chrome on Android. Not iOS in any browser: Apple
+   requires every iOS browser to use WebKit, and WebKit has never shipped Web
+   Bluetooth. The button says so rather than failing mysteriously. */
+
+const BLE_SVC  = '6d6f6e6f-6e6f-7465-6d696e69-000000000001';
+const BLE_CMD  = '6d6f6e6f-6e6f-7465-6d696e69-000000000002';
+const BLE_DATA = '6d6f6e6f-6e6f-7465-6d696e69-000000000003';
+
+let bleDevice = null, bleCmd = null, bleData = null;
+
+/* Every reply is a 4-byte little-endian length then that many bytes, so the
+   page knows when it has everything without an end marker that could also
+   occur inside the data. */
+function bleReceive(onProgress){
+  return new Promise((resolve, reject) => {
+    let expected = null, got = 0, parts = [];
+    const timeout = setTimeout(() => {
+      bleData.removeEventListener('characteristicvaluechanged', handler);
+      reject(new Error('the device stopped sending'));
+    }, 180000);
+
+    function handler(e){
+      const v = new Uint8Array(e.target.value.buffer);
+      if(expected === null){
+        expected = v[0] | (v[1] << 8) | (v[2] << 16) | (v[3] << 24);
+        if(expected === 0){
+          clearTimeout(timeout);
+          bleData.removeEventListener('characteristicvaluechanged', handler);
+          resolve(new Uint8Array(0));
+        }
+        return;
+      }
+      parts.push(v); got += v.length;
+      if(onProgress) onProgress(got, expected);
+      if(got >= expected){
+        clearTimeout(timeout);
+        bleData.removeEventListener('characteristicvaluechanged', handler);
+        const out = new Uint8Array(got);
+        let at = 0;
+        for(const p of parts){ out.set(p, at); at += p.length; }
+        resolve(out.slice(0, expected));
+      }
+    }
+    bleData.addEventListener('characteristicvaluechanged', handler);
+  });
+}
+
+async function bleSend(cmd){
+  await bleCmd.writeValueWithoutResponse(new TextEncoder().encode(cmd));
+}
+
+async function bleConnect(){
+  if(!navigator.bluetooth){
+    throw new Error('This browser has no Bluetooth. Use Chrome or Edge on a computer, or Chrome on Android - Web Bluetooth does not exist on iPhone or iPad in any browser.');
+  }
+  bleDevice = await navigator.bluetooth.requestDevice({
+    filters: [{ services: [BLE_SVC] }]
+  });
+  bleDevice.addEventListener('gattserverdisconnected', () => {
+    bleCmd = bleData = null;
+    updateBleButton();
+    setStatus('Bluetooth disconnected.');
+  });
+  const server = await bleDevice.gatt.connect();
+  const svc = await server.getPrimaryService(BLE_SVC);
+  bleCmd  = await svc.getCharacteristic(BLE_CMD);
+  bleData = await svc.getCharacteristic(BLE_DATA);
+  await bleData.startNotifications();
+  updateBleButton();
+}
+
+/* Notes arrive in the device's own shape and are converted into this app's,
+   so everything downstream - search, tags, the reader - works unchanged. */
+function bleNoteToItem(n){
+  const m = /^rec_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})$/.exec(n.base);
+  const created = m
+    ? new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5], +m[6]).getTime()
+    : Date.now();
+  return {
+    id: 'ble_' + n.base,
+    name: n.base,
+    created, edited: 0,
+    tags: n.tag ? [n.tag] : [],
+    transcript: n.txt || '',
+    source: 'device', transcribedAt: n.txt ? created : 0,
+    duration: n.secs || 0,
+    kind: 'recording'
+  };
+}
+
+async function bleImportNotes(){
+  setStatus('Asking the device for its notes…');
+  await bleSend('L');
+  const raw = await bleReceive((got, total) =>
+    setStatus('Reading notes… ' + Math.round(100*got/total) + '%'));
+  const notes = JSON.parse(new TextDecoder().decode(raw));
+
+  const existing = new Map(items.map(i => [i.id, i]));
+  let added = 0, updated = 0;
+  for(const n of notes){
+    const item = bleNoteToItem(n);
+    const prev = existing.get(item.id);
+    if(prev){
+      /* Never drop audio already pulled across - the list carries no blob. */
+      if(prev.blob) item.blob = prev.blob;
+      updated++;
+    } else added++;
+    await dbPut(item);
+  }
+  items = await dbAll();
+  render();
+  setStatus(added + ' new, ' + updated + ' updated. Audio stays on the device until you ask for it.', false, true);
+}
+
+/* Audio is fetched one note at a time, deliberately. Bluetooth LE moves
+   roughly 20 kB a second, so a one-minute recording is about a minute of
+   transfer - fine when you want a particular note, miserable as a bulk sync. */
+async function bleFetchAudio(item){
+  if(!bleData){ setStatus('Connect over Bluetooth first.', true); return; }
+  const base = item.name;
+  setStatus('Fetching audio for ' + base + '…');
+  await bleSend('A' + base);
+  const bytes = await bleReceive((got, total) =>
+    setStatus('Audio ' + Math.round(100*got/total) + '% — '
+      + Math.round(got/1024) + ' of ' + Math.round(total/1024) + ' KB'));
+  if(!bytes.length){ setStatus('The device has no audio for that note.', true); return; }
+  item.blob = new Blob([bytes], {type:'audio/wav'});
+  await dbPut(item);
+  items = await dbAll();
+  render();
+  setStatus('Audio saved for ' + base + '.', false, true);
+}
+
+function updateBleButton(){
+  const b = document.getElementById('bleBtn');
+  if(!b) return;
+  const connected = !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
+  b.textContent = connected ? 'Get notes' : 'Bluetooth';
+  b.classList.toggle('primary', connected);
+  b.title = connected
+    ? 'Pull the notes off the connected device'
+    : 'Connect to a Mono Note Mini next to you';
+}
+
+/* Only offered when it would do something: a note whose audio is still on the
+   device, with a device actually connected. Transfers take about a minute a
+   minute, so this is per-note and never part of a sync. */
+function updateBleAudioBtn(active){
+  const b = document.getElementById('bleAudioBtn');
+  if(!b) return;
+  const connected = !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
+  b.hidden = !(connected && active && !active.blob && String(active.id).startsWith('ble_'));
+}
+document.getElementById('bleAudioBtn').onclick = async () => {
+  const a = activeItem();
+  if(!a) return;
+  const b = document.getElementById('bleAudioBtn');
+  b.disabled = true;
+  try{ await bleFetchAudio(a); }
+  catch(err){ setStatus(err.message || String(err), true); }
+  finally{ b.disabled = false; updateBleAudioBtn(activeItem()); }
+};
+
+document.getElementById('bleBtn').onclick = async () => {
+  const b = document.getElementById('bleBtn');
+  b.disabled = true;
+  try{
+    if(bleDevice && bleDevice.gatt && bleDevice.gatt.connected) await bleImportNotes();
+    else { await bleConnect(); await bleImportNotes(); }
+  }catch(err){
+    /* Cancelling the browser's own device picker is not worth shouting about. */
+    if(err && err.name === 'NotFoundError') setStatus('No device chosen.');
+    else setStatus(err.message || String(err), true);
+  }finally{
+    b.disabled = false;
+    updateBleButton();
+  }
+};
+updateBleButton();
+
 </script>
 </body></html>
 
