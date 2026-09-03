@@ -25,6 +25,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -80,6 +81,13 @@ app.add_middleware(
     allow_origins=[o for o in os.getenv("ALLOW_ORIGINS", "*").split(",") if o],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
+    # The web app is hosted on GitHub Pages over HTTPS while this server is on
+    # localhost. Chrome's Private Network Access rules block a public origin
+    # from reaching a private one unless the server says it expects it, and
+    # Starlette refuses those preflights outright without this - answering
+    # "Disallowed CORS private-network", which reaches the browser as a plain
+    # CORS failure with nothing in it pointing at the real cause.
+    allow_private_network=True,
 )
 
 _model = None
