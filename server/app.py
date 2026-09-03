@@ -17,6 +17,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+from pathlib import Path
 import shutil
 import tempfile
 import time
@@ -26,7 +27,7 @@ import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
 # On Windows the CUDA runtime ships inside the nvidia-* wheels rather than on
@@ -145,6 +146,30 @@ def transcribe_file(path: str) -> tuple[str, float]:
 def _check_key(key: str | None) -> None:
     if API_KEY and key != API_KEY:
         raise HTTPException(status_code=401, detail="bad or missing key")
+
+
+@app.get("/", include_in_schema=False)
+async def serve_app():
+    """Serve the web app from this server.
+
+    Transcription needs this machine, so the page that uses it may as well come
+    from this machine. That removes an entire class of problem rather than
+    working around it: a page on https://...github.io is forbidden by Chrome
+    from calling http://localhost at all - ERR_BLOCKED_BY_CLIENT, decided
+    before any CORS or Private Network Access header is even looked at.
+
+    Served from here the page is same-origin with the API, so nothing is
+    cross-origin and nothing can be blocked. http://localhost is also a secure
+    context in its own right, so Web Bluetooth still works - which is the part
+    that would have been lost by dropping to plain HTTP anywhere else.
+
+    The hosted copy on GitHub Pages keeps its own job: reading notes that have
+    been synced to a repo, from anywhere, with no server running at all.
+    """
+    page = Path(__file__).resolve().parent.parent / "index.html"
+    if not page.exists():
+        raise HTTPException(status_code=404, detail="index.html not found beside the server")
+    return FileResponse(page, media_type="text/html")
 
 
 @app.get("/health")
