@@ -248,6 +248,51 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <p style="padding:10px 12px;background:var(--paper);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink)">Tip: your notes sync with wav audio (<8 MB) to GitHub when you set owner/repo/token in Settings → GitHub sync. No server needed for speaking or live transcription.</p>
   <div class="dialog-actions"><button class="btn primary" id="closeFirstRun">Got it — start writing</button></div>
 </dialog>
+<dialog id="setupDialog">
+  <div class="dialog-head" style="border-bottom:2px solid var(--ink);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+    <b style="font-family:var(--mono);text-transform:uppercase">Set up your device</b>
+    <button class="btn" onclick="document.getElementById('setupDialog').close()">Close</button>
+  </div>
+  <div style="padding:16px;max-height:70vh;overflow:auto">
+    <p style="font-size:.82rem;opacity:.75;margin-top:0">
+      Connected to <b id="suDevice">—</b>. Its clock is <b id="suClock">—</b>.
+      Everything here is stored on the device itself.
+    </p>
+
+    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Wi-Fi</h4>
+    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Lets the device sync and fetch the time on its own. It uses 2.4&nbsp;GHz networks.</p>
+    <input class="field" id="suSsid" placeholder="network name" autocomplete="off">
+    <input class="field" id="suPass" type="password" placeholder="your wi-fi password" autocomplete="new-password" style="margin-top:6px">
+
+    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Transcription</h4>
+    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Your own machine, running the server from this project. Blank turns it off.</p>
+    <input class="field" id="suApi" placeholder="http://192.168.1.20:8000" autocomplete="off">
+
+    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Publish to a repo</h4>
+    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">So you can read notes when you are away from the device. Use a fine-grained token limited to that one repository, Contents: read and write.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <input class="field" id="suOwner" placeholder="owner" autocomplete="off">
+      <input class="field" id="suRepo" placeholder="repo" autocomplete="off">
+    </div>
+    <input class="field" id="suToken" type="password" placeholder="github_pat_…" autocomplete="new-password" style="margin-top:6px">
+
+    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Device</h4>
+    <label style="display:flex;align-items:center;gap:10px;font-size:.85rem;margin:6px 0">
+      <input type="checkbox" id="suSound" style="width:18px;height:18px;accent-color:#000"> Button sounds
+    </label>
+    <label style="display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin:10px 0 3px">Auto-sync</label>
+    <select class="field" id="suSync">
+      <option value="0">Off</option><option value="1">Every hour</option><option value="2">Every 2 hours</option>
+      <option value="4">Every 4 hours</option><option value="8">Every 8 hours</option><option value="24">Once a day</option>
+    </select>
+    <p style="font-size:.78rem;opacity:.7;margin-top:8px">The time zone and clock are set automatically from this browser whenever you save.</p>
+  </div>
+  <div style="border-top:2px solid var(--ink);padding:12px 16px;display:flex;gap:8px;align-items:center">
+    <button class="btn" onclick="document.getElementById('setupDialog').close()">Cancel</button>
+    <span id="suStatus" hidden style="flex:1;font-family:var(--mono);font-size:.7rem;align-self:center"></span>
+    <button class="btn primary" id="suSave">Save to device</button>
+  </div>
+</dialog>
 <script>
 (() => {
 "use strict";
@@ -1052,13 +1097,37 @@ let bleDevice = null, bleCmd = null, bleData = null;
 /* Every reply is a 4-byte little-endian length then that many bytes, so the
    page knows when it has everything without an end marker that could also
    occur inside the data. */
-function bleReceive(onProgress){
+/* Bluetooth talks through this, not through setStatus - #status lives inside
+   the reader pane, so a failure reported there and nothing happening at all
+   looked exactly the same. */
+function bleSay(msg, bad){
+  const inDialog = document.getElementById('suStatus');
+  const openModal = document.querySelector('dialog[open]');
+  if(inDialog && openModal && openModal.contains(inDialog)){
+    inDialog.textContent = msg;
+    inDialog.style.color = bad ? '#7a0000' : '';
+    inDialog.hidden = false;
+  }
+  const t = document.getElementById('bleToast');
+  if(!t) return;
+  t.hidden = false;
+  t.textContent = msg;
+  t.style.background = bad ? '#7a0000' : 'var(--ink)';
+  clearTimeout(bleSay._t);
+  if(!bad) bleSay._t = setTimeout(()=>{ t.hidden = true; }, 4000);
+}
+function bleClear(){ const t = document.getElementById('bleToast'); if(t) t.hidden = true; }
+
+function bleReceive(onProgress, timeoutMs){
   return new Promise((resolve, reject) => {
     let expected = null, got = 0, parts = [];
+    /* Short for the small stuff. Three minutes of silence is indistinguishable
+       from a button that does nothing, and small replies either arrive in a
+       second or are not coming. Audio passes its own longer limit. */
     const timeout = setTimeout(() => {
       bleData.removeEventListener('characteristicvaluechanged', handler);
-      reject(new Error('the device stopped sending'));
-    }, 180000);
+      reject(new Error('No reply from the device. Is Bluetooth still on, on its screen?'));
+    }, timeoutMs || 15000);
 
     function handler(e){
       const v = new Uint8Array(e.target.value.buffer);
@@ -1100,7 +1169,7 @@ async function bleConnect(){
   bleDevice.addEventListener('gattserverdisconnected', () => {
     bleCmd = bleData = null;
     updateBleButton();
-    setStatus('Bluetooth disconnected.');
+    bleSay('Bluetooth disconnected.', true);
   });
   const server = await bleDevice.gatt.connect();
   const svc = await server.getPrimaryService(BLE_SVC);
@@ -1130,10 +1199,10 @@ function bleNoteToItem(n){
 }
 
 async function bleImportNotes(){
-  setStatus('Asking the device for its notes…');
+  bleSay('Asking the device for its notes…');
   await bleSend('L');
   const raw = await bleReceive((got, total) =>
-    setStatus('Reading notes… ' + Math.round(100*got/total) + '%'));
+    bleSay('Reading notes… ' + Math.round(100*got/total) + '%'));
   const notes = JSON.parse(new TextDecoder().decode(raw));
 
   const existing = new Map(items.map(i => [i.id, i]));
@@ -1150,26 +1219,26 @@ async function bleImportNotes(){
   }
   items = await dbAll();
   render();
-  setStatus(added + ' new, ' + updated + ' updated. Audio stays on the device until you ask for it.', false, true);
+  bleSay(added + ' new, ' + updated + ' updated. Audio stays on the device until you ask for it.');
 }
 
 /* Audio is fetched one note at a time, deliberately. Bluetooth LE moves
    roughly 20 kB a second, so a one-minute recording is about a minute of
    transfer - fine when you want a particular note, miserable as a bulk sync. */
 async function bleFetchAudio(item){
-  if(!bleData){ setStatus('Connect over Bluetooth first.', true); return; }
+  if(!bleData){ bleSay('Connect over Bluetooth first.', true); return; }
   const base = item.name;
-  setStatus('Fetching audio for ' + base + '…');
+  bleSay('Fetching audio for ' + base + '…');
   await bleSend('A' + base);
   const bytes = await bleReceive((got, total) =>
-    setStatus('Audio ' + Math.round(100*got/total) + '% — '
-      + Math.round(got/1024) + ' of ' + Math.round(total/1024) + ' KB'));
-  if(!bytes.length){ setStatus('The device has no audio for that note.', true); return; }
+    bleSay('Audio ' + Math.round(100*got/total) + '% — '
+      + Math.round(got/1024) + ' of ' + Math.round(total/1024) + ' KB'), 600000);
+  if(!bytes.length){ bleSay('The device has no audio for that note.', true); return; }
   item.blob = new Blob([bytes], {type:'audio/wav'});
   await dbPut(item);
   items = await dbAll();
   render();
-  setStatus('Audio saved for ' + base + '.', false, true);
+  bleSay('Audio saved for ' + base + '.');
 }
 
 function updateBleButton(){
@@ -1193,7 +1262,8 @@ function updateBleAudioBtn(active){
   const connected = !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
   b.hidden = !(connected && active && !active.blob && String(active.id).startsWith('ble_'));
 }
-document.getElementById('bleAudioBtn').onclick = async () => {
+const _bleAudioBtn = document.getElementById('bleAudioBtn');
+if(_bleAudioBtn) _bleAudioBtn.onclick = async () => {
   const a = activeItem();
   if(!a) return;
   const b = document.getElementById('bleAudioBtn');
@@ -1203,7 +1273,8 @@ document.getElementById('bleAudioBtn').onclick = async () => {
   finally{ b.disabled = false; updateBleAudioBtn(activeItem()); }
 };
 
-document.getElementById('bleBtn').onclick = async () => {
+const _bleBtn = document.getElementById('bleBtn');
+if(_bleBtn) _bleBtn.onclick = async () => {
   const b = document.getElementById('bleBtn');
   b.disabled = true;
   try{
@@ -1211,8 +1282,8 @@ document.getElementById('bleBtn').onclick = async () => {
     else { await bleConnect(); await bleImportNotes(); }
   }catch(err){
     /* Cancelling the browser's own device picker is not worth shouting about. */
-    if(err && err.name === 'NotFoundError') setStatus('No device chosen.');
-    else setStatus(err.message || String(err), true);
+    if(err && err.name === 'NotFoundError') bleSay('No device chosen.');
+    else bleSay(err.message || String(err), true);
   }finally{
     b.disabled = false;
     updateBleButton();
@@ -1289,19 +1360,20 @@ async function bleSaveSetup(){
 
   for(let i = 0; i < jobs.length; i++){
     const [k, v] = jobs[i];
-    setStatus('Saving ' + k + '… (' + (i+1) + ' of ' + jobs.length + ')');
+    bleSay('Saving ' + k + '… (' + (i+1) + ' of ' + jobs.length + ')');
     await bleSetSetting(k, v);
   }
   $('#suPass').value = ''; $('#suToken').value = '';
   await bleLoadSetup();
-  setStatus('Device configured.', false, true);
+  bleSay('Device configured.');
 }
 
-document.getElementById('suSave').onclick = async () => {
+const _suSave = document.getElementById('suSave');
+if(_suSave) _suSave.onclick = async () => {
   const b = document.getElementById('suSave');
   b.disabled = true;
   try{ await bleSaveSetup(); }
-  catch(err){ setStatus(err.message || String(err), true); }
+  catch(err){ bleSay(err.message || String(err), true); }
   finally{ b.disabled = false; }
 };
 
@@ -1312,59 +1384,22 @@ function updateSetupBtn(){
   if(!b) return;
   b.hidden = !(bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
 }
-document.getElementById('setupBtn').onclick = async () => {
+const _setupBtn = document.getElementById('setupBtn');
+if(_setupBtn) _setupBtn.onclick = async () => {
   try{
+    bleSay('Reading settings from the device…');
     await bleLoadSetup();
+    bleClear();
     document.getElementById('setupDialog').showModal();
-  }catch(err){ setStatus(err.message || String(err), true); }
+  }catch(err){ bleSay(err.message || String(err), true); }
 };
 
 </script>
 
-<dialog id="setupDialog">
-  <div class="dialog-head" style="border-bottom:2px solid var(--ink);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
-    <b style="font-family:var(--mono);text-transform:uppercase">Set up your device</b>
-    <button class="btn" onclick="document.getElementById('setupDialog').close()">Close</button>
-  </div>
-  <div style="padding:16px;max-height:70vh;overflow:auto">
-    <p style="font-size:.82rem;opacity:.75;margin-top:0">
-      Connected to <b id="suDevice">—</b>. Its clock is <b id="suClock">—</b>.
-      Everything here is stored on the device itself.
-    </p>
-
-    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Wi-Fi</h4>
-    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Lets the device sync and fetch the time on its own. It uses 2.4&nbsp;GHz networks.</p>
-    <input class="field" id="suSsid" placeholder="network name" autocomplete="off">
-    <input class="field" id="suPass" type="password" placeholder="your wi-fi password" autocomplete="new-password" style="margin-top:6px">
-
-    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Transcription</h4>
-    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Your own machine, running the server from this project. Blank turns it off.</p>
-    <input class="field" id="suApi" placeholder="http://192.168.1.20:8000" autocomplete="off">
-
-    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Publish to a repo</h4>
-    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">So you can read notes when you are away from the device. Use a fine-grained token limited to that one repository, Contents: read and write.</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <input class="field" id="suOwner" placeholder="owner" autocomplete="off">
-      <input class="field" id="suRepo" placeholder="repo" autocomplete="off">
-    </div>
-    <input class="field" id="suToken" type="password" placeholder="github_pat_…" autocomplete="new-password" style="margin-top:6px">
-
-    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Device</h4>
-    <label style="display:flex;align-items:center;gap:10px;font-size:.85rem;margin:6px 0">
-      <input type="checkbox" id="suSound" style="width:18px;height:18px;accent-color:#000"> Button sounds
-    </label>
-    <label style="display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin:10px 0 3px">Auto-sync</label>
-    <select class="field" id="suSync">
-      <option value="0">Off</option><option value="1">Every hour</option><option value="2">Every 2 hours</option>
-      <option value="4">Every 4 hours</option><option value="8">Every 8 hours</option><option value="24">Once a day</option>
-    </select>
-    <p style="font-size:.78rem;opacity:.7;margin-top:8px">The time zone and clock are set automatically from this browser whenever you save.</p>
-  </div>
-  <div style="border-top:2px solid var(--ink);padding:12px 16px;display:flex;gap:8px;justify-content:flex-end">
-    <button class="btn" onclick="document.getElementById('setupDialog').close()">Cancel</button>
-    <button class="btn primary" id="suSave">Save to device</button>
-  </div>
-</dialog>
+<div id="bleToast" hidden style="position:fixed;left:50%;top:14px;transform:translateX(-50%);
+  z-index:999;background:var(--ink);color:var(--paper);border:2px solid var(--ink);
+  box-shadow:4px 4px 0 rgba(0,0,0,.35);font-family:var(--mono);font-size:.74rem;
+  padding:12px 18px;max-width:min(560px,92vw);text-align:center;line-height:1.45"></div>
 </body></html>
 
 
