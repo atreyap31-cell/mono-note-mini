@@ -67,7 +67,7 @@ footer{border-top:3px solid var(--ink);margin-top:56px;padding-top:20px;font-siz
     <li><a href="#todo">The to-do list</a></li>
     <li><a href="#battery">Battery and charging</a></li>
     <li><a href="#wifi">Wi-Fi</a></li>
-    <li><a href="#web">The device's own page</a></li>
+    <li><a href="#web">The website</a></li>
     <li><a href="#transcribe">Transcription</a></li>
     <li><a href="#github">Reading your notes anywhere</a></li>
     <li><a href="#settings">Every setting</a></li>
@@ -132,19 +132,34 @@ Plugging in charges the battery and powers the device at the same time. It also 
 
 <h2 class="sec" id="wifi">9 · Wi-Fi</h2>
 <p>Only needed for transcription, for syncing, or to set the clock. It works entirely offline otherwise.</p>
-<p>Two ways to set it up:</p>
-<ul>
-  <li><b>Settings → Wi-Fi</b> — the device makes its own network called <code>MonoNote-XXXX</code> with the key <code>record123</code>. Join it from your phone, and a setup page opens at <code>192.168.4.1</code>.</li>
-  <li><b>Settings → IP</b> — if it already knows your network, this joins it and shows the address to visit.</li>
-</ul>
-<p>Connecting also sets the clock, which it then keeps on its own.</p>
+<p>You set it up from the website, over Bluetooth — there is no typing on the device.</p>
+<ol>
+  <li>On the device: <b>Settings → WI-FI SETUP</b>. Bluetooth switches on.</li>
+  <li>On your phone or computer, open the website and tap <b>Set up device over Bluetooth</b>.</li>
+  <li>Pick <b>Mono Note Mini</b> from the list your browser shows.</li>
+  <li>Type your network name and password with a real keyboard, and save.</li>
+</ol>
+<p>The device then tries to join, and the page tells you whether it worked — so a
+mistyped password shows up immediately rather than hours later when notes fail
+to sync. Connecting also sets the clock, which it then keeps on its own.</p>
+<div class="note"><b>Which browsers</b>
+Bluetooth from a web page works in Chrome and Edge on a computer, and Chrome on
+Android. It does not work on an iPhone or iPad — Safari does not support it, and
+neither does Chrome on iOS.</div>
 
-<h2 class="sec" id="web">10 · The device's own page</h2>
-<p>With the device on your Wi-Fi, open the address from <b>Settings → IP</b> in any browser. Log in with the user <code>admin</code> and the password <code>record123</code>.</p>
-<p>From there you get search, tag filters, playback, transcripts, re-tagging, deleting, the to-do list, and every setting — with a proper keyboard.</p>
-<div class="warn"><b>Change the password</b>
-It is <code>record123</code> until you change it, and that default is public. It is the only thing between your notes and anyone else on the same Wi-Fi. Settings → Device password.</div>
-<p>This page comes from the device itself, not from the internet. It works on a network with no connection at all.</p>
+<h2 class="sec" id="web">10 · The website</h2>
+<p>There is one, and it is the same one wherever you open it. Your notes, their
+transcripts, tags, the to-do list and every setting live there, with a proper
+keyboard for all of it.</p>
+<p>It reaches the device two ways. Over <b>Bluetooth</b> it can set the device up
+and pull notes off it directly. Once the device is on Wi-Fi it can also
+<b>sync</b> notes to a repository you own, so you can read them from anywhere
+without the device being nearby.</p>
+<p>Earlier versions had a second website served by the device itself, reached by
+its address on your network. It is gone: it needed a password of its own, it
+was only reachable from your own network, and having two sites meant the one you
+needed first was the one you could only reach after setting up the thing it was
+supposed to set up. The device no longer listens on the network at all.</p>
 
 <h2 class="sec" id="transcribe">11 · Transcription</h2>
 <p>Optional, and it runs on your own computer rather than anyone's cloud. Your recordings never leave your home.</p>
@@ -253,8 +268,7 @@ GitHub will not read back a file larger than a megabyte, and audio crosses that 
   <tr><td>Wi-Fi network and password</td><td>The network the device joins to sync and to fetch the time</td></tr>
   <tr><td>API base</td><td>Your transcription computer. Blank turns that half off.</td></tr>
   <tr><td>Owner / Repo / Token</td><td>Where your notes are published</td></tr>
-  <tr><td>Device password</td><td>Protects the device's own page. Change it.</td></tr>
-  <tr><td>Time zone</td><td>Note names use it, so they read in your local time</td></tr>
+    <tr><td>Time zone</td><td>Note names use it, so they read in your local time</td></tr>
   <tr><td>Auto-sync</td><td>Off, 1, 2, 4, 8 or 24 hours. Default 4. The main influence on battery life.</td></tr>
   <tr><td>Button sounds</td><td>A soft tick on each press. On by default.</td></tr>
   <tr><td>Storage → Free space</td><td>Deletes the <i>audio</i> of notes that already have a transcript, keeping the words. Asks twice.</td></tr>
@@ -287,8 +301,11 @@ rec_20260901_103045.tag    one word: which tag</code></pre>
 <h3>It cannot find my Wi-Fi</h3>
 <p>The device uses 2.4 GHz networks. If yours is set to 5 GHz only, it will not appear. Check the name and password for capital letters.</p>
 
-<h3>The web page will not open</h3>
-<p>Your phone or computer has to be on the same network as the device. Take the address from Settings → IP each time — routers hand out different ones.</p>
+<h3>The browser shows no device to pick</h3>
+<p>Turn Bluetooth on at the device first — <b>Settings → WI-FI SETUP</b>, or the
+<b>BLUETOOTH</b> entry in the main menu. Then check your browser: this needs
+Chrome or Edge on a computer, or Chrome on Android. It cannot work on an iPhone
+or iPad.</p>
 
 <h2 class="sec" id="care">16 · Looking after it</h2>
 <ul>

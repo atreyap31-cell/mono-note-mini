@@ -66,32 +66,31 @@ If Wi-Fi and an API address are both set, the device syncs on its own at the rat
 
 The clock is only set by NTP, and only a sync reaches NTP - so after a cold boot with no clock, the device makes one attempt to get itself started rather than waiting forever.
 
-## Your own web interface
+## One website, over Bluetooth
 
-The device serves **`/www/index.html` from the SD card at the root URL** - design any site you like, drop it in `/www/`, done (no reflash). Endpoints:
+The device used to run a web server of its own: a hotspot for Wi-Fi setup, and
+a page off the SD card for browsing notes on your LAN. Both are gone.
 
-| Route | What |
+That left two websites with different features, and the one you needed first
+was the one you could only reach by leaving the network you were trying to
+join. Setting up Wi-Fi meant joining a hotspot to fill in a form to leave the
+hotspot. Everything now happens on the single web app, over Bluetooth:
+
+| On the device | What it does |
 |---|---|
-| `GET /api/notes` | **one note per entry**, merged: `[{base, bytes, secs, audio, tag, txt}]` |
-| `GET /api/info` | `{totalMB, usedMB, syncHrs, api, ssid}` |
-| `GET /api/list` | raw file listing `[{name, size}]` of `/recordings` |
-| `GET /file?n=rec_x.wav` | download any recording/transcript/tag |
-| `POST /up` | multipart upload of a `.wav`, `.txt` or `.tag` into `/recordings/` |
-| `POST /api/delete` | form `n=<base>` — removes audio, transcript and tag together |
-| `POST /api/tag` | form `n=<base>`, `tag=<name>` — re-file a note, empty clears it |
-| `GET /api/todo` | the to-do list as plain text |
-| `POST /api/todo` | replace the to-do list |
-| `POST /save` | form fields: `ssid`, `pass`, `api`, `devpass`, `sound`, `synchrs` |
+| `Settings > WI-FI SETUP` | switches Bluetooth on and tells you to open the site |
+| `BLUETOOTH` | switch the radio on or off by hand |
 
-Prefer `/api/notes` over `/api/list`: it returns one entry per note with the tag and transcript already merged in, so a page needs a single request instead of three per note — which matters when the server is an ESP32. It is streamed chunk by chunk, so a card full of transcripts never has to fit in RAM. Notes whose audio was freed appear with `audio: false` and their text intact.
+The app writes one setting per message and the device acknowledges each one, so
+a failure names the setting that failed. After saving a network the app asks
+the device to actually join it and reports whether it worked - a wrong password
+is visible while you are still standing there, rather than hours later when
+notes quietly fail to sync.
 
-If `/www/index.html` doesn't exist, `/` redirects to the built-in manager at `/app` (browse, filter, download, upload, to-do, settings).
+Removing the server took about 73 KB of flash and 300 lines with it, along with
+the device password, the Basic auth, and any question of what is exposed on
+your LAN. The device no longer listens on the network at all.
 
-### Installing the full site
-
-The repo ships one at [`www/index.html`](../www/index.html). Copy that single file to `/www/index.html` on the SD card, then use **Settings > IP** to put the device on your home Wi-Fi and browse to the address it shows. You get search, tag filtering, in-page audio playback, re-filing, deletion and the to-do list — served by the device, off the card, over your own network. Nothing leaves the house and there is no account to create.
-
-Privacy here rests on the device password (Basic auth) and on your LAN, not on the URL being hard to guess. Change `devpass` from the default.
 
 ### Reading your notes away from home
 

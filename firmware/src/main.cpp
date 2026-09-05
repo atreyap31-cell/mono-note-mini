@@ -29,7 +29,7 @@ static board_power_bsp_t pwr(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 static I2cMasterBus* i2c = nullptr;
 static epaper_driver_display* epd = nullptr;
 
-enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_SYNCRATE, ST_FACTORY, ST_BLE, ST_SECURITY, ST_PIN, ST_SELFTEST };
+enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_FACTORY, ST_BLE, ST_SECURITY, ST_PIN, ST_SELFTEST };
 static State state = ST_HOME;
 static State syncReturnTo = ST_HOME;
 
@@ -724,10 +724,12 @@ static void drawExtra() {
   epd->EPD_Clear();
   uiTextCentered(6, "EXTRA", 2);
   uiRect(0, 26, 200, 1);
-  uiRow(6, 40, 188, 36, "REDO TOUR",  2, sel == 0);
-  uiRow(6, 84, 188, 36, "SYNC RATE",  2, sel == 1);
-  uiRow(6, 128, 188, 36, "RESET",     2, sel == 2);
-  uiTextCentered(174, "double-tap = back", 1);
+  uiRow(6, 30, 188, 26, "REDO TOUR", 2, sel == 0);
+  uiRow(6, 58, 188, 26, "SYNC NOW",  2, sel == 1);
+  uiRow(6, 86, 188, 26, "HOW TO",    2, sel == 2);
+  uiRow(6, 114, 188, 26, "SECURITY", 2, sel == 3);
+  uiRow(6, 142, 188, 26, "RESET",    2, sel == 4);
+  uiTextCentered(176, "double-tap = back", 1);
   uiFlushFast(3);
 }
 
@@ -844,27 +846,6 @@ static void drawSelfTest(const String& result) {
   uiFillRect(0, 178, 200, 22, 0x00);
   uiTextCentered(185, "2 taps = back", 1, 0xff);
   uiFlushFull();
-}
-
-static void drawSyncRate() {
-  uint32_t cur = syncHours();
-  epd->EPD_Clear();
-  uiTextCentered(4, "AUTO-SYNC", 2);
-  uiRect(0, 24, 200, 1);
-  const char* labels[6] = {"Off", "1h", "2h", "4h", "8h", "24h"};
-  for (int i = 0; i < 6; i++) {
-    int x = (i % 2 == 0) ? 6 : 102;
-    int y = 30 + (i / 2) * 32;
-    String lab = labels[i];
-    if (SYNC_OPTS[i] == cur) lab = "*" + lab;   /* the one in force */
-    uiRow(x, y, 92, 28, lab, 2, sel == i);
-  }
-  uiTextCentered(132, "* = current", 1);
-  uiTextCentered(148, "more often drains", 1);
-  uiTextCentered(162, "the battery faster", 1);
-  uiFillRect(0, 182, 200, 18, 0x00);
-  uiTextCentered(187, "hold=pick  2tap=back", 1, 0xff);
-  uiFlushFast(7);
 }
 
 static void drawFactory() {
@@ -991,27 +972,21 @@ static void doFactoryReset() {
   ESP.restart();
 }
 
-static void drawWifiScreen(const String& ssid) {
+/* Wi-Fi used to be set up by turning the device into a hotspot serving a web
+   page of its own. That meant two different websites, and the one you needed
+   first was the one you could only reach by leaving your own network. It is now
+   done over Bluetooth from the same page as everything else: one site, and the
+   device never has to host anything. */
+static void drawWifiScreen() {
   epd->EPD_Clear();
   uiTextCentered(14, "WI-FI SETUP", 2);
   uiRect(0, 34, 200, 1);
-  uiTextCentered(56, "join this hotspot", 1);
-  uiTextCentered(80, ssid, 1);
-  uiTextCentered(100, "key: record123", 1);
-  uiTextCentered(128, WiFi.softAPIP().toString(), 2);
-  uiTextCentered(156, "enter network + password", 1);
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back", 1, 0xff);
-  uiFlushFull();
-}
-
-static void drawIpScreen() {
-  epd->EPD_Clear();
-  uiTextCentered(14, "MY ADDRESS", 2);
-  uiRect(0, 34, 200, 1);
-  uiTextCentered(60, "type this in a browser", 1);
-  uiTextCentered(92, WiFi.localIP().toString(), 2);
-  uiTextCentered(130, "your notes, on the web", 1);
+  uiTextCentered(58, "on your phone or PC:", 1);
+  uiTextCentered(84, "1. open the website", 1);
+  uiTextCentered(104, "2. tap SET UP DEVICE", 1);
+  uiTextCentered(124, "3. pick Mono Note Mini", 1);
+  uiTextCentered(152, bleConnected() ? "connected" :
+                      bleAdvertising() ? "bluetooth on" : "bluetooth off", 2);
   uiFillRect(0, 184, 200, 16, 0x00);
   uiTextCentered(188, "< back", 1, 0xff);
   uiFlushFull();
@@ -1445,16 +1420,9 @@ void loop() {
       if (ev & BTN_TOP_HOLD) {
         if (soundOn()) beep();
         switch (sel) {
-          case 0: state = ST_SET_WIFI; drawWifiScreen(portalStart()); break;
-          case 1: syncAll(false); break;
-          case 2: confirmFree = false; state = ST_STORAGE; drawStorage(); break;
-          case 3:
-            drawSyncScreen(0, 0, "connecting wifi...");
-            if (staConnect(20000)) { serverStartSta(); state = ST_SET_IP; drawIpScreen(); }
-            else { showError("wifi failed"); drawSettings(); }
-            break;
-          case 4: howtoPage = 0; state = ST_HOWTO; drawHowTo(); break;
-          case 5: selReset(3); state = ST_EXTRA; drawExtra(); break;
+          case 0: bleBegin(); state = ST_SET_WIFI; drawWifiScreen(); break;
+          case 1: confirmFree = false; state = ST_STORAGE; drawStorage(); break;
+          case 2: selReset(5); state = ST_EXTRA; drawExtra(); break;
         }
       }
       break;
@@ -1477,8 +1445,9 @@ void loop() {
         if (soundOn()) beep();
         switch (sel) {
           case 0: tourFromExtra = true; walkStep = 0; sel = 0; state = ST_WALKTHROUGH; drawTourStep(walkStep); break;
-          case 1: selReset(6); state = ST_SYNCRATE; drawSyncRate(); break;
-          case 2:
+          case 1: syncAll(false); break;
+          case 2: howtoPage = 0; state = ST_HOWTO; drawHowTo(); break;
+          case 3:
             selReset(3);
             state = ST_SECURITY;
             if (!cryptoHasKey()) {
@@ -1492,7 +1461,7 @@ void loop() {
             }
             drawSecurity();
             break;
-          case 3: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
+          case 4: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
         }
       }
       break;
@@ -1593,21 +1562,11 @@ void loop() {
       }
       break;
 
-    case ST_SYNCRATE:
-      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_EXTRA; drawExtra(); break; }
-      if (ev & BTN_TOP_TAP)    { selNext(); drawSyncRate(); }
-      if (ev & BTN_TOP_HOLD) {
-        netSetU32("syncHrs", SYNC_OPTS[sel]);
-        if (soundOn()) beep();
-        drawSyncRate();
-      }
-      break;
-
     case ST_FACTORY:
-      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_EXTRA; drawExtra(); break; }
+      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_EXTRA; drawExtra(); break; }
       if (ev & BTN_TOP_TAP)    { selNext(); drawFactory(); }
       if (ev & BTN_TOP_HOLD) {
-        if (sel == 0) { selReset(3); state = ST_EXTRA; drawExtra(); }
+        if (sel == 0) { selReset(5); state = ST_EXTRA; drawExtra(); }
         else if (factoryStage == 0) { factoryStage = 1; selReset(2); drawFactory(); }
         else doFactoryReset();
       }
@@ -1631,14 +1590,14 @@ void loop() {
             /* Back from the first screen means "I do not want this" - honour
                it, and do not ask again. Settings > Extra still has it. */
             netSetBool("first_boot_done", true);
-            if (tourFromExtra) { tourFromExtra = false; selReset(3); state = ST_EXTRA; drawExtra(); }
+            if (tourFromExtra) { tourFromExtra = false; selReset(5); state = ST_EXTRA; drawExtra(); }
             else { state = ST_HOME; drawHome(); }
           }
         } else if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD | BTN_TOP_TAP | BTN_BOT_TAP)) {
           walkStep++;
           if (walkStep >= TOUR_STEPS) {
             netSetBool("first_boot_done", true);
-            if (tourFromExtra) { tourFromExtra = false; selReset(3); state = ST_EXTRA; drawExtra(); }
+            if (tourFromExtra) { tourFromExtra = false; selReset(5); state = ST_EXTRA; drawExtra(); }
             else { state = ST_HOME; drawHome(); }
           } else {
             if (soundOn()) beep();
@@ -1649,8 +1608,7 @@ void loop() {
       break;
 
     case ST_SET_WIFI:
-      portalPoll();
-      if (ev & BTN_TOP_DOUBLE) { portalStop(); selReset(3); state = ST_SETTINGS; drawSettings(); }
+      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_SYNC:
@@ -1664,11 +1622,6 @@ void loop() {
         else confirmFree = true;
         drawStorage();
       }
-      break;
-
-    case ST_SET_IP:
-      portalPoll();
-      if (ev & BTN_TOP_DOUBLE) { portalStop(); staDisconnect(); selReset(3); state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_VIEW_TAGS:

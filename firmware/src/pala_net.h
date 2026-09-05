@@ -1,7 +1,6 @@
 #ifndef PALA_NET_H
 #define PALA_NET_H
 #include <Arduino.h>
-#include <WebServer.h>
 
 /* Auto-sync interval in hours. 0 = off. Stored in NVS under "syncHrs". */
 #define SYNC_HOURS_DEFAULT 4
@@ -20,11 +19,6 @@ bool netGetBool(const char* key, bool def);
 void netClearAll();
 bool staConnect(uint32_t timeoutMs);
 void staDisconnect();
-bool portalActive();
-String portalStart();
-String serverStartSta();
-void portalPoll();
-void portalStop();
 bool transcribeFile(const String& wavPath, String& outText);
 
 #endif

@@ -168,7 +168,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <div class="brand">Mono Note Mini</div>
   <div class="actions">
     <button class="btn" id="todoBtn">Tasks</button>
-    <button class="btn" id="setupBtn" hidden title="Configure the connected device">Set up device</button>
+    <button class="btn" id="setupBtn" title="Set up Wi-Fi and sync over Bluetooth">Set up device over Bluetooth</button>
     <button class="btn" id="bleBtn" title="Connect to a Mono Note Mini next to you">Bluetooth</button>
     <button class="btn" id="syncBtn">Sync now</button>
     <span class="eyebrow" id="lastSyncTop"></span>
@@ -1381,6 +1381,23 @@ async function bleSaveSetup(){
   }
   $('#suPass').value = ''; $('#suToken').value = '';
   await bleLoadSetup();
+
+  /* Ask the device to actually join, rather than reporting success for
+     settings that were merely stored. A wrong password should be visible now,
+     not hours later when notes quietly fail to sync. */
+  if($('#suSsid').value.trim()){
+    bleSay('Testing the Wi-Fi connection…');
+    try{
+      await bleSend('C');
+      const reply = new TextDecoder().decode(await bleReceive());
+      if(reply === 'ok'){ bleSay('Saved. The device is on Wi-Fi.'); return; }
+      bleSay('Saved, but the device could not join that network. Check the name and password.', true);
+      return;
+    }catch(_){
+      bleSay('Saved. Could not test the connection from here.');
+      return;
+    }
+  }
   bleSay('Device configured.');
 }
 
@@ -1393,16 +1410,24 @@ if(_suSave) _suSave.onclick = async () => {
   finally{ b.disabled = false; }
 };
 
-/* Offered only once a device is actually connected - a setup form for nothing
-   is worse than no button. */
+function bleIsConnected(){ return !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected); }
+
 function updateSetupBtn(){
   const b = document.getElementById('setupBtn');
   if(!b) return;
-  b.hidden = !(bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
+  /* Always offered. It connects on demand, because "set up the device" is the
+     first thing anyone does and hiding it behind a Bluetooth connection they
+     have not made yet leaves nothing on screen to press. */
+  b.hidden = false;
+  b.textContent = bleIsConnected() ? 'Set up device' : 'Set up device over Bluetooth';
 }
 const _setupBtn = document.getElementById('setupBtn');
 if(_setupBtn) _setupBtn.onclick = async () => {
   try{
+    if(!bleIsConnected()){
+      bleSay('Choose "Mono Note Mini" in the Bluetooth window…');
+      await bleConnect();
+    }
     bleSay('Reading settings from the device…');
     await bleLoadSetup();
     bleClear();

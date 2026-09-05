@@ -125,10 +125,12 @@ silently, and the firmware never calls it, so nothing breaks without it.
 
 ### Where it shows up
 
-The device's own page (`www/index.html`) grows a **Suggest** button on any note
-that has a transcript. It reads the backend address from `/api/info` — the same
-one the device already stores for syncing — so there is nothing extra to
-configure.
+The web app offers this on any note that has a transcript, using the backend
+address from its own settings.
+
+It used to live on a second page served by the device itself. That page is gone
+— setup happens over Bluetooth now, and the device no longer listens on the
+network.
 
 Pressing it files the note under whichever of the five tags the model picks,
 and *asks* before adding any action items to the to-do list rather than

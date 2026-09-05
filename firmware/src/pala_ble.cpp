@@ -216,6 +216,20 @@ static void applySetting(const String& kv) {
   setStatus(ok ? "saved" : "rejected");
 }
 
+/* Try the stored network and say whether it worked. Without this, saving
+   Wi-Fi settings is a leap of faith: the page reports "saved", the device
+   quietly fails to join, and the first sign of trouble is notes not syncing
+   hours later. A wrong password should be visible while the person who typed
+   it is still standing there. */
+static void serveConnect() {
+  setStatus("testing wi-fi");
+  bool ok = staConnect(20000);
+  const char* r = ok ? "ok" : "no";
+  sendHeader(2);
+  sendChunks((const uint8_t*)r, 2);
+  setStatus(ok ? "wi-fi ok" : "wi-fi failed");
+}
+
 static void bleTask(void*) {
   for (;;) {
     if (pending && connected) {
@@ -224,6 +238,7 @@ static void bleTask(void*) {
       else if (c.startsWith("A")) serveAudio(c.substring(1));
       else if (c.startsWith("S")) serveSettings();
       else if (c.startsWith("W")) applySetting(c.substring(1));
+      else if (c.startsWith("C")) serveConnect();
       pending = false;
     }
     vTaskDelay(pdMS_TO_TICKS(20));
