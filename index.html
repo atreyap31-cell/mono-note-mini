@@ -168,6 +168,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <div class="brand">Mono Note Mini</div>
   <div class="actions">
     <button class="btn" id="todoBtn">Tasks</button>
+    <button class="btn" id="setupBtn" hidden title="Configure the connected device">Set up device</button>
     <button class="btn" id="bleBtn" title="Connect to a Mono Note Mini next to you">Bluetooth</button>
     <button class="btn" id="syncBtn">Sync now</button>
     <span class="eyebrow" id="lastSyncTop"></span>
@@ -1172,6 +1173,7 @@ async function bleFetchAudio(item){
 }
 
 function updateBleButton(){
+  try{ updateSetupBtn(); }catch(e){}
   const b = document.getElementById('bleBtn');
   if(!b) return;
   const connected = !!(bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
@@ -1218,7 +1220,151 @@ document.getElementById('bleBtn').onclick = async () => {
 };
 updateBleButton();
 
+
+/* ---- Configuring the device over Bluetooth ------------------------------
+
+   Typing a Wi-Fi password on a two-button e-paper screen takes about forty
+   presses. Doing it here takes a keyboard. So the device keeps the jobs that
+   have to happen in the moment - record, tag, browse, play - and everything
+   fiddly moves to this page.
+
+   One setting per write: the whole object would need chunked writes for what
+   is only ever a few short strings, and a key at a time is acknowledged
+   individually, so a failure names which setting failed. */
+
+async function bleGetSettings(){
+  await bleSend('S');
+  const raw = await bleReceive();
+  return JSON.parse(new TextDecoder().decode(raw));
+}
+
+async function bleSetSetting(key, value){
+  await bleSend('W' + key + '=' + value);
+  const raw = await bleReceive();
+  const reply = new TextDecoder().decode(raw);
+  if(reply !== 'ok') throw new Error('the device refused ' + key);
+}
+
+/* Fills the form from the device. Secrets come back as "is one set?" rather
+   than as themselves - the page has no reason to read a password it already
+   knows, and every reason not to be able to. */
+async function bleLoadSetup(){
+  const s = await bleGetSettings();
+  $('#suDevice').textContent = s.device || '—';
+  $('#suSsid').value    = s.ssid || '';
+  $('#suApi').value     = s.api || '';
+  $('#suOwner').value   = s.ghOwner || '';
+  $('#suRepo').value    = s.ghRepo || '';
+  $('#suSync').value    = String(s.syncHrs ?? 4);
+  $('#suSound').checked = s.sound !== false;
+  $('#suPass').placeholder  = s.hasWifiPass ? 'unchanged' : 'your wi-fi password';
+  $('#suToken').placeholder = s.hasToken ? 'unchanged' : 'github_pat_…';
+
+  const now = Math.floor(Date.now()/1000);
+  const drift = s.clock ? Math.abs(now - s.clock) : 99999;
+  $('#suClock').textContent = !s.clock ? 'not set'
+    : drift > 120 ? 'out by ' + Math.round(drift/60) + ' min'
+    : 'correct';
+  return s;
+}
+
+async function bleSaveSetup(){
+  const jobs = [];
+  const push = (k, v) => { if(v !== null && v !== undefined) jobs.push([k, v]); };
+
+  push('ssid', $('#suSsid').value.trim());
+  if($('#suPass').value) push('pass', $('#suPass').value);
+  push('api', $('#suApi').value.trim());
+  push('ghOwner', $('#suOwner').value.trim());
+  push('ghRepo', $('#suRepo').value.trim());
+  if($('#suToken').value) push('ghToken', $('#suToken').value);
+  push('syncHrs', $('#suSync').value);
+  push('sound', $('#suSound').checked ? '1' : '0');
+
+  /* The device has no clock of its own until something tells it, and this
+     browser knows both the time and the offset. Send them every save; it is
+     two extra writes and it means note names are never wrong. */
+  push('tzmin', new Date().getTimezoneOffset());
+  push('clock', Math.floor(Date.now()/1000));
+
+  for(let i = 0; i < jobs.length; i++){
+    const [k, v] = jobs[i];
+    setStatus('Saving ' + k + '… (' + (i+1) + ' of ' + jobs.length + ')');
+    await bleSetSetting(k, v);
+  }
+  $('#suPass').value = ''; $('#suToken').value = '';
+  await bleLoadSetup();
+  setStatus('Device configured.', false, true);
+}
+
+document.getElementById('suSave').onclick = async () => {
+  const b = document.getElementById('suSave');
+  b.disabled = true;
+  try{ await bleSaveSetup(); }
+  catch(err){ setStatus(err.message || String(err), true); }
+  finally{ b.disabled = false; }
+};
+
+/* Offered only once a device is actually connected - a setup form for nothing
+   is worse than no button. */
+function updateSetupBtn(){
+  const b = document.getElementById('setupBtn');
+  if(!b) return;
+  b.hidden = !(bleDevice && bleDevice.gatt && bleDevice.gatt.connected);
+}
+document.getElementById('setupBtn').onclick = async () => {
+  try{
+    await bleLoadSetup();
+    document.getElementById('setupDialog').showModal();
+  }catch(err){ setStatus(err.message || String(err), true); }
+};
+
 </script>
+
+<dialog id="setupDialog">
+  <div class="dialog-head" style="border-bottom:2px solid var(--ink);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
+    <b style="font-family:var(--mono);text-transform:uppercase">Set up your device</b>
+    <button class="btn" onclick="document.getElementById('setupDialog').close()">Close</button>
+  </div>
+  <div style="padding:16px;max-height:70vh;overflow:auto">
+    <p style="font-size:.82rem;opacity:.75;margin-top:0">
+      Connected to <b id="suDevice">—</b>. Its clock is <b id="suClock">—</b>.
+      Everything here is stored on the device itself.
+    </p>
+
+    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Wi-Fi</h4>
+    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Lets the device sync and fetch the time on its own. It uses 2.4&nbsp;GHz networks.</p>
+    <input class="field" id="suSsid" placeholder="network name" autocomplete="off">
+    <input class="field" id="suPass" type="password" placeholder="your wi-fi password" autocomplete="new-password" style="margin-top:6px">
+
+    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Transcription</h4>
+    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Your own machine, running the server from this project. Blank turns it off.</p>
+    <input class="field" id="suApi" placeholder="http://192.168.1.20:8000" autocomplete="off">
+
+    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Publish to a repo</h4>
+    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">So you can read notes when you are away from the device. Use a fine-grained token limited to that one repository, Contents: read and write.</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <input class="field" id="suOwner" placeholder="owner" autocomplete="off">
+      <input class="field" id="suRepo" placeholder="repo" autocomplete="off">
+    </div>
+    <input class="field" id="suToken" type="password" placeholder="github_pat_…" autocomplete="new-password" style="margin-top:6px">
+
+    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Device</h4>
+    <label style="display:flex;align-items:center;gap:10px;font-size:.85rem;margin:6px 0">
+      <input type="checkbox" id="suSound" style="width:18px;height:18px;accent-color:#000"> Button sounds
+    </label>
+    <label style="display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin:10px 0 3px">Auto-sync</label>
+    <select class="field" id="suSync">
+      <option value="0">Off</option><option value="1">Every hour</option><option value="2">Every 2 hours</option>
+      <option value="4">Every 4 hours</option><option value="8">Every 8 hours</option><option value="24">Once a day</option>
+    </select>
+    <p style="font-size:.78rem;opacity:.7;margin-top:8px">The time zone and clock are set automatically from this browser whenever you save.</p>
+  </div>
+  <div style="border-top:2px solid var(--ink);padding:12px 16px;display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn" onclick="document.getElementById('setupDialog').close()">Cancel</button>
+    <button class="btn primary" id="suSave">Save to device</button>
+  </div>
+</dialog>
 </body></html>
 
 

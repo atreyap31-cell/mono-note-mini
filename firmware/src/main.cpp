@@ -16,6 +16,7 @@
 #include "pala_sync.h"
 #include "pala_rtc.h"
 #include "pala_ble.h"
+#include "pala_crypto.h"
 #include "logo_mn.h"
 #include "qr_manual.h"
 #include "soc/usb_serial_jtag_struct.h"
@@ -28,7 +29,7 @@ static board_power_bsp_t pwr(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 static I2cMasterBus* i2c = nullptr;
 static epaper_driver_display* epd = nullptr;
 
-enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_SYNCRATE, ST_FACTORY, ST_BLE };
+enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_SET_IP, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_SYNCRATE, ST_FACTORY, ST_BLE, ST_SECURITY, ST_PIN, ST_SELFTEST };
 static State state = ST_HOME;
 static State syncReturnTo = ST_HOME;
 
@@ -110,6 +111,9 @@ static void detectUsbAtBoot() {
 }
 
 static void sleepNow() {
+  /* Sleeping is the natural moment to lock: the key should not survive in RAM
+     into a state where the device is in someone else's pocket. */
+  cryptoLock();
   /* Exactly the same call the home screen makes, so what it leaves on the
      glass is what it wakes up to - byte for byte, not merely similar. */
   drawHome();
@@ -330,10 +334,11 @@ static void drawMenu() {
   epd->EPD_Clear();
   uiTextCentered(10, "mono note mini", 1);
   uiRect(0, 26, 200, 1);
-  uiRow(6, 36, 188, 36, "VIEW NOTES", 2, sel == 0);
-  uiRow(6, 76, 188, 36, "MAKE NOTE",  2, sel == 1);
-  uiRow(6, 116, 188, 36, "TO-DO",     2, sel == 2);
-  uiRow(6, 156, 188, 36, "SETTINGS",  2, sel == 3);
+  uiRow(6, 32, 188, 32, "VIEW NOTES", 2, sel == 0);
+  uiRow(6, 68, 188, 32, "MAKE NOTE",  2, sel == 1);
+  uiRow(6, 104, 188, 32, "BLUETOOTH", 2, sel == 2);
+  uiRow(6, 140, 188, 32, "TO-DO",     2, sel == 3);
+  uiRow(6, 176, 188, 22, "SETTINGS",  1, sel == 4);
   uiFlushFast(1);
 }
 
@@ -671,13 +676,22 @@ static void drawTourStep(int step) {
   uiFlushFull();
 }
 
+/* Three rows. Everything else moved to the website, which has a keyboard and
+   does not cost twenty button presses to type a Wi-Fi password on. What is
+   left is what a browser cannot do for you: the hotspot that exists precisely
+   for when Bluetooth is not an option, the storage figures, and the reset. */
 static void drawSettings() {
   epd->EPD_Clear();
   uiTextCentered(6, "SETTINGS", 2);
   uiRect(0, 26, 200, 1);
-  static const char* ROWS[7] = {"WI-FI", "BLUETOOTH", "SYNC NOW", "STORAGE",
-                                "IP ADDRESS", "HOW TO", "EXTRA"};
-  for (int i = 0; i < 7; i++) uiRow(6, 30 + i * 24, 188, 22, ROWS[i], 2, sel == i);
+  uiRow(6, 34, 188, 30, "WI-FI SETUP", 2, sel == 0);
+  uiRow(6, 70, 188, 30, "STORAGE",     2, sel == 1);
+  uiRow(6, 106, 188, 30, "EXTRA",      2, sel == 2);
+  uiText(6, 146, "Everything else is set", 1);
+  uiText(6, 159, "from the website, over", 1);
+  uiText(6, 172, "Bluetooth.", 1);
+  uiFillRect(0, 184, 200, 16, 0x00);
+  uiTextCentered(188, "2 taps = back", 1, 0xff);
   uiFlushFast(2);
 }
 
@@ -726,6 +740,80 @@ static void drawBle() {
   uiFillRect(0, 176, 200, 24, 0x00);
   uiTextCentered(182, "hold = switch", 1, 0xff);
   uiTextCentered(190, "2 taps = back", 1, 0xff);
+  uiFlushFull();
+}
+
+/* PIN entry on two buttons. Tap moves the digit, hold accepts it and steps
+   along. Six digits is about twenty presses - slow, deliberately: the only
+   defence a short PIN has is that each guess costs something. */
+static char pinBuf[7] = "000000";
+static int  pinPos = 0;
+static int  pinLen = 6;
+static bool pinForChange = false;         /* setting a new one, not unlocking */
+static String pinMessage;
+
+static void drawPinEntry() {
+  epd->EPD_Clear();
+  uiTextCentered(4, pinForChange ? "NEW PIN" : "ENTER PIN", 2);
+  uiRect(0, 24, 200, 1);
+
+  /* Digits large enough to read at arm's length, with the one being edited
+     boxed rather than merely bolder - on a 1-bit panel that is the only
+     difference that reads reliably. */
+  const int w = 30, x0 = (200 - pinLen * w) / 2;
+  for (int i = 0; i < pinLen; i++) {
+    int x = x0 + i * w;
+    if (i == pinPos) uiRect(x, 44, w - 4, 40);
+    String d = String(pinBuf[i]);
+    uiTextCenteredIn(x, w - 4, 56, i < pinPos ? String("*") : d, 3);
+  }
+
+  if (pinMessage.length()) uiTextCentered(96, pinMessage, 1);
+  uiText(4, 118, "tap  = next digit", 1);
+  uiText(4, 132, "hold = accept it", 1);
+  uiText(4, 146, "2 taps = back", 1);
+  uiFillRect(0, 176, 200, 24, 0x00);
+  uiTextCentered(184, pinForChange ? "sets a new PIN" : "unlocks your notes", 1, 0xff);
+  uiFlushFull();
+}
+
+static void drawSecurity() {
+  epd->EPD_Clear();
+  uiTextCentered(4, "SECURITY", 2);
+  uiRect(0, 24, 200, 1);
+
+  uiTextCentered(32, cryptoUnlocked() ? "UNLOCKED" : "LOCKED", 2);
+  if (cryptoPinIsDefault()) {
+    uiFillRect(6, 54, 188, 30, 0x00);
+    uiTextCenteredIn(6, 188, 58, "PIN IS STILL 1234", 1, 0xff);
+    uiTextCenteredIn(6, 188, 70, "anyone can read these", 1, 0xff);
+  } else {
+    uiTextCentered(60, "notes are encrypted", 1);
+    uiTextCentered(73, "with your own PIN", 1);
+  }
+
+  uiRow(6, 92, 188, 26, cryptoUnlocked() ? "LOCK NOW" : "UNLOCK", 2, sel == 0);
+  uiRow(6, 122, 188, 26, "CHANGE PIN", 2, sel == 1);
+  uiRow(6, 152, 188, 22, "SELF TEST", 1, sel == 2);
+  uiFillRect(0, 178, 200, 22, 0x00);
+  uiTextCentered(185, "2 taps = back", 1, 0xff);
+  uiFlushFull();
+}
+
+static void drawSelfTest(const String& result) {
+  epd->EPD_Clear();
+  uiTextCentered(4, "SELF TEST", 2);
+  uiRect(0, 24, 200, 1);
+  bool ok = (result == "ok");
+  uiTextCentered(50, ok ? "PASSED" : "FAILED", 3);
+  if (!ok) uiTextCentered(90, result, 1);
+  else {
+    uiTextCentered(92, "encrypt, decrypt and", 1);
+    uiTextCentered(105, "tamper detection all", 1);
+    uiTextCentered(118, "verified on this card", 1);
+  }
+  uiFillRect(0, 178, 200, 22, 0x00);
+  uiTextCentered(185, "2 taps = back", 1, 0xff);
   uiFlushFull();
 }
 
@@ -1178,6 +1266,11 @@ void setup() {
   /* The clock kept running while the device was off. Ask it before anything
      needs a timestamp, so a note made before any sync still gets a real name. */
   if (rtcBegin()) rtcRestoreSystemTime();
+  /* Crypto is deliberately NOT started here. Deriving a key is 120,000 rounds
+     of PBKDF2 plus a curve multiply, and putting that in setup() meant the
+     device sat with a stale image on the glass, before the display was even
+     initialised, looking exactly like a hang. Nothing at boot needs a key:
+     it is set up the first time the Security screen is opened. */
   inputBegin();
   epd = new epaper_driver_display(EPD_WIDTH, EPD_HEIGHT,
       {EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN, EPD_MOSI_PIN, EPD_SCK_PIN, EPD_SPI_NUM, EPD_WIDTH * EPD_HEIGHT / 8});
@@ -1257,7 +1350,7 @@ void loop() {
     case ST_HOME:
       if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD | BTN_BOT_HOLD)) {
         if (soundOn()) beep();
-        selReset(4);
+        selReset(5);
         state = ST_MENU;
         drawMenu();
       }
@@ -1276,8 +1369,9 @@ void loop() {
         switch (sel) {
           case 0: viewTag = ""; selReset(5); state = ST_VIEW_TAGS; drawViewTags(); break;
           case 1: startRecording(); break;
-          case 2: todoLoad(); todoTop = 0; selReset(todos.size()); state = ST_TODO; drawTodo(); break;
-          case 3: selReset(7); state = ST_SETTINGS; drawSettings(); break;
+          case 2: state = ST_BLE; drawBle(); break;
+          case 3: todoLoad(); todoTop = 0; selReset(todos.size()); state = ST_TODO; drawTodo(); break;
+          case 4: selReset(3); state = ST_SETTINGS; drawSettings(); break;
         }
       }
       if (millis() - lastActivity > 60000 && !inputAnyHeld() && !bootedOnUsb) sleepNow();
@@ -1292,7 +1386,7 @@ void loop() {
       break;
 
     case ST_TODO:
-      if (ev & BTN_TOP_DOUBLE) { selReset(4); state = ST_MENU; drawMenu(); break; }
+      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_MENU; drawMenu(); break; }
       if (todos.empty()) break;
       if (ev & BTN_TOP_TAP)    { selNext(); selEnsureVisible(todoTop, LIST_ROWS); drawTodo(); }
       if (ev & BTN_TOP_REPEAT) { selPrev(); selEnsureVisible(todoTop, LIST_ROWS); drawTodo(); }
@@ -1317,7 +1411,7 @@ void loop() {
       break;
 
     case ST_SETTINGS:
-      if (ev & BTN_TOP_DOUBLE) { selReset(4); state = ST_MENU; drawMenu(); break; }
+      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_MENU; drawMenu(); break; }
       if (ev & BTN_TOP_TAP)    { selNext(); drawSettings(); }
       if (ev & BTN_TOP_HOLD) {
         if (soundOn()) beep();
@@ -1338,7 +1432,7 @@ void loop() {
 
     case ST_HOWTO:
       if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
-        howtoPage = 0; selReset(7); state = ST_SETTINGS; drawSettings();
+        howtoPage = 0; selReset(3); state = ST_SETTINGS; drawSettings();
         break;
       }
       if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD)) {
@@ -1348,14 +1442,28 @@ void loop() {
       break;
 
     case ST_EXTRA:
-      if (ev & BTN_TOP_DOUBLE) { selReset(7); state = ST_SETTINGS; drawSettings(); break; }
+      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_SETTINGS; drawSettings(); break; }
       if (ev & BTN_TOP_TAP)    { selNext(); drawExtra(); }
       if (ev & BTN_TOP_HOLD) {
         if (soundOn()) beep();
         switch (sel) {
           case 0: tourFromExtra = true; walkStep = 0; sel = 0; state = ST_WALKTHROUGH; drawTourStep(walkStep); break;
           case 1: selReset(6); state = ST_SYNCRATE; drawSyncRate(); break;
-          case 2: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
+          case 2:
+            selReset(3);
+            state = ST_SECURITY;
+            if (!cryptoHasKey()) {
+              /* First visit: the keypair has to be made, and it is slow enough
+                 that saying nothing would look like a hang. */
+              epd->EPD_Clear();
+              uiTextCentered(60, "SETTING UP", 2);
+              uiTextCentered(90, "this takes a moment", 1);
+              uiFlushFull();
+              if (!cryptoBegin()) cryptoSetPin("1234");
+            }
+            drawSecurity();
+            break;
+          case 3: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
         }
       }
       break;
@@ -1365,7 +1473,7 @@ void loop() {
         /* Leaving the screen stops the radio. Advertising quietly forever is
            not something to leave running behind someone's back. */
         bleStop();
-        selReset(7); state = ST_SETTINGS; drawSettings();
+        selReset(3); state = ST_SETTINGS; drawSettings();
         break;
       }
       if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
@@ -1382,6 +1490,76 @@ void loop() {
         if (bleAdvertising() && (bucket != lastShown || bleConnected() != lastConn)) {
           lastShown = bucket; lastConn = bleConnected();
           drawBle();
+        }
+      }
+      break;
+
+    case ST_SECURITY:
+      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) { selReset(4); state = ST_EXTRA; drawExtra(); break; }
+      if (ev & BTN_TOP_TAP) { selNext(); drawSecurity(); }
+      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
+        if (sel == 0) {
+          if (cryptoUnlocked()) { cryptoLock(); drawSecurity(); }
+          else {
+            pinForChange = false; pinPos = 0; pinMessage = "";
+            for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
+            state = ST_PIN; drawPinEntry();
+          }
+        } else if (sel == 1) {
+          /* Changing the PIN re-derives the key, so the old one has to be
+             proven first - otherwise a thief could simply set their own. */
+          if (!cryptoUnlocked()) {
+            pinForChange = false; pinPos = 0; pinMessage = "unlock first";
+            for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
+            state = ST_PIN; drawPinEntry();
+          } else {
+            pinForChange = true; pinPos = 0; pinMessage = "";
+            for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
+            state = ST_PIN; drawPinEntry();
+          }
+        } else {
+          state = ST_SELFTEST;
+          drawSelfTest("running...");
+          drawSelfTest(cryptoSelfTest());
+        }
+      }
+      break;
+
+    case ST_SELFTEST:
+      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE | BTN_TOP_HOLD)) {
+        selReset(3); state = ST_SECURITY; drawSecurity();
+      }
+      break;
+
+    case ST_PIN:
+      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
+        selReset(3); state = ST_SECURITY; drawSecurity(); break;
+      }
+      if (ev & BTN_TOP_TAP) {
+        pinBuf[pinPos] = (char)('0' + ((pinBuf[pinPos] - '0' + 1) % 10));
+        drawPinEntry();
+      }
+      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
+        pinPos++;
+        if (pinPos < pinLen) { drawPinEntry(); break; }
+        String pin = String(pinBuf).substring(0, pinLen);
+        pinPos = 0;
+        if (pinForChange) {
+          bool ok = cryptoSetPin(pin);
+          pinMessage = ok ? "" : "could not set";
+          selReset(3); state = ST_SECURITY; drawSecurity();
+        } else {
+          bool ok = cryptoUnlock(pin);
+          if (ok) { selReset(3); state = ST_SECURITY; drawSecurity(); }
+          else {
+            pinMessage = "wrong PIN";
+            for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
+            /* A pause after a wrong guess. It is the difference between a PIN
+               that takes minutes to brute-force by hand and one that takes
+               days, and it costs an honest user nothing. */
+            delay(2000);
+            drawPinEntry();
+          }
         }
       }
       break;
@@ -1443,7 +1621,7 @@ void loop() {
 
     case ST_SET_WIFI:
       portalPoll();
-      if (ev & BTN_TOP_DOUBLE) { portalStop(); selReset(7); state = ST_SETTINGS; drawSettings(); }
+      if (ev & BTN_TOP_DOUBLE) { portalStop(); selReset(3); state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_SYNC:
@@ -1451,7 +1629,7 @@ void loop() {
       break;
 
     case ST_STORAGE:
-      if (ev & BTN_TOP_DOUBLE) { confirmFree = false; selReset(7); state = ST_SETTINGS; drawSettings(); break; }
+      if (ev & BTN_TOP_DOUBLE) { confirmFree = false; selReset(3); state = ST_SETTINGS; drawSettings(); break; }
       if (ev & BTN_TOP_HOLD) {
         if (confirmFree) { freeTranscribedAudio(); confirmFree = false; if (soundOn()) beep(); }
         else confirmFree = true;
@@ -1461,11 +1639,11 @@ void loop() {
 
     case ST_SET_IP:
       portalPoll();
-      if (ev & BTN_TOP_DOUBLE) { portalStop(); staDisconnect(); selReset(7); state = ST_SETTINGS; drawSettings(); }
+      if (ev & BTN_TOP_DOUBLE) { portalStop(); staDisconnect(); selReset(3); state = ST_SETTINGS; drawSettings(); }
       break;
 
     case ST_VIEW_TAGS:
-      if (ev & BTN_TOP_DOUBLE) { selReset(4); state = ST_MENU; drawMenu(); break; }
+      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_MENU; drawMenu(); break; }
       if (ev & BTN_TOP_TAP)    { selNext(); drawViewTags(); }
       if (ev & BTN_TOP_HOLD) {
         if (soundOn()) beep();

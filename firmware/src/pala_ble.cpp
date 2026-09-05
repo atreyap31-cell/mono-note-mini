@@ -4,6 +4,9 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 #include <SD_MMC.h>
+#include "pala_net.h"
+#include "pala_sync.h"
+#include <time.h>
 
 /* Custom UUIDs - nothing standard describes "a notebook you talk to". The web
    page filters on the service UUID, so the browser only ever offers this
@@ -144,12 +147,80 @@ static void serveAudio(const String& base) {
   setStatus(connected ? "connected" : "waiting");
 }
 
+/* Settings, so the browser can configure the device without anyone typing a
+   Wi-Fi password on a two-button e-paper screen. Secrets are reported as
+   present or absent and never sent back out: the page has no reason to read a
+   password it already knows, and every reason not to be able to. */
+static void serveSettings() {
+  setStatus("sending settings");
+  String j = "{";
+  j += "\"device\":\"" + syncDeviceId() + "\",";
+  j += "\"ssid\":\"" + netGet("ssid") + "\",";
+  j += "\"api\":\"" + netGet("api") + "\",";
+  j += "\"ghOwner\":\"" + netGet("ghOwner") + "\",";
+  j += "\"ghRepo\":\"" + netGet("ghRepo") + "\",";
+  j += "\"syncHrs\":" + String(netGetU32("syncHrs", 4)) + ",";
+  j += "\"sound\":" + String(netGet("sound", "1") == "1" ? "true" : "false") + ",";
+  j += "\"hasWifiPass\":" + String(netGet("pass").length() ? "true" : "false") + ",";
+  j += "\"hasToken\":" + String(netGet("ghToken").length() ? "true" : "false") + ",";
+  j += "\"clock\":" + String((uint32_t)time(nullptr));
+  j += "}";
+  sendHeader(j.length());
+  sendChunks((const uint8_t*)j.c_str(), j.length());
+  setStatus(connected ? "connected" : "waiting");
+}
+
+/* One setting per write, as "W<key>=<value>". Sending the whole settings
+   object would need chunked writes for something that is only ever a handful
+   of short strings; a key at a time fits in a single packet and each one is
+   acknowledged on its own. */
+static void applySetting(const String& kv) {
+  int eq = kv.indexOf('=');
+  if (eq < 1) { sendHeader(2); sendChunks((const uint8_t*)"no", 2); return; }
+  String k = kv.substring(0, eq);
+  String v = kv.substring(eq + 1);
+  bool ok = true;
+
+  if      (k == "ssid")    netSet("ssid", v);
+  else if (k == "pass")    netSet("pass", v);
+  else if (k == "api")     netSet("api", v);
+  else if (k == "ghOwner") netSet("ghOwner", v);
+  else if (k == "ghRepo")  netSet("ghRepo", v);
+  else if (k == "ghToken") netSet("ghToken", v);
+  else if (k == "sound")   netSet("sound", v == "1" ? "1" : "0");
+  else if (k == "syncHrs") {
+    uint32_t h = (uint32_t)v.toInt();
+    if (h == 0 || h == 1 || h == 2 || h == 4 || h == 8 || h == 24) netSetU32("syncHrs", h);
+    else ok = false;
+  }
+  else if (k == "tzmin") {
+    int m = v.toInt();
+    if (m > -900 && m < 900) { netSetU32("tzmin", (uint32_t)(m + 1000)); applyTimezone(); }
+    else ok = false;
+  }
+  else if (k == "clock") {
+    long long e = atoll(v.c_str());
+    if (e > 1700000000LL) {
+      struct timeval tv = { .tv_sec = (time_t)e, .tv_usec = 0 };
+      settimeofday(&tv, nullptr);
+    } else ok = false;
+  }
+  else ok = false;
+
+  const char* r = ok ? "ok" : "no";
+  sendHeader(2);
+  sendChunks((const uint8_t*)r, 2);
+  setStatus(ok ? "saved" : "rejected");
+}
+
 static void bleTask(void*) {
   for (;;) {
     if (pending && connected) {
       String c = pendingCmd;
       if (c.startsWith("L"))      serveList();
       else if (c.startsWith("A")) serveAudio(c.substring(1));
+      else if (c.startsWith("S")) serveSettings();
+      else if (c.startsWith("W")) applySetting(c.substring(1));
       pending = false;
     }
     vTaskDelay(pdMS_TO_TICKS(20));
