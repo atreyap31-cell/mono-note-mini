@@ -1,0 +1,11 @@
+# Shell scripts must keep LF endings. Checked out with CRLF on a Linux box the
+# shebang line ends in a carriage return and the script fails with
+# "/usr/bin/env: 'bash\r': No such file or directory" - which reads like bash
+# is missing rather than like a line-ending problem.
+*.sh text eol=lf
+
+# Binary assets git should not try to normalise or diff.
+*.3mf binary
+*.bin binary
+*.wav binary
+*.png binary
