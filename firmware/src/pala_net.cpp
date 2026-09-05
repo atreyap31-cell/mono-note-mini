@@ -303,7 +303,12 @@ static void handleFile() {
 static void handleSave() {
   if(needAuth()) return;
   netSet("ssid", server.arg("ssid"));
-  netSet("pass", server.arg("pass"));
+  /* Blank means "keep the current one", exactly as the token and the device
+     password already do. The rebuilt device page only sends this field when
+     somebody types in it, so writing it unconditionally wiped the Wi-Fi
+     password on every save - the device then rebooted unable to join anything,
+     which looks like Wi-Fi setup simply not working. */
+  { String wp = server.arg("pass"); if (wp.length()) netSet("pass", wp); }
   netSet("api", server.arg("api"));
   String dp=server.arg("devpass"); if(dp.length()) netSet("devpass", dp);
   netSet("ghOwner",  server.arg("ghowner"));

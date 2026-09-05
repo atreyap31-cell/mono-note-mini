@@ -423,7 +423,7 @@ $('#setSave').onclick = async () => {
     await post('/save', p);
     $('#setDlg').close();
     toast("saved - the device is rebooting");
-  }catch(e){ toast("save failed"); }
+  }catch(e){ toast("save failed: " + (e.message || e)); }
 };
 
 document.querySelectorAll('[data-close]').forEach(b =>
