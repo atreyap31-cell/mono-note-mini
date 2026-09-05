@@ -216,7 +216,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <p>The device records; this page manages, transcribes, reads aloud, and syncs.</p>
   <div class="settings-row"><span>Theme</span><div class="choices"><button data-theme="light">Light</button><button data-theme="dark">Dark</button></div></div>
   <div class="settings-row"><span>Typewriter sounds</span><div class="choices"><button data-sound="off">Off</button><button data-sound="on">On</button></div></div>
-  <div class="stack-row"><label class="eyebrow" for="ttsRate">Speech speed</label><div style="display:flex;gap:12px;align-items:center"><input type="range" id="ttsRate" min="0.5" max="2" step="0.1" value="1" style="flex:1;accent-color:var(--ink)"><span id="ttsRateLabel" class="eyebrow" style="min-width:36px;text-align:right">1.0×</span></div><p class="hint">Free browser voice — drag to choose how fast it speaks. No server needed.</p></div>
+  <div class="stack-row"><label class="eyebrow" for="ttsRate">Speech speed</label><div style="display:flex;gap:12px;align-items:center"><input type="range" id="ttsRate" min="0.5" max="2" step="0.1" value="1" style="flex:1;accent-color:var(--ink)"><span id="ttsRateLabel" class="eyebrow" style="min-width:36px;text-align:right">1.0×</span></div><p class="hint">How fast it reads. Applies to the server voice and the free browser one alike.</p></div>
   <div class="stack-row"><label class="eyebrow" for="voiceSelect">Read-aloud voice</label><select class="field" id="voiceSelect"></select></div>
   <div class="stack-row"><label class="eyebrow" for="tagsInput">Tag buttons (comma separated)</label><input class="field" id="tagsInput" type="text" placeholder="idea, reminder, task, journal"><p class="hint">Tap tags on a recording to file it. No typing per note.</p></div>
   
@@ -297,12 +297,12 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
 (() => {
 "use strict";
 const PREF_KEY='pala-prefs-v2',TODO_KEY='pala-todos-v1',DB_NAME='squiggly-recordings',STORE='recordings',DAY=86400000;
-const VOICES=[
-['American Female',[['af_heart','Heart'],['af_bella','Bella'],['af_nicole','Nicole'],['af_alloy','Alloy'],['af_aoede','Aoede'],['af_jessica','Jessica'],['af_kore','Kore'],['af_nova','Nova'],['af_river','River'],['af_sarah','Sarah'],['af_sky','Sky']]],
-['American Male',[['am_adam','Adam'],['am_michael','Michael'],['am_echo','Echo'],['am_eric','Eric'],['am_fenrir','Fenrir'],['am_liam','Liam'],['am_onyx','Onyx'],['am_puck','Puck']]],
-['British Female',[['bf_emma','Emma'],['bf_alice','Alice'],['bf_isabella','Isabella'],['bf_lily','Lily']]],
-['British Male',[['bm_george','George'],['bm_daniel','Daniel'],['bm_fable','Fable'],['bm_lewis','Lewis']]]];
-const defaults={theme:'light',voice:'af_heart',tags:['idea','reminder','task','journal'],apiBase:'http://localhost:8000',ttsRate:1,gh:{owner:'',repo:'',branch:'main',path:'data/notes.json',token:'',auto:true},lastSync:0,typeSounds:false};
+/* Voices are whatever the server actually has installed - asked for at
+   runtime rather than hardcoded. The old list here named a dozen voices from a
+   different engine entirely, none of which anything could produce. */
+const PIPER_DEFAULT='en_GB-northern_english_male-medium';
+const VOICE_LABELS={'en_GB-northern_english_male-medium':'Northern English male'};
+const defaults={theme:'light',voice:PIPER_DEFAULT,tags:['idea','reminder','task','journal'],apiBase:'http://localhost:8000',ttsRate:1,gh:{owner:'',repo:'',branch:'main',path:'data/notes.json',token:'',auto:true},lastSync:0,typeSounds:false};
 let prefs=Object.assign({},defaults,JSON.parse(localStorage.getItem(PREF_KEY)||'{}'));
 let savePrefsDeferred=false;
 prefs.gh=Object.assign({},defaults.gh,prefs.gh||{});
@@ -781,7 +781,7 @@ setStatus('No TTS server configured.',true);
 showFeedback('Read aloud — free mode','No server URL is set.','Your browser can speak for free — this fallback just ran. For higher-quality voices, add a server URL in Settings → Advanced.'); button.disabled=false; return;
 }
 try{
-const response=await fetch(apiUrl('tts'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice:prefs.voice})});
+const response=await fetch(apiUrl('tts'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text,voice:prefs.voice,rate:prefs.ttsRate||1})});
 if(!response.ok)throw new Error('HTTP '+response.status+' from '+apiUrl('tts'));
 const blob=await response.blob();
 await playBlob(blob);
@@ -875,11 +875,27 @@ savePrefs();
 $('#ghToken').oninput=event=>{prefs.gh.token=event.target.value.trim();savePrefs();};
 $('#ghAuto').onchange=event=>{prefs.gh.auto=event.target.checked;savePrefs();};
 
-VOICES.forEach(([group,voices])=>{
-const optgroup=document.createElement('optgroup');optgroup.label=group;
-voices.forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label+' ('+value+')';optgroup.append(option);});
-$('#voiceSelect').append(optgroup);
-});
+async function loadVoices(){
+  const sel=$('#voiceSelect'); if(!sel) return;
+  const add=(value,label)=>{const o=document.createElement('option');o.value=value;o.textContent=label;sel.append(o);};
+  sel.innerHTML='';
+  let installed=[];
+  try{
+    if(apiBase()){
+      const r=await fetch(apiUrl('voices'));
+      if(r.ok) installed=(await r.json()).installed||[];
+    }
+  }catch(_){ /* server down - the browser voice still works */ }
+  if(installed.length){
+    installed.forEach(v=>add(v,VOICE_LABELS[v]||v));
+    /* A stored voice from the old engine would sit here unselectable. */
+    if(!installed.includes(prefs.voice)){ prefs.voice=installed[0]; savePrefs(); }
+  }else{
+    add('','Browser voice (no server)');
+  }
+  sel.value=prefs.voice;
+}
+loadVoices();
 
 const _tcb=$('#testConnBtn'); const _trr=$('#testResult'); if(_tcb && _trr){ _tcb.onclick=async()=>{ _trr.textContent='Testing…'; try{ const r=await fetch((apiBase()||location.origin)+'/',{method:'GET'}); _trr.textContent='Reachable · HTTP '+r.status; }catch(e){ _trr.textContent='Unreachable: '+(e.message||'network error'); } }; }
 navigator.storage&&navigator.storage.estimate&&navigator.storage.estimate().then(({usage,quota})=>{

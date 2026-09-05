@@ -15,12 +15,14 @@ Everything runs on your own hardware. Nothing is sent anywhere.
 from __future__ import annotations
 
 import glob
+import io
 import json
 import os
 from pathlib import Path
 import shutil
 import tempfile
 import time
+import wave
 from typing import Any
 
 import httpx
@@ -63,6 +65,25 @@ os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 # --------------------------------------------------------------------------- config
 WHISPER_MODEL = os.getenv("WHISPER_MODEL", "small.en")
+
+# Piper reads notes back aloud. One voice is installed rather than a menu of
+# them: the browser's own speech synthesis is already the free fallback, so the
+# only reason to run a model here is to sound better than that, and a 63 MB
+# download per voice is not worth spending on choices nobody asked for.
+def _piper_dir() -> Path:
+    """T: is where big downloads live on the Windows machine; a checkout on any
+    other box has no such drive, so fall back to a directory beside the server."""
+    env = os.getenv("PIPER_DIR")
+    if env:
+        return Path(env)
+    win = Path("T:/piper-voices")
+    if win.is_dir():
+        return win
+    return Path(__file__).resolve().parent / "voices"
+
+
+PIPER_DIR = _piper_dir()
+PIPER_VOICE = os.getenv("PIPER_VOICE", "en_GB-northern_english_male-medium")
 WHISPER_DEVICE = os.getenv("WHISPER_DEVICE", "auto")      # auto | cuda | cpu
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:12b")
@@ -93,6 +114,8 @@ app.add_middleware(
 
 _model = None
 _model_device = "unloaded"
+_voice = None
+_voice_name = "unloaded"
 
 
 # --------------------------------------------------------------------------- whisper
@@ -191,6 +214,9 @@ async def health() -> dict[str, Any]:
         "ok": True,
         "whisper_model": WHISPER_MODEL,
         "whisper_device": _model_device,
+        "piper_voice": PIPER_VOICE,
+        "piper_loaded": _voice_name,
+        "piper_installed": voices_installed(),
         "cuda_devices": cuda,
         "cuda_dll_dirs": len(CUDA_DLL_DIRS),
         "ollama_model": OLLAMA_MODEL,
@@ -282,6 +308,89 @@ async def enrich(body: EnrichIn):
         "tag": tag if tag in TAGS else "",
         "todos": [str(t) for t in data.get("todos", []) if str(t).strip()][:10],
     }
+
+
+def voices_installed() -> list[str]:
+    """Whatever .onnx files are actually sitting in the voice directory. The
+    page asks for this rather than carrying a hardcoded list, because a list of
+    voices the server cannot produce is worse than no list at all."""
+    if not PIPER_DIR.is_dir():
+        return []
+    return sorted(p.stem for p in PIPER_DIR.glob("*.onnx"))
+
+
+def get_voice():
+    global _voice, _voice_name
+    if _voice is not None:
+        return _voice
+    from piper import PiperVoice
+
+    model = PIPER_DIR / f"{PIPER_VOICE}.onnx"
+    if not model.exists():
+        raise HTTPException(
+            status_code=503,
+            detail=f"voice {PIPER_VOICE} is not installed in {PIPER_DIR}",
+        )
+    _voice = PiperVoice.load(model)
+    _voice_name = PIPER_VOICE
+    print(f"[piper] {PIPER_VOICE}")
+    return _voice
+
+
+class SpeakIn(BaseModel):
+    text: str
+    voice: str | None = None
+    rate: float | None = None
+    key: str | None = None
+
+
+@app.post("/tts")
+async def tts(body: SpeakIn):
+    """Reads a note back in the northern English voice. Returns a WAV, which is
+    what the page already expects from this route.
+
+    The requested voice is honoured only if it is installed. The page has
+    historically sent names from a different engine entirely, and silently
+    serving the wrong voice is more confusing than ignoring the field."""
+    _check_key(body.key)
+    text = body.text.strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="empty text")
+    if len(text) > 8000:
+        raise HTTPException(status_code=413, detail="text too long to read aloud")
+
+    global _voice, _voice_name
+    wanted = (body.voice or "").strip()
+    if wanted and wanted != _voice_name and wanted in voices_installed():
+        _voice = None                       # a different installed voice was asked for
+        globals()["PIPER_VOICE"] = wanted
+
+    voice = get_voice()
+
+    # Piper's length_scale is time per phoneme, so it runs opposite to "speed":
+    # a rate of 2x is half the length. Clamped because the slider allows values
+    # that turn speech into something unlistenable at either end.
+    syn = None
+    if body.rate and body.rate > 0:
+        from piper.config import SynthesisConfig
+
+        rate = min(max(body.rate, 0.5), 2.0)
+        syn = SynthesisConfig(length_scale=1.0 / rate)
+
+    buf = io.BytesIO()
+    took = time.time()
+    with wave.open(buf, "wb") as w:
+        voice.synthesize_wav(text, w, syn_config=syn)
+    data = buf.getvalue()
+    print(f"[piper] {len(text)} chars -> {len(data)} bytes in {time.time()-took:.1f}s")
+    return Response(content=data, media_type="audio/wav",
+                    headers={"Cache-Control": "no-store"})
+
+
+@app.get("/voices")
+async def voices() -> dict[str, Any]:
+    return {"installed": voices_installed(), "default": PIPER_VOICE,
+            "loaded": _voice_name}
 
 
 @app.exception_handler(HTTPException)

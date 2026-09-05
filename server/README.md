@@ -53,6 +53,39 @@ Those last two are what make the GPU work. Without them CTranslate2 fails with
 pip wheels rather than on PATH, and `app.py` registers those directories at
 import time so you do not have to.
 
+## Reading notes aloud
+
+`/tts` speaks a note back using [Piper](https://github.com/rhasspy/piper), which
+runs locally on the CPU - no GPU, no API key, no cloud. One voice is installed:
+
+    en_GB-northern_english_male-medium
+
+Download it once (63 MB) into the voice directory:
+
+```powershell
+mkdir T:\piper-voices
+$b = "https://huggingface.co/rhasspy/piper-voices/resolve/main/en/en_GB/northern_english_male/medium"
+$v = "en_GB-northern_english_male-medium"
+curl.exe -L "$b/$v.onnx"      -o "T:\piper-voices\$v.onnx"
+curl.exe -L "$b/$v.onnx.json" -o "T:\piper-voices\$v.onnx.json"
+```
+
+The directory is `T:\piper-voices` when it exists and `server/voices` otherwise,
+so a checkout on a machine with no T: drive still works. Override with
+`PIPER_DIR`, and pick a different installed voice with `PIPER_VOICE`.
+
+Synthesis is about a second per four seconds of speech on the CPU, and the model
+is loaded on first use rather than at startup.
+
+`GET /voices` lists what is installed. The web page asks for that rather than
+carrying its own list - it used to name a dozen voices from a different engine,
+none of which anything here could produce. A voice the server does not have is
+ignored in favour of one it does, because serving the wrong voice silently is
+more confusing than not honouring the request.
+
+Nothing depends on this: with no server reachable the page falls back to the
+browser's own speech synthesis, which is free and needs no setup.
+
 ## Letting the device reach it
 
 Windows blocks inbound 8000 by default. Once, from an **admin** PowerShell:
