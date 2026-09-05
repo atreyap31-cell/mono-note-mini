@@ -1394,6 +1394,12 @@ if(_setupBtn) _setupBtn.onclick = async () => {
   }catch(err){ bleSay(err.message || String(err), true); }
 };
 
+
+/* A stamp you can read in the console. If this is not today's build, the
+   browser is serving a cached copy and any error you see comes from code that
+   is no longer in the file. Ctrl+Shift+R fixes it. */
+window.MNM_BUILD = '2026-09-04';
+console.info('Mono Note Mini - build ' + window.MNM_BUILD);
 </script>
 
 <div id="bleToast" hidden style="position:fixed;left:50%;top:14px;transform:translateX(-50%);

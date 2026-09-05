@@ -169,7 +169,13 @@ async def serve_app():
     page = Path(__file__).resolve().parent.parent / "index.html"
     if not page.exists():
         raise HTTPException(status_code=404, detail="index.html not found beside the server")
-    return FileResponse(page, media_type="text/html")
+    # Never cache the page. The app is edited constantly, and a browser holding
+    # an older copy produces errors from code that no longer exists - which
+    # sends you looking for a bug in the current source that is not there.
+    return FileResponse(page, media_type="text/html", headers={
+        "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+        "Pragma": "no-cache",
+    })
 
 
 @app.get("/health")
