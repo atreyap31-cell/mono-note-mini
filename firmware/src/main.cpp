@@ -738,7 +738,11 @@ static void drawBle() {
     uiRow(6, 140, 188, 26, "TURN OFF", 2, true);
   }
   uiFillRect(0, 176, 200, 24, 0x00);
-  uiTextCentered(182, "hold = switch", 1, 0xff);
+  /* Name the button. "hold" alone read as either of them, and holding the
+     bottom one for five seconds switches the device off - so the ambiguous
+     label sent people to the one gesture that does the opposite of this
+     screen's job. */
+  uiTextCentered(182, "hold TOP to switch", 1, 0xff);
   uiTextCentered(190, "2 taps = back", 1, 0xff);
   uiFlushFull();
 }
@@ -1476,7 +1480,7 @@ void loop() {
         selReset(3); state = ST_SETTINGS; drawSettings();
         break;
       }
-      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
+      if (ev & BTN_TOP_HOLD) {
         if (bleAdvertising()) bleStop(); else bleBegin();
         drawBle();
       }

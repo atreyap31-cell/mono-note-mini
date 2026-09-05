@@ -11,9 +11,12 @@
 /* Custom UUIDs - nothing standard describes "a notebook you talk to". The web
    page filters on the service UUID, so the browser only ever offers this
    device rather than every Bluetooth thing in the room. */
-#define SVC_UUID  "6d6f6e6f-6e6f-7465-6d696e69-000000000001"
-#define CMD_UUID  "6d6f6e6f-6e6f-7465-6d696e69-000000000002"
-#define DATA_UUID "6d6f6e6f-6e6f-7465-6d696e69-000000000003"
+/* Proper 8-4-4-4-12. The first attempt had eight digits in the fourth
+   group, which is not a UUID at all - the browser refuses the filter and
+   never shows a device picker, so pressing Bluetooth did nothing at all. */
+#define SVC_UUID  "6d6f6e6f-0001-4e6f-7465-6d696e690001"
+#define CMD_UUID  "6d6f6e6f-0002-4e6f-7465-6d696e690002"
+#define DATA_UUID "6d6f6e6f-0003-4e6f-7465-6d696e690003"
 
 static BLEServer*         server   = nullptr;
 static BLECharacteristic* cmdChar  = nullptr;
