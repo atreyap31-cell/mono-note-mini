@@ -101,12 +101,37 @@ static void drawHome();
    holds for the session. Unplugging afterwards does not resume the timeout
    until the next boot, which is the honest cost of not being able to ask. */
 static bool bootedOnUsb = false;
+static bool usbSettled  = false;
 
-static void detectUsbAtBoot() {
-  for (int i = 0; i < 12; i++) {          /* ~60ms of looking */
-    USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
-    delay(5);
-    if (USB_SERIAL_JTAG.int_raw.sof_int_raw) { bootedOnUsb = true; return; }
+/* One cheap look for a start-of-frame packet. A host sends one every
+   millisecond, so 4ms is plenty when there is one there. */
+static bool usbSofSeen() {
+  USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
+  delay(4);
+  return USB_SERIAL_JTAG.int_raw.sof_int_raw != 0;
+}
+
+/* Asked repeatedly for the first few seconds of running, not once at boot.
+
+   The first version checked inside the opening 60ms of setup(), before USB had
+   finished enumerating - so there were no SOF packets to find yet and the
+   answer was always "no host", every time, on a device that was plainly
+   plugged in. Enumeration takes on the order of a second, so the window has to
+   be wider than the question.
+
+   It latches on rather than tracking live, because a host that has gone quiet
+   is indistinguishable from one that has gone away: Windows suspends a device
+   nothing has open, and a suspended bus sends nothing at all. */
+static void usbWatch() {
+  if (usbSettled) return;
+  if (millis() < 8000) {
+    static uint32_t nextCheck = 0;
+    if (millis() >= nextCheck) {
+      nextCheck = millis() + 400;
+      if (usbSofSeen()) { bootedOnUsb = true; usbSettled = true; }
+    }
+  } else {
+    usbSettled = true;                   /* long enough - it is on battery */
   }
 }
 
@@ -1257,7 +1282,6 @@ void setup() {
   Serial.begin(115200);
   delay(200);
   analogSetAttenuation(ADC_11db);
-  detectUsbAtBoot();
   pwr.VBAT_POWER_ON();
   pwr.POWEER_EPD_ON();
   /* The panel's rail is switched by a GPIO and needs time to come up. Init used
@@ -1329,6 +1353,7 @@ void setup() {
 }
 
 void loop() {
+  usbWatch();
   const uint16_t ev = inputPoll();
   if (ev & BTN_ANY_DOWN) lastActivity = millis();
 
