@@ -393,6 +393,58 @@ async def voices() -> dict[str, Any]:
             "loaded": _voice_name}
 
 
+# The four images that make a working device, at the offsets esptool writes
+# them to. boot_app0 lives in the framework rather than the build directory.
+FLASH_PARTS = [
+    ("bootloader.bin", 0x0000),
+    ("partitions.bin", 0x8000),
+    ("boot_app0.bin",  0xE000),
+    ("firmware.bin",   0x10000),
+]
+BUILD_DIR = Path(__file__).resolve().parent.parent / "firmware" / ".pio" / "build" / "mono-note-mini"
+
+
+def _flash_file(name: str) -> Path | None:
+    if name == "boot_app0.bin":
+        hits = sorted(Path(os.getenv("PIO_CORE_DIR", "T:/.platformio")).glob(
+            "packages/framework-arduinoespressif32*/tools/partitions/boot_app0.bin"))
+        return hits[0] if hits else None
+    p = BUILD_DIR / name
+    return p if p.exists() else None
+
+
+@app.get("/firmware/manifest.json")
+async def firmware_manifest() -> dict[str, Any]:
+    """What the browser needs to flash the device over USB, so that updating it
+    is a button on the same page as everything else rather than a toolchain."""
+    parts, missing = [], []
+    for name, offset in FLASH_PARTS:
+        f = _flash_file(name)
+        if f:
+            parts.append({"name": name, "offset": offset, "size": f.stat().st_size})
+        else:
+            missing.append(name)
+    fw = _flash_file("firmware.bin")
+    return {
+        "chip": "ESP32-S3",
+        "parts": parts,
+        "missing": missing,
+        "built": int(fw.stat().st_mtime) if fw else 0,
+        "ready": not missing,
+    }
+
+
+@app.get("/firmware/{name}")
+async def firmware_file(name: str) -> Response:
+    if name not in {n for n, _ in FLASH_PARTS}:
+        raise HTTPException(status_code=404, detail="not a firmware image")
+    f = _flash_file(name)
+    if not f:
+        raise HTTPException(status_code=404, detail=f"{name} has not been built")
+    return Response(content=f.read_bytes(), media_type="application/octet-stream",
+                    headers={"Cache-Control": "no-store"})
+
+
 @app.exception_handler(HTTPException)
 async def http_error(_, exc: HTTPException):
     return JSONResponse(status_code=exc.status_code, content={"error": exc.detail})

@@ -171,6 +171,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
     <button class="btn" id="setupBtn" title="Set up Wi-Fi and sync over Bluetooth">Set up device over Bluetooth</button>
     <button class="btn" id="bleBtn" title="Connect to a Mono Note Mini next to you">Bluetooth</button>
     <button class="btn" id="syncBtn">Sync now</button>
+    <button class="btn" id="flashBtn" title="Update the device firmware over USB">Update device</button>
     <span class="eyebrow" id="lastSyncTop"></span>
     <button class="btn gear" id="settingsBtn" aria-label="Settings" title="Settings">&#9881;</button>
   </div>
@@ -248,6 +249,22 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <p style="padding:10px 12px;background:var(--paper);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink)">Tip: your notes sync with wav audio (<8 MB) to GitHub when you set owner/repo/token in Settings → GitHub sync. No server needed for speaking or live transcription.</p>
   <div class="dialog-actions"><button class="btn primary" id="closeFirstRun">Got it — start writing</button></div>
 </dialog>
+<dialog id="flashDialog" style="max-width:min(560px,92vw);border:2px solid var(--ink);background:var(--paper);color:var(--ink);padding:0">
+  <div style="padding:20px 22px">
+    <h3 style="margin:0 0 4px;font-family:var(--mono);text-transform:uppercase;letter-spacing:-.02em">Update the device</h3>
+    <p class="hint" style="margin:0 0 14px">Plug the device into this computer with a USB-C data cable and press Flash. It takes about half a minute.</p>
+    <div id="flStatus" class="eyebrow" style="margin:10px 0">Checking what is available…</div>
+    <div style="border:2px solid var(--ink);height:18px;margin:10px 0;padding:2px">
+      <div id="flBar" style="height:100%;width:0;background:var(--ink)"></div>
+    </div>
+    <p class="hint" id="flNote" style="margin:10px 0 0"></p>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px">
+      <button class="btn" onclick="document.getElementById('flashDialog').close()">Close</button>
+      <button class="btn primary" id="flGo">Flash</button>
+    </div>
+  </div>
+</dialog>
+
 <dialog id="setupDialog">
   <div class="dialog-head" style="border-bottom:2px solid var(--ink);padding:12px 16px;display:flex;justify-content:space-between;align-items:center">
     <b style="font-family:var(--mono);text-transform:uppercase">Set up your device</b>
@@ -1090,7 +1107,8 @@ maybeAutoSync();
 render();
 setStatus('The local audio library could not be opened. WAV storage is unavailable in this browser profile.',true);
 });
-})();
+/* The app's IIFE now closes at the end of the script rather than here, so
+   everything below can see $, prefs, items and the rest. */
 
 /* ---- Bluetooth transfer -------------------------------------------------
 
@@ -1441,6 +1459,127 @@ if(_setupBtn) _setupBtn.onclick = async () => {
    is no longer in the file. Ctrl+Shift+R fixes it. */
 window.MNM_BUILD = '2026-09-04';
 console.info('Mono Note Mini - build ' + window.MNM_BUILD);
+
+/* ---- Updating the device over USB ---------------------------------------
+
+   Flashing used to mean installing a Python toolchain. The browser can talk to
+   the chip directly over Web Serial, and the images are already sitting in the
+   build directory the server can see, so this is a button on the same page as
+   everything else.
+
+   Same browser support as the Bluetooth half - Chrome or Edge on a computer.
+   Not a phone: this needs a USB cable, so a computer is where you already are. */
+
+function flSay(msg, bad){
+  const el = document.getElementById('flStatus');
+  if(el){ el.textContent = msg; el.style.color = bad ? 'crimson' : ''; }
+}
+function flProgress(pct){
+  const b = document.getElementById('flBar');
+  if(b) b.style.width = Math.max(0, Math.min(100, pct)) + '%';
+}
+
+async function flManifest(){
+  const r = await fetch((apiBase() || location.origin) + '/firmware/manifest.json');
+  if(!r.ok) throw new Error('the server did not offer any firmware');
+  return r.json();
+}
+
+/* esptool-js wants each image as a binary string rather than bytes. Built in
+   chunks because a two-megabyte string one character at a time is slow enough
+   to look like a hang. */
+function flToBinaryString(buf){
+  const u8 = new Uint8Array(buf);
+  let out = '';
+  for(let i = 0; i < u8.length; i += 8192){
+    out += String.fromCharCode.apply(null, u8.subarray(i, i + 8192));
+  }
+  return out;
+}
+
+async function flashDevice(){
+  const go = document.getElementById('flGo');
+  go.disabled = true;
+  flProgress(0);
+  try{
+    if(!navigator.serial) throw new Error('This browser cannot talk to USB devices. Use Chrome or Edge on a computer.');
+
+    const man = await flManifest();
+    if(!man.ready) throw new Error('missing images: ' + man.missing.join(', '));
+
+    flSay('Downloading ' + man.parts.length + ' images…');
+    const fileArray = [];
+    for(const part of man.parts){
+      const r = await fetch((apiBase() || location.origin) + '/firmware/' + part.name);
+      if(!r.ok) throw new Error('could not fetch ' + part.name);
+      fileArray.push({ data: flToBinaryString(await r.arrayBuffer()), address: part.offset });
+    }
+
+    flSay('Choose the device in the window your browser opens…');
+    const { ESPLoader, Transport } = await import('https://cdn.jsdelivr.net/npm/esptool-js@0.5.4/bundle.js');
+    const port = await navigator.serial.requestPort();
+    const transport = new Transport(port, true);
+
+    /* Quiet terminal: esptool-js writes a lot, and none of it belongs on
+       screen. Failures are raised as exceptions, which is what we report. */
+    const terminal = { clean(){}, writeLine(){}, write(){} };
+    const loader = new ESPLoader({ transport, baudrate: 921600, romBaudrate: 115200, terminal });
+
+    flSay('Connecting to the device…');
+    const chip = await loader.main();
+
+    flSay('Writing ' + chip + '. Do not unplug it.');
+    await loader.writeFlash({
+      fileArray, flashSize: 'keep', flashMode: 'keep', flashFreq: 'keep',
+      eraseAll: false, compress: true,
+      reportProgress: (i, written, total) => {
+        /* Per-image progress, weighted so the bar tracks bytes rather than
+           files - the last image is 98% of the bytes. */
+        const all = fileArray.reduce((a, f) => a + f.data.length, 0);
+        const before = fileArray.slice(0, i).reduce((a, f) => a + f.data.length, 0);
+        flProgress(100 * (before + (written / total) * fileArray[i].data.length) / all);
+      },
+    });
+
+    flProgress(100);
+    await loader.after();
+    try{ await transport.disconnect(); }catch(_){ }
+    flSay('Done. The device has restarted.');
+    document.getElementById('flNote').textContent =
+      'If the screen does not change, press a button - it may have gone to sleep.';
+  }catch(err){
+    const m = err && (err.message || String(err));
+    if(/No port selected|cancel/i.test(m || '')) flSay('Cancelled.', false);
+    else flSay(m || 'flashing failed', true);
+  }finally{
+    go.disabled = false;
+  }
+}
+
+const _flashBtn = document.getElementById('flashBtn');
+if(_flashBtn) _flashBtn.onclick = async () => {
+  const dlg = document.getElementById('flashDialog');
+  document.getElementById('flNote').textContent = '';
+  flProgress(0);
+  dlg.showModal();
+  if(!navigator.serial){
+    flSay('This browser cannot talk to USB devices. Use Chrome or Edge on a computer.', true);
+    return;
+  }
+  try{
+    const man = await flManifest();
+    if(!man.ready){ flSay('Firmware not built yet: missing ' + man.missing.join(', '), true); return; }
+    const when = man.built ? new Date(man.built * 1000).toLocaleString() : 'unknown';
+    const mb = (man.parts.reduce((a, p) => a + p.size, 0) / 1048576).toFixed(1);
+    flSay('Ready to flash ' + mb + ' MB, built ' + when + '.');
+  }catch(err){
+    flSay((err.message || String(err)) + ' - is the local server running?', true);
+  }
+};
+const _flGo = document.getElementById('flGo');
+if(_flGo) _flGo.onclick = flashDevice;
+
+})();
 </script>
 
 <div id="bleToast" hidden style="position:fixed;left:50%;top:14px;transform:translateX(-50%);
