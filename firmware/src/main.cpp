@@ -777,9 +777,15 @@ static void drawBle() {
 /* PIN entry on two buttons. Tap moves the digit, hold accepts it and steps
    along. Six digits is about twenty presses - slow, deliberately: the only
    defence a short PIN has is that each guess costs something. */
-static char pinBuf[7] = "000000";
+/* Four digits, because the PIN this ships with is 1234 and the Security screen
+   says so on its face. The entry screen asked for six, so the default PIN
+   could not be typed at all: four presses left two boxes still to fill, and
+   what got submitted was 123400. There was no way to unlock a device that had
+   never had its PIN changed. cryptoSetPin's minimum is four, so this is the
+   shortest the rest of the code will accept. */
+static char pinBuf[5] = "0000";
 static int  pinPos = 0;
-static int  pinLen = 6;
+static int  pinLen = 4;
 static bool pinForChange = false;         /* setting a new one, not unlocking */
 static String pinMessage;
 
