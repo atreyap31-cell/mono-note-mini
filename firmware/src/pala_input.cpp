@@ -8,11 +8,26 @@
 #define BTN_BOT_PIN  PWR_BUTTON_PIN    /* lower button - record, scroll down, power */
 
 static const uint32_t DEBOUNCE_MS   = 25;
-static const uint32_t TAP_MAX_MS    = 600;    /* longer than this is a hold */
 static const uint32_t HOLD_MS       = 1000;   /* "hold 1s to choose" */
-static const uint32_t REPEAT_FIRST  = 400;    /* first scroll step */
+
+/* A tap is any press let go of before the hold was recognised. It used to be
+   capped at 600ms while the scroll repeat began at 400ms, and the repeat marks
+   the press consumed - so anything held longer than 400ms emitted no tap at
+   all, and 400-1000ms did nothing whatever. The window was 0-400ms rather than
+   the 0-600ms it looked like, which is short enough that an ordinary
+   deliberate press missed it and menus appeared to ignore every other press.
+   Released before the hold fired means tap; there is no gap between the two. */
+static const uint32_t TAP_MAX_MS    = HOLD_MS;
+
+/* Scrolling only starts once the press is unambiguously a hold. Starting it
+   before the tap window closed was what ate the taps. */
+static const uint32_t REPEAT_FIRST  = HOLD_MS + 200;
 static const uint32_t REPEAT_EVERY  = 180;    /* and every step after */
-static const uint32_t DOUBLE_GAP_MS = 400;    /* second tap must land within */
+
+/* Every single tap waits this long to prove no second one is coming, so it is
+   also the lag on every menu move. 400ms was enough to feel like the button
+   had been missed on top of an e-paper redraw. */
+static const uint32_t DOUBLE_GAP_MS = 260;    /* second tap must land within */
 static const uint32_t POWER_MS      = 5000;   /* bottom held this long = off */
 
 struct Btn {
