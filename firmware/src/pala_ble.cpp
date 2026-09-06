@@ -6,6 +6,7 @@
 #include <SD_MMC.h>
 #include "pala_net.h"
 #include "pala_sync.h"
+#include "pala_voice.h"
 #include <time.h>
 
 /* Custom UUIDs - nothing standard describes "a notebook you talk to". The web
@@ -166,6 +167,9 @@ static void serveSettings() {
   j += "\"sound\":" + String(netGet("sound", "1") == "1" ? "true" : "false") + ",";
   j += "\"hasWifiPass\":" + String(netGet("pass").length() ? "true" : "false") + ",";
   j += "\"hasToken\":" + String(netGet("ghToken").length() ? "true" : "false") + ",";
+  j += "\"voiceOn\":" + String(voiceEnabled() ? "true" : "false") + ",";
+  j += "\"voiceTrained\":" + String(voiceHasTemplates() ? "true" : "false") + ",";
+  j += "\"voiceThr\":" + String(voiceThreshold(), 1) + ",";
   j += "\"clock\":" + String((uint32_t)time(nullptr));
   j += "}";
   sendHeader(j.length());
@@ -191,6 +195,15 @@ static void applySetting(const String& kv) {
   else if (k == "ghRepo")  netSet("ghRepo", v);
   else if (k == "ghToken") netSet("ghToken", v);
   else if (k == "sound")   netSet("sound", v == "1" ? "1" : "0");
+  else if (k == "voiceOn") voiceSetEnabled(v == "1");
+  else if (k == "voiceThr") {
+    /* The match threshold wants tuning against a real voice in a real room,
+       and doing that on two buttons is miserable. A slider on the page is the
+       right place for it. */
+    float t = atof(v.c_str());
+    if (t >= 1.0f && t <= 20.0f) voiceSetThreshold(t);
+    else ok = false;
+  }
   else if (k == "syncHrs") {
     uint32_t h = (uint32_t)v.toInt();
     if (h == 0 || h == 1 || h == 2 || h == 4 || h == 8 || h == 24) netSetU32("syncHrs", h);

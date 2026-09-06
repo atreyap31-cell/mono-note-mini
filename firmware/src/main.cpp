@@ -18,6 +18,7 @@
 #include "pala_ble.h"
 #include "pala_crypto.h"
 #include "logo_mn.h"
+#include "pala_voice.h"
 #include "qr_manual.h"
 #include "soc/usb_serial_jtag_struct.h"
 
@@ -29,7 +30,7 @@ static board_power_bsp_t pwr(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 static I2cMasterBus* i2c = nullptr;
 static epaper_driver_display* epd = nullptr;
 
-enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_FACTORY, ST_BLE, ST_SECURITY, ST_PIN, ST_SELFTEST };
+enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_FACTORY, ST_BLE, ST_SECURITY, ST_PIN, ST_SELFTEST, ST_VOICE };
 static State state = ST_HOME;
 static State syncReturnTo = ST_HOME;
 
@@ -100,6 +101,12 @@ static void drawHome();
    Booting with a cable attached means someone is at a desk with it, and that
    holds for the session. Unplugging afterwards does not resume the timeout
    until the next boot, which is the honest cost of not being able to ask. */
+/* Voice is asked for once per waking, not once per glance at the list. Being
+   made to say a passphrase again thirty seconds later is how people switch a
+   feature off. Sleeping clears it, which is the moment the device leaves your
+   hand. */
+static bool voiceOkThisWake = false;
+
 static bool bootedOnUsb = false;
 static bool usbSettled  = false;
 
@@ -139,6 +146,7 @@ static void sleepNow() {
   /* Sleeping is the natural moment to lock: the key should not survive in RAM
      into a state where the device is in someone else's pocket. */
   cryptoLock();
+  voiceOkThisWake = false;
   /* Exactly the same call the home screen makes, so what it leaves on the
      glass is what it wakes up to - byte for byte, not merely similar. */
   drawHome();
@@ -829,12 +837,65 @@ static void drawSecurity() {
     uiTextCentered(73, "with your own PIN", 1);
   }
 
-  uiRow(6, 92, 188, 26, cryptoUnlocked() ? "LOCK NOW" : "UNLOCK", 2, sel == 0);
-  uiRow(6, 122, 188, 26, "CHANGE PIN", 2, sel == 1);
-  uiRow(6, 152, 188, 22, "SELF TEST", 1, sel == 2);
+  uiRow(6, 86, 188, 22, cryptoUnlocked() ? "LOCK NOW" : "UNLOCK", 2, sel == 0);
+  uiRow(6, 110, 188, 22, "CHANGE PIN", 2, sel == 1);
+  uiRow(6, 134, 188, 22, voiceEnabled() ? "VOICE: ON" : "VOICE: OFF", 1, sel == 2);
+  uiRow(6, 158, 188, 18, "SELF TEST", 1, sel == 3);
   uiFillRect(0, 178, 200, 22, 0x00);
   uiTextCentered(185, "2 taps = back", 1, 0xff);
   uiFlushFast(11);
+}
+
+/* Voice unlock. The phrase is yours and the device never learns what it means
+   - it only keeps how it sounded, three times over, and compares. */
+static void drawVoice(const String& note) {
+  epd->EPD_Clear();
+  uiTextCentered(4, "VOICE UNLOCK", 2);
+  uiRect(0, 24, 200, 1);
+  if (note.length()) {
+    uiTextCentered(32, note, 1);
+  } else if (!voiceHasTemplates()) {
+    uiTextCentered(32, "not set up yet", 1);
+  } else {
+    uiTextCentered(32, voiceEnabled() ? "on - say your phrase" : "trained, but off", 1);
+  }
+  uiRow(6, 48, 188, 24, "TRAIN MY VOICE", 1, sel == 0);
+  uiRow(6, 76, 188, 24, "TEST IT", 1, sel == 1);
+  uiRow(6, 104, 188, 24, voiceEnabled() ? "TURN OFF" : "TURN ON", 1, sel == 2);
+  uiRow(6, 132, 188, 24, "FORGET MY VOICE", 1, sel == 3);
+  uiTextCentered(164, "the PIN still guards", 1);
+  uiTextCentered(176, "the notes themselves", 1);
+  uiFillRect(0, 188, 200, 12, 0x00);
+  uiTextCentered(190, "2 taps = back", 1, 0xff);
+  uiFlushFast(14);
+}
+
+/* Three recordings, because one is a snapshot of a single delivery and people
+   never say anything the same way twice. Whichever of the three the phrase is
+   closest to is the one that counts. */
+static void runVoiceEnrol() {
+  for (int i = 0; i < VOICE_ENROLS; i++) {
+    epd->EPD_Clear();
+    uiTextCentered(30, "SAY YOUR PHRASE", 2);
+    uiTextCentered(64, String(i + 1) + " of " + String(VOICE_ENROLS), 2);
+    uiTextCentered(104, "after the beep,", 1);
+    uiTextCentered(118, "speak for 3 seconds", 1);
+    uiFlushFull();
+    if (soundOn()) beep();
+    delay(300);
+
+    epd->EPD_Clear();
+    uiTextCentered(70, "LISTENING", 3);
+    uiFlushFast(15);
+
+    bool ok = voiceEnrol(i);
+    if (!ok) {
+      drawVoice("heard nothing - try again");
+      return;
+    }
+  }
+  voiceSetEnabled(true);
+  drawVoice("trained, and switched on");
 }
 
 static void drawSelfTest(const String& result) {
@@ -1377,7 +1438,35 @@ void loop() {
       if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
         if (soundOn()) beep();
         switch (sel) {
-          case 0: viewTag = ""; selReset(5); state = ST_VIEW_TAGS; drawViewTags(); break;
+          case 0:
+            if (voiceEnabled() && voiceHasTemplates() && !voiceOkThisWake) {
+              epd->EPD_Clear();
+              uiTextCentered(28, "SAY YOUR", 2);
+              uiTextCentered(56, "PHRASE", 2);
+              uiTextCentered(96, "after the beep", 1);
+              uiFlushFull();
+              if (soundOn()) beep();
+              delay(300);
+              epd->EPD_Clear();
+              uiTextCentered(70, "LISTENING", 3);
+              uiFlushFast(15);
+
+              float score = 0;
+              if (!voiceVerify(&score)) {
+                epd->EPD_Clear();
+                uiTextCentered(50, "NOT YOU", 2);
+                uiTextCentered(86, "or not the phrase", 1);
+                uiTextCentered(106, String(score, 1) + " vs " + String(voiceThreshold(), 1), 1);
+                uiTextCentered(134, "hold to try again", 1);
+                uiFlushFull();
+                delay(1800);
+                drawMenu();
+                break;
+              }
+              voiceOkThisWake = true;
+            }
+            viewTag = ""; selReset(5); state = ST_VIEW_TAGS; drawViewTags();
+            break;
           case 1: startRecording(); break;
           case 2: state = ST_BLE; drawBle(); break;
           case 3: todoLoad(); todoTop = 0; selReset(todos.size()); state = ST_TODO; drawTodo(); break;
@@ -1454,7 +1543,7 @@ void loop() {
           case 1: syncAll(false); break;
           case 2: howtoPage = 0; state = ST_HOWTO; drawHowTo(); break;
           case 3:
-            selReset(3);
+            selReset(4);
             state = ST_SECURITY;
             if (!cryptoHasKey()) {
               /* First visit: the keypair has to be made, and it is slow enough
@@ -1521,6 +1610,8 @@ void loop() {
             for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
             state = ST_PIN; drawPinEntry();
           }
+        } else if (sel == 2) {
+          selReset(4); state = ST_VOICE; drawVoice("");
         } else if (!cryptoUnlocked()) {
           pinForChange = false; pinPos = 0; pinMessage = "unlock to test";
           for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
@@ -1533,15 +1624,43 @@ void loop() {
       }
       break;
 
+    case ST_VOICE:
+      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) { selReset(4); state = ST_SECURITY; drawSecurity(); break; }
+      if (ev & BTN_TOP_TAP) { selNext(); drawVoice(""); }
+      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
+        if (sel == 0) {
+          runVoiceEnrol();
+        } else if (sel == 1) {
+          if (!voiceHasTemplates()) { drawVoice("train it first"); break; }
+          epd->EPD_Clear();
+          uiTextCentered(70, "LISTENING", 3);
+          uiFlushFast(15);
+          float score = 0;
+          bool pass = voiceVerify(&score);
+          /* The score is shown because the threshold cannot be guessed from
+             here - it wants setting against a real voice in a real room. */
+          drawVoice(String(pass ? "match " : "no match ") + String(score, 1) +
+                    " (limit " + String(voiceThreshold(), 1) + ")");
+        } else if (sel == 2) {
+          if (!voiceHasTemplates() && !voiceEnabled()) { drawVoice("train it first"); break; }
+          voiceSetEnabled(!voiceEnabled());
+          drawVoice("");
+        } else {
+          voiceForget();
+          drawVoice("forgotten");
+        }
+      }
+      break;
+
     case ST_SELFTEST:
       if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE | BTN_TOP_HOLD)) {
-        selReset(3); state = ST_SECURITY; drawSecurity();
+        selReset(4); state = ST_SECURITY; drawSecurity();
       }
       break;
 
     case ST_PIN:
       if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
-        selReset(3); state = ST_SECURITY; drawSecurity(); break;
+        selReset(4); state = ST_SECURITY; drawSecurity(); break;
       }
       if (ev & BTN_TOP_TAP) {
         pinBuf[pinPos] = (char)('0' + ((pinBuf[pinPos] - '0' + 1) % 10));
@@ -1555,10 +1674,10 @@ void loop() {
         if (pinForChange) {
           bool ok = cryptoSetPin(pin);
           pinMessage = ok ? "" : "could not set";
-          selReset(3); state = ST_SECURITY; drawSecurity();
+          selReset(4); state = ST_SECURITY; drawSecurity();
         } else {
           bool ok = cryptoUnlock(pin);
-          if (ok) { selReset(3); state = ST_SECURITY; drawSecurity(); }
+          if (ok) { selReset(4); state = ST_SECURITY; drawSecurity(); }
           else {
             pinMessage = "wrong PIN";
             for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
