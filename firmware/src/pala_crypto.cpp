@@ -29,6 +29,10 @@ static mbedtls_ecp_point pubKey;
 static bool unlocked = false;
 static bool haveKey  = false;
 
+static char lastErr[32] = "";
+static void fail(const char* why) { strncpy(lastErr, why, sizeof(lastErr) - 1); }
+const char* cryptoLastError() { return lastErr; }
+
 static bool ensureGroup() {
   if (grpReady) return true;
   mbedtls_ecp_group_init(&grp);
@@ -243,8 +247,11 @@ bool cryptoEncryptFile(const String& plainPath, const String& outPath) {
         else {
           if (olen) out.write(bufOut, olen);
           /* The tag goes last: it covers everything and is only known at the
-             end, which is what streaming costs. */
-          out.write(tag, sizeof(tag));
+             end, which is what streaming costs. It is also the part that goes
+             missing if a write is not flushed, and a file short by its tag
+             decrypts to a tag mismatch that looks like a key problem. */
+          if (out.write(tag, sizeof(tag)) != sizeof(tag)) { ok = false; fail("tag write short"); }
+          out.flush();
         }
       }
     }
@@ -261,18 +268,20 @@ bool cryptoEncryptFile(const String& plainPath, const String& outPath) {
 }
 
 bool cryptoDecryptFile(const String& encPath, const String& outPath) {
-  if (!unlocked || !ensureGroup()) return false;
+  lastErr[0] = 0;
+  if (!unlocked) { fail("locked"); return false; }
+  if (!ensureGroup()) { fail("no curve"); return false; }
   File in = SD_MMC.open(encPath, "r");
-  if (!in) return false;
+  if (!in) { fail("open failed"); return false; }
   const size_t total = in.size();
-  if (total < CRYPTO_HDR_N + CRYPTO_TAG_N) { in.close(); return false; }
+  if (total < CRYPTO_HDR_N + CRYPTO_TAG_N) { fail("file too small"); in.close(); return false; }
 
   char magic[CRYPTO_MAGIC_N];
   uint8_t epk[CRYPTO_EPK_N], iv[CRYPTO_IV_N];
   in.read((uint8_t*)magic, CRYPTO_MAGIC_N);
   in.read(epk, CRYPTO_EPK_N);
   in.read(iv, CRYPTO_IV_N);
-  if (memcmp(magic, CRYPTO_MAGIC, CRYPTO_MAGIC_N) != 0) { in.close(); return false; }
+  if (memcmp(magic, CRYPTO_MAGIC, CRYPTO_MAGIC_N) != 0) { fail("bad magic"); in.close(); return false; }
 
   File out = SD_MMC.open(outPath, "w");
   if (!out) { in.close(); return false; }
@@ -283,10 +292,14 @@ bool cryptoDecryptFile(const String& encPath, const String& outPath) {
   uint8_t key[32], tag[CRYPTO_TAG_N], want[CRYPTO_TAG_N];
 
   size_t body = total - CRYPTO_HDR_N - CRYPTO_TAG_N;
-  if (mbedtls_ecp_point_read_binary(&grp, &E, epk, sizeof(epk)) == 0 &&
-      sharedToKey(&privKey, &E, key) &&
-      mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 256) == 0 &&
-      mbedtls_gcm_starts(&gcm, MBEDTLS_GCM_DECRYPT, iv, sizeof(iv)) == 0) {
+  bool setUp = false;
+  if (mbedtls_ecp_point_read_binary(&grp, &E, epk, sizeof(epk)) != 0) fail("bad ephemeral key");
+  else if (!sharedToKey(&privKey, &E, key))                          fail("ecdh failed");
+  else if (mbedtls_gcm_setkey(&gcm, MBEDTLS_CIPHER_ID_AES, key, 256) != 0) fail("setkey failed");
+  else if (mbedtls_gcm_starts(&gcm, MBEDTLS_GCM_DECRYPT, iv, sizeof(iv)) != 0) fail("gcm start failed");
+  else setUp = true;
+
+  if (setUp) {
 
     uint8_t bufIn[512], bufOut[512];
     size_t olen = 0, done = 0;
@@ -294,20 +307,22 @@ bool cryptoDecryptFile(const String& encPath, const String& outPath) {
     while (done < body) {
       size_t want_n = body - done < sizeof(bufIn) ? body - done : sizeof(bufIn);
       int n = in.read(bufIn, want_n);
-      if (n <= 0) { ok = false; break; }
-      if (mbedtls_gcm_update(&gcm, bufIn, n, bufOut, sizeof(bufOut), &olen) != 0) { ok = false; break; }
-      if (olen && out.write(bufOut, olen) != olen) { ok = false; break; }
+      if (n <= 0) { ok = false; fail("read short"); break; }
+      if (mbedtls_gcm_update(&gcm, bufIn, n, bufOut, sizeof(bufOut), &olen) != 0) { ok = false; fail("gcm update"); break; }
+      if (olen && out.write(bufOut, olen) != olen) { ok = false; fail("write short"); break; }
       done += n;
     }
     if (ok) {
-      if (in.read(want, sizeof(want)) != sizeof(want)) ok = false;
-      else if (mbedtls_gcm_finish(&gcm, bufOut, sizeof(bufOut), &olen, tag, sizeof(tag)) != 0) ok = false;
+      if (in.read(want, sizeof(want)) != sizeof(want)) { ok = false; fail("no tag in file"); }
+      else if (mbedtls_gcm_finish(&gcm, bufOut, sizeof(bufOut), &olen, tag, sizeof(tag)) != 0) { ok = false; fail("gcm finish"); }
       else {
         if (olen) out.write(bufOut, olen);
+        out.flush();
         /* Constant-time compare: a tag check that leaks timing is not a check. */
         uint8_t diff = 0;
         for (size_t i = 0; i < sizeof(tag); i++) diff |= (uint8_t)(tag[i] ^ want[i]);
         ok = (diff == 0);
+        if (!ok) fail("tag mismatch");
       }
     }
   }
@@ -343,7 +358,7 @@ String cryptoSelfTest() {
   if (!cryptoEncryptFile(p, c))              result = "encrypt failed";
   else if (!cryptoIsEncrypted(c))            result = "no header";
   else if (!unlocked)                        result = "locked";
-  else if (!cryptoDecryptFile(c, d))         result = "decrypt failed";
+  else if (!cryptoDecryptFile(c, d))         result = String("decrypt: ") + cryptoLastError();
   else {
     File g = SD_MMC.open(d, "r");
     String back = g ? g.readString() : "";

@@ -771,7 +771,7 @@ static void drawBle() {
      screen's job. */
   uiTextCentered(182, "hold TOP to switch", 1, 0xff);
   uiTextCentered(190, "2 taps = back", 1, 0xff);
-  uiFlushFull();
+  uiFlushFast(7);
 }
 
 /* PIN entry on two buttons. Tap moves the digit, hold accepts it and steps
@@ -805,7 +805,7 @@ static void drawPinEntry() {
   uiText(4, 146, "2 taps = back", 1);
   uiFillRect(0, 176, 200, 24, 0x00);
   uiTextCentered(184, pinForChange ? "sets a new PIN" : "unlocks your notes", 1, 0xff);
-  uiFlushFull();
+  uiFlushFast(12);
 }
 
 static void drawSecurity() {
@@ -828,7 +828,7 @@ static void drawSecurity() {
   uiRow(6, 152, 188, 22, "SELF TEST", 1, sel == 2);
   uiFillRect(0, 178, 200, 22, 0x00);
   uiTextCentered(185, "2 taps = back", 1, 0xff);
-  uiFlushFull();
+  uiFlushFast(11);
 }
 
 static void drawSelfTest(const String& result) {
@@ -931,7 +931,7 @@ static void drawStorage() {
   }
   uiFillRect(0, 184, 200, 16, 0x00);
   uiTextCentered(188, "< back", 1, 0xff);
-  uiFlushFull();
+  uiFlushFast(13);
 }
 
 /* Depth-first delete. The tree is shallow (/recordings, /www) but a card the

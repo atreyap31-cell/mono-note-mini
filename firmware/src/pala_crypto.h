@@ -60,5 +60,7 @@ bool cryptoIsEncrypted(const String& path);
 /* Round-trip check against the real primitives, run before any real note is
    encrypted. Returns a short human-readable result. */
 String cryptoSelfTest();
+/* Why the last decrypt failed. Empty when it did not. */
+const char* cryptoLastError();
 
 #endif
