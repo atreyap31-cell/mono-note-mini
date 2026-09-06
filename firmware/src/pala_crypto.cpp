@@ -357,7 +357,7 @@ String cryptoSelfTest() {
   String result;
   if (!cryptoEncryptFile(p, c))              result = "encrypt failed";
   else if (!cryptoIsEncrypted(c))            result = "no header";
-  else if (!unlocked)                        result = "locked";
+  else if (!unlocked)                        result = "unlock first (SECURITY > UNLOCK)";
   else if (!cryptoDecryptFile(c, d))         result = String("decrypt: ") + cryptoLastError();
   else {
     File g = SD_MMC.open(d, "r");

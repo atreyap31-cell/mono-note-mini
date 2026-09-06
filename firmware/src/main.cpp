@@ -1515,6 +1515,10 @@ void loop() {
             for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
             state = ST_PIN; drawPinEntry();
           }
+        } else if (!cryptoUnlocked()) {
+          pinForChange = false; pinPos = 0; pinMessage = "unlock to test";
+          for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
+          state = ST_PIN; drawPinEntry();
         } else {
           state = ST_SELFTEST;
           drawSelfTest("running...");
