@@ -1,10 +1,25 @@
+/* Mono Note Mini - a recorder, and nothing else.
+ *
+ * One button. Press it to start, press it again to stop. The note is saved to
+ * the card, and goes up to your repo the next time there is Wi-Fi.
+ *
+ * There are no menus, no settings and no second button. Everything that used
+ * to be on the device - browsing notes, tagging, to-dos, Wi-Fi setup, the PIN,
+ * voice unlock, transcription - either lives on the website now or is gone.
+ * The previous version is backed up in full at T:\mnm-backup-2026-09-10.
+ *
+ * The one thing the device cannot do without is Wi-Fi credentials, and there
+ * is nowhere to type them. So it advertises over Bluetooth whenever it is
+ * awake and not recording, and the website writes them in. That needs no
+ * button, which is the point.
+ */
+
 #include <Arduino.h>
 #include <WiFi.h>
 #include <SD_MMC.h>
 #include <esp_sleep.h>
 #include <time.h>
 #include <vector>
-#include <math.h>
 #include "user_config.h"
 #include "i2c_bsp.h"
 #include "pala_input.h"
@@ -16,181 +31,39 @@
 #include "pala_sync.h"
 #include "pala_rtc.h"
 #include "pala_ble.h"
-#include "pala_crypto.h"
 #include "logo_mn.h"
-#include "pala_voice.h"
-#include "qr_manual.h"
 #include "soc/usb_serial_jtag_struct.h"
 
 #define BAT_ADC_PIN 4
 #define BAT_EMPTY_MV 3300
 #define BAT_FULL_MV 4200
 
+#define IDLE_SLEEP_MS   30000UL     /* awake this long with nothing happening */
+#define SYNC_RETRY_MS  300000UL     /* how often to try again after a failure */
+
+/* The recorder's buffer holds two minutes and its task simply stops when it is
+   full. Left to that, the screen would still say RECORDING over a microphone
+   that had stopped listening, so the cap is enforced here where it can be
+   said out loud. */
+#define MAX_NOTE_SECONDS 119
+
 static board_power_bsp_t pwr(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
 static I2cMasterBus* i2c = nullptr;
 static epaper_driver_display* epd = nullptr;
 
-enum State { ST_HOME, ST_MENU, ST_MAKE, ST_TAG, ST_TODO, ST_SETTINGS, ST_SET_WIFI, ST_SYNC, ST_STORAGE, ST_VIEW_TAGS, ST_VIEW_LIST, ST_VIEW_NOTE, ST_HOWTO, ST_WALKTHROUGH, ST_EXTRA, ST_FACTORY, ST_BLE, ST_SECURITY, ST_PIN, ST_SELFTEST, ST_VOICE };
-static State state = ST_HOME;
-static State syncReturnTo = ST_HOME;
-
+static bool recording = false;
 static uint32_t lastActivity = 0;
-static uint32_t lastAutoCheck = 0;
+static uint32_t lastSyncTry = 0;
+static int syncedCount = 0, totalCount = 0;
+static String statusLine;          /* shown under the counter when it matters */
 
-/* Every menu is a list of choices with one of them highlighted. The top button
-   moves the highlight, holding it chooses. `sel` is that highlight and `selMax`
-   is how many choices the current screen has, so the wrap-around is one rule
-   rather than one per screen. */
-static int sel = 0;
-static int selMax = 1;
+/* ---- battery ------------------------------------------------------------ */
 
-static void selReset(int count) { sel = 0; selMax = count > 0 ? count : 1; }
-static void selNext()           { sel = (sel + 1) % selMax; }
-static void selPrev()           { sel = (sel + selMax - 1) % selMax; }
-
-/* Rows visible at a time. At scale 2 a line of text is 16px tall, so five rows
-   is what fits between the header and the footer hint. */
-#define LIST_ROWS 5
-
-/* Keep the highlighted row inside the window after the highlight moves. */
-static void selEnsureVisible(int& top, int rows) {
-  if (sel < top) top = sel;
-  if (sel >= top + rows) top = sel - rows + 1;
-  if (top < 0) top = 0;
-}
-
-/* Storage cleanup + factory reset both confirm on a second tap. */
-static bool confirmFree = false;
-static int factoryStage = 0;
-
-/* The tour re-runs from Extra without clearing anything. */
-static bool tourFromExtra = false;
-
-static int recCount = 0;
-static volatile bool syncCancel = false;
-static String lastSavedName = "";
-
-static const char* TAGS[5] = {"Work", "Projects", "Ideas", "Quotes", "Random"};
-static String viewTag = "";
-static std::vector<String> noteList;
-static int listTop = 0;
-static int noteRow = -1;
-static bool confirmDelete = false;
-static String noteTranscript = "";
-static std::vector<String> transcriptLines;
-static int transcriptPage = 0;
-
-
-static void drawRestingScreen();
-static void drawHome();
-
-/* Deep sleep switches off the USB-Serial-JTAG peripheral, so a plugged-in
-   device drops off the bus and cannot be reflashed until somebody presses a
-   button. On battery that timeout is right; on a desk with a cable in it is
-   just obstructive.
-
-   Asking "is a host there right now" does not work. A host sends a
-   start-of-frame packet every millisecond, but Windows suspends a device that
-   no program has open - and a suspended bus sends nothing at all. Checked in
-   the idle path, that reads as "no USB" within seconds of the last tool
-   closing the port, which is exactly when the answer needs to be yes. It was
-   measured doing precisely that: still asleep 100 seconds after a reset.
-
-   So the question is asked once, at boot, when the host is unambiguously
-   awake - a device that has just been reset or flashed is being worked on.
-   Booting with a cable attached means someone is at a desk with it, and that
-   holds for the session. Unplugging afterwards does not resume the timeout
-   until the next boot, which is the honest cost of not being able to ask. */
-/* Voice is asked for once per waking, not once per glance at the list. Being
-   made to say a passphrase again thirty seconds later is how people switch a
-   feature off. Sleeping clears it, which is the moment the device leaves your
-   hand. */
-static bool voiceOkThisWake = false;
-
-static bool bootedOnUsb = false;
-static bool usbSettled  = false;
-
-/* One cheap look for a start-of-frame packet. A host sends one every
-   millisecond, so 4ms is plenty when there is one there. */
-static bool usbSofSeen() {
-  USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
-  delay(4);
-  return USB_SERIAL_JTAG.int_raw.sof_int_raw != 0;
-}
-
-/* Asked repeatedly for the first few seconds of running, not once at boot.
-
-   The first version checked inside the opening 60ms of setup(), before USB had
-   finished enumerating - so there were no SOF packets to find yet and the
-   answer was always "no host", every time, on a device that was plainly
-   plugged in. Enumeration takes on the order of a second, so the window has to
-   be wider than the question.
-
-   It latches on rather than tracking live, because a host that has gone quiet
-   is indistinguishable from one that has gone away: Windows suspends a device
-   nothing has open, and a suspended bus sends nothing at all. */
-static void usbWatch() {
-  if (usbSettled) return;
-  if (millis() < 8000) {
-    static uint32_t nextCheck = 0;
-    if (millis() >= nextCheck) {
-      nextCheck = millis() + 400;
-      if (usbSofSeen()) { bootedOnUsb = true; usbSettled = true; }
-    }
-  } else {
-    usbSettled = true;                   /* long enough - it is on battery */
-  }
-}
-
-static void sleepNow() {
-  /* Sleeping is the natural moment to lock: the key should not survive in RAM
-     into a state where the device is in someone else's pocket. */
-  cryptoLock();
-  voiceOkThisWake = false;
-  /* Exactly the same call the home screen makes, so what it leaves on the
-     glass is what it wakes up to - byte for byte, not merely similar. */
-  drawHome();
-  delay(300);
-  pwr.POWEER_Audio_OFF();
-  pwr.POWEER_EPD_OFF();
-  /* The bottom button is the power button, so it is what wakes the device.
-     The top one wakes it too - waking on the button you happen to press is
-     kinder than making people learn which one is allowed to. */
-  esp_sleep_enable_ext1_wakeup(
-      (1ULL << BOOT_BUTTON_PIN) | (1ULL << PWR_BUTTON_PIN), ESP_EXT1_WAKEUP_ANY_LOW);
-  esp_deep_sleep_start();
-}
-
-/* On by default. An e-paper panel takes a moment to catch up with a press, and
-   without any feedback in that gap the device reads as unresponsive - which
-   costs far more than a tick is worth. The tour still asks, so anyone who
-   dislikes it turns it off in the first minute. */
-static bool soundOn() { return netGet("sound", "1") == "1"; }
-
-static const uint32_t SYNC_OPTS[6] = {0, 1, 2, 4, 8, 24};
-
-static uint32_t syncHours() {
-  uint32_t h = netGetU32("syncHrs", SYNC_HOURS_DEFAULT);
-  for (int i = 0; i < 6; i++) if (SYNC_OPTS[i] == h) return h;
-  return SYNC_HOURS_DEFAULT;
-}
-
-static String syncRateLabel() {
-  uint32_t h = syncHours();
-  if (h == 0) return "off";
-  return "every " + String(h) + "h";
-}
-
-/* One analogRead on a rail that sags under load answers differently every time
-   it is asked. That is why the sleep screen and the home screen used to show
-   different levels: they were two screens, each taking its own single sample.
-   Average eight, discarding two while the ADC settles. */
 static int batteryPct() {
   /* analogReadMilliVolts applies the chip's factory ADC calibration from
      eFuse. The raw-count conversion this replaced ignored it, and the S3's ADC
      is non-linear enough for that to be worth over 100mV - most of a quarter
-     on a 3.3-4.2V cell. Waveshare's own ADC example calibrates for the same
-     reason; the divider is 2x, which their code confirms. */
+     on a 3.3-4.2V cell. The divider is 2x. */
   analogReadMilliVolts(BAT_ADC_PIN);
   analogReadMilliVolts(BAT_ADC_PIN);
   uint32_t sum = 0;
@@ -203,12 +76,11 @@ static int batteryPct() {
   return pct;
 }
 
-/* Reported in quarters, not percent. Changing anything on e-paper costs a full
-   refresh, so a reading that wobbles by a percent would repaint the screen to
-   say nothing new - and four steps is all anyone reads off a battery gauge. */
+/* Four steps. A percentage on a 1-bit panel invites re-reading a number that
+   has not changed, and four steps is all anyone reads off a battery gauge. */
 static int batteryQuarter() {
   int pct = batteryPct();
-  if (pct < 0) return 4;                     /* charging shows as full */
+  if (pct < 0)  return 4;                    /* charging shows as full */
   if (pct >= 75) return 4;
   if (pct >= 50) return 3;
   if (pct >= 25) return 2;
@@ -228,15 +100,100 @@ static void drawBatteryBar(int quarter) {
   }
 }
 
-/* There is one home screen. It is what the device shows awake and what it
-   leaves on the glass asleep, so waking changes nothing and there is no second
-   version to disagree with the first. */
-static void drawRestingScreen() {
-  int q = batteryQuarter();
-  uiFillRect(0, 0, 200, 200, 0xff);
-  drawBatteryBar(q);
-  uiBitmap((200 - LOGO_W) / 2, 84, LOGO_W, LOGO_H, LOGO_MN);
+/* ---- counting what has gone up ------------------------------------------
+   syncPublish replaces this device's whole file every time, so after it
+   succeeds everything present is up. A marker file per note is what makes
+   that survive a reboot, and it is what the counter on screen reads. */
+
+static bool isWav(const String& n) { return n.endsWith(".wav"); }
+
+static String baseOf(const String& name) {
+  String n = name;
+  int slash = n.lastIndexOf('/');
+  if (slash >= 0) n = n.substring(slash + 1);
+  int dot = n.lastIndexOf('.');
+  if (dot > 0) n = n.substring(0, dot);
+  return n;
 }
+
+static void countNotes() {
+  totalCount = 0;
+  syncedCount = 0;
+  File dir = SD_MMC.open("/recordings");
+  if (!dir) return;
+  File f;
+  while ((f = dir.openNextFile())) {
+    String n = f.name();
+    f.close();
+    if (!isWav(n)) continue;
+    totalCount++;
+    if (SD_MMC.exists("/recordings/" + baseOf(n) + ".synced")) syncedCount++;
+  }
+  dir.close();
+}
+
+static void markAllSynced() {
+  File dir = SD_MMC.open("/recordings");
+  if (!dir) return;
+  std::vector<String> bases;
+  File f;
+  while ((f = dir.openNextFile())) {
+    String n = f.name();
+    f.close();
+    if (isWav(n)) bases.push_back(baseOf(n));
+  }
+  dir.close();
+  for (size_t i = 0; i < bases.size(); i++) {
+    String p = "/recordings/" + bases[i] + ".synced";
+    if (SD_MMC.exists(p)) continue;
+    File m = SD_MMC.open(p, "w");
+    if (m) { m.print("1"); m.flush(); m.close(); }
+  }
+}
+
+/* ---- the screen ---------------------------------------------------------
+   There is one, and it is what the device shows awake and what it leaves on
+   the glass asleep. Waking changes nothing, so there is no second version to
+   disagree with the first. */
+
+static void drawScreen() {
+  uiFillRect(0, 0, 200, 200, 0xff);
+  drawBatteryBar(batteryQuarter());
+  uiBitmap((200 - LOGO_W) / 2, 56, LOGO_W, LOGO_H, LOGO_MN);
+
+  String counter;
+  if (totalCount == 0)               counter = "no notes yet";
+  else if (syncedCount >= totalCount) counter = "all synced";
+  else counter = String(syncedCount) + " of " + String(totalCount) + " synced";
+  uiTextCentered(140, counter, 2);
+
+  if (statusLine.length()) uiTextCentered(166, statusLine, 1);
+  else                     uiTextCentered(166, "press to record", 1);
+  uiFlushFull();
+}
+
+/* Recording deliberately does not redraw. A full refresh takes about 2.7
+   seconds and flashes the whole panel, which is unusable as a live meter and
+   pointless besides - you know you are talking. A circle means recording, a
+   square means it stopped, and nothing moves in between. */
+static void drawRecordingMark(bool square) {
+  uiFillRect(0, 0, 200, 200, 0xff);
+  drawBatteryBar(batteryQuarter());
+  if (square) uiFillRect(70, 60, 60, 60, 0x00);
+  else        uiFillCircle(100, 90, 32, 0x00);
+  uiTextCentered(150, square ? "SAVED" : "RECORDING", 2);
+  uiTextCentered(176, square ? "" : "press to stop", 1);
+  uiFlushFull();
+}
+
+static void showMessage(const String& a, const String& b) {
+  uiFillRect(0, 0, 200, 200, 0xff);
+  uiTextCentered(80, a, 2);
+  if (b.length()) uiTextCentered(112, b, 1);
+  uiFlushFull();
+}
+
+/* ---- names -------------------------------------------------------------- */
 
 static String timestampName() {
   struct tm t;
@@ -246,1079 +203,130 @@ static String timestampName() {
              t.tm_year + 1900, t.tm_mon + 1, t.tm_mday, t.tm_hour, t.tm_min, t.tm_sec);
     return String(buf);
   }
-  /* No clock and no sync yet. Say so, rather than emitting a number that
-     looks like a timestamp, sorts wrongly and means nothing. */
+  /* No clock and no sync yet. Say so, rather than emitting a number that looks
+     like a timestamp, sorts wrongly and means nothing. */
   return "rec_noclock_" + String(millis() / 1000) + ".wav";
 }
 
-/* A note is a base name - rec_20260812_101200 - and up to three files beside
-   it: .wav, .txt, .tag. Once FREE SPACE drops the audio the transcript still
-   has to be readable, so nothing here may key on the .wav existing. */
-static String notePath(const String& base, const char* ext) {
-  return "/recordings/" + base + ext;
-}
+/* ---- sync --------------------------------------------------------------- */
 
-/* Cores disagree about whether name() is a basename or a full path, so reduce
-   whatever came back to the last segment with the extension removed. */
-static String baseOf(const String& fileName) {
-  String n = fileName;
-  int slash = n.lastIndexOf('/');
-  if (slash >= 0) n = n.substring(slash + 1);
-  int dot = n.lastIndexOf('.');
-  if (dot > 0) n = n.substring(0, dot);
-  return n;
-}
-
-static bool noteHasAudio(const String& base) { return SD_MMC.exists(notePath(base, ".wav")); }
-
-static String tagOf(const String& base) {
-  String t = notePath(base, ".tag");
-  if (!SD_MMC.exists(t)) return "";
-  File f = SD_MMC.open(t, "r");
-  String v = f.readStringUntil('\n');
-  f.close();
-  v.trim();
-  return v;
-}
-
-/* The tag files on a real card came back zero bytes: created, but with nothing
-   in them, so every note read back as untagged. close() is supposed to flush,
-   but this device loses power abruptly and often - so flush explicitly, and
-   check the write actually took rather than assuming it did. */
-static void saveTag(const char* tag) {
-  if (!tag || !*tag) return;                 /* no tag is not an empty file */
-  const String path = notePath(baseOf(lastSavedName), ".tag");
-  File f = SD_MMC.open(path, "w");
-  if (!f) return;
-  f.print(tag);
-  f.print("\n");
-  f.flush();
-  f.close();
-  /* If it still landed empty, the card did not take it - drop the stub so the
-     note reads as untagged rather than as a tag that is not there. */
-  File check = SD_MMC.open(path, "r");
-  if (check) {
-    size_t n = check.size();
-    check.close();
-    if (n == 0) SD_MMC.remove(path);
-  }
-}
-
-/* Distinct notes in directory order, counting a clip whose audio has been
-   freed exactly once, via its surviving .txt. */
-static void collectBases(std::vector<String>& out) {
-  out.clear();
+static void gatherNotes(std::vector<SyncNote>& out) {
   File dir = SD_MMC.open("/recordings");
   if (!dir) return;
   File f;
   while ((f = dir.openNextFile())) {
-    String n = String(f.name());
+    String n = f.name();
+    size_t bytes = f.size();
     f.close();
-    String lower = n; lower.toLowerCase();
-    if (!lower.endsWith(".wav") && !lower.endsWith(".txt")) continue;
-    String b = baseOf(n);
-    bool seen = false;
-    for (size_t i = 0; i < out.size(); i++) if (out[i] == b) { seen = true; break; }
-    if (!seen) out.push_back(b);
+    if (!isWav(n)) continue;
+    SyncNote note;
+    note.base = baseOf(n);
+    note.secs = bytes > 44 ? (uint32_t)((bytes - 44) / 32000) : 0;
+    File tf = SD_MMC.open("/recordings/" + note.base + ".txt", "r");
+    if (tf) { note.transcript = tf.readString(); tf.close(); }
+    out.push_back(note);
   }
   dir.close();
 }
 
-static void countRecordings() {
-  std::vector<String> bases;
-  collectBases(bases);
-  recCount = bases.size();
-}
+/* Returns true when something was actually published. Quiet about the ordinary
+   case of there being no Wi-Fi yet: that is the normal state of a device in a
+   pocket, not a fault worth putting on screen. */
+static bool trySync(bool sayWhy) {
+  lastSyncTry = millis();
+  if (totalCount == 0 || syncedCount >= totalCount) return false;
+  if (!syncConfigured()) { if (sayWhy) statusLine = "set up on the website"; return false; }
+  if (netGet("ssid").length() == 0) { if (sayWhy) statusLine = "no wi-fi set"; return false; }
 
-static void refreshNoteList() {
-  noteList.clear();
-  std::vector<String> bases;
-  collectBases(bases);
-  for (int i = (int)bases.size() - 1; i >= 0; i--)
-    if (tagOf(bases[i]) == viewTag) noteList.push_back(bases[i]);
-}
+  statusLine = "syncing...";
+  drawScreen();
 
-static void loadTranscript(const String& base) {
-  transcriptLines.clear();
-  transcriptPage = 0;
-  String t = notePath(base, ".txt");
-  if (!SD_MMC.exists(t)) return;
-  File f = SD_MMC.open(t, "r");
-  String content = f.readString();
-  f.close();
-  int start = 0;
-  while (start < (int)content.length() && transcriptLines.size() < 200) {
-    int nl = content.indexOf('\n', start);
-    if (nl < 0) nl = content.length();
-    String line = content.substring(start, nl);
-    line.trim();
-    if (line.length()) transcriptLines.push_back(line);
-    start = nl + 1;
-  }
-}
-
-static void drawHome() {
-  epd->EPD_Clear();
-  drawRestingScreen();
-  uiFlushFull();
-}
-
-static void drawMenu() {
-  epd->EPD_Clear();
-  uiTextCentered(10, "mono note mini", 1);
-  uiRect(0, 26, 200, 1);
-  uiRow(6, 32, 188, 32, "VIEW NOTES", 2, sel == 0);
-  uiRow(6, 68, 188, 32, "MAKE NOTE",  2, sel == 1);
-  uiRow(6, 104, 188, 32, "BLUETOOTH", 2, sel == 2);
-  uiRow(6, 140, 188, 32, "TO-DO",     2, sel == 3);
-  uiRow(6, 176, 188, 22, "SETTINGS",  1, sel == 4);
-  uiFlushFast(1);
-}
-
-struct TodoItem { String text; bool done; };
-static std::vector<TodoItem> todos;
-static int todoTop = 0;
-
-static void todoLoad() {
-  todos.clear();
-  if (!SD_MMC.exists("/todo.txt")) return;
-  File f = SD_MMC.open("/todo.txt", "r");
-  while (f.available()) {
-    String line = f.readStringUntil('\n');
-    line.trim();
-    if (!line.length()) continue;
-    TodoItem item;
-    if (line.startsWith("[x] ")) { item.done = true; item.text = line.substring(4); }
-    else if (line.startsWith("[ ] ")) { item.done = false; item.text = line.substring(4); }
-    else { item.done = false; item.text = line; }
-    todos.push_back(item);
-  }
-  f.close();
-}
-
-static void todoSave() {
-  File f = SD_MMC.open("/todo.txt", "w");
-  if (!f) return;
-  for (auto& t : todos) {
-    f.print(t.done ? "[x] " : "[ ] ");
-    f.println(t.text);
-  }
-  f.close();
-}
-
-static void drawTodo() {
-  epd->EPD_Clear();
-  uiTextCentered(6, "TO-DO", 2);
-  uiRect(0, 26, 200, 1);
-  if (todos.empty()) uiTextCentered(96, "no jobs yet", 2);
-  for (int i = 0; i < LIST_ROWS && todoTop + i < (int)todos.size(); i++) {
-    int idx = todoTop + i;
-    int y = 32 + i * 29;
-    bool on = (idx == sel);
-    if (on) uiFillRect(4, y, 192, 27, 0x00);
-    uint8_t ink = on ? 0xff : 0x00;
-    uiRect(10, y + 6, 15, 15, ink);
-    if (todos[idx].done) uiFillRect(13, y + 9, 9, 9, ink);
-    String t = todos[idx].text;
-    if ((int)t.length() > 12) t = t.substring(0, 12);
-    uiText(32, y + 6, t, 2, ink);
-  }
-  uiFillRect(0, 182, 200, 18, 0x00);
-  uiTextCentered(187, "hold=tick  2tap=back", 1, 0xff);
-  uiFlushFast(6);
-}
-
-#define MAKE_MAX_SECONDS 120
-
-/* Timer, meter and hint all live in the partial-refresh region so the screen
-   doesn't full-flash once a second while recording. */
-/* Recording draws two frames in its whole life: a circle when it starts and a
-   square when it stops. An e-paper panel ghosts and wears under repeated
-   partial refreshes, and a running clock is the sort of thing that would
-   repaint two hundred times for a two-minute note. The length is written into
-   the file and shown in the note list afterwards, so nothing is lost by not
-   animating it. */
-static void drawMake() {
-  epd->EPD_Clear();
-  uiTextCentered(10, "RECORDING", 2);
-  uiRect(0, 34, 200, 1);
-  uiFillCircle(100, 108, 42, 0x00);
-  uiTextCentered(166, "press bottom to stop", 1);
-  uiFlushFull();
-}
-
-/* The square is the acknowledgement that the press landed - without it there
-   is no feedback at all between stopping and the tag picker appearing. */
-static void drawMakeStopped() {
-  epd->EPD_Clear();
-  uiTextCentered(10, "SAVED", 2);
-  uiRect(0, 34, 200, 1);
-  uiFillRect(64, 72, 72, 72, 0x00);
-  uint32_t s = recSeconds();
-  uiTextCentered(166, String(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + String(s % 60), 2);
-  uiFlushFull();
-}
-
-static void drawTagScreen() {
-  epd->EPD_Clear();
-  uiTextCentered(4, "SORT IT", 2);
-  uiRect(0, 24, 200, 1);
-  for (int i = 0; i < 5; i++)
-    uiRow(6, 28 + i * 26, 188, 24, TAGS[i], 2, sel == i);
-  uiRow(6, 158, 188, 22, "SKIP", 1, sel == 5);
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "hold to file it", 1, 0xff);
-  uiFlushFast(8);
-}
-
-/* Two pages. The first is the reference you want while holding the device and
-   cannot look anything up; the second is a QR to the full manual, for when the
-   answer is longer than a 200x200 screen.
-
-   The old version of this screen was written for a touchscreen this board does
-   not have, and told people to tap and swipe. A wrong instruction is worse than
-   none: it makes someone doubt the hardware rather than the label. */
-static int howtoPage = 0;
-
-static void drawHowTo() {
-  epd->EPD_Clear();
-  if (howtoPage == 0) {
-    uiTextCentered(4, "HOW TO", 2);
-    uiRect(0, 24, 200, 1);
-    uiText(4, 30, "TOP button", 2);
-    uiText(4, 50, " tap   next option", 1);
-    uiText(4, 63, " hold  choose it", 1);
-    uiText(4, 76, " x2    go back", 1);
-    uiText(4, 94, "BOTTOM button", 2);
-    uiText(4, 114, " tap   record / play", 1);
-    uiText(4, 127, " hold  scroll down", 1);
-    uiText(4, 140, " 5s    power off*", 1);
-    uiText(4, 156, "*needs a battery -", 1);
-    uiText(4, 167, " it cannot cut USB power", 1);
-    uiFillRect(0, 180, 200, 20, 0x00);
-    uiTextCentered(186, "TAP FOR THE MANUAL", 1, 0xff);
-  } else {
-    uiTextCentered(2, "FULL MANUAL", 1);
-    uiBitmap((200 - QR_MANUAL_W) / 2, 16, QR_MANUAL_W, QR_MANUAL_H, QR_MANUAL);
-    uiTextCentered(168, "scan with your phone", 1);
-    uiFillRect(0, 180, 200, 20, 0x00);
-    uiTextCentered(186, "2 TAPS = BACK", 1, 0xff);
-  }
-  uiFlushFull();          /* a QR must be clean - no partial-refresh ghosting */
-}
-
-/* ---- guided tour -------------------------------------------------------
-   Every screen is gated behind a deliberate hold of the top button, so the
-   tour cannot be skipped by drumming on the buttons. A double-tap steps back.
-   Step TOUR_SOUND is the exception - it wants an ON/OFF choice first. */
-
-#define TOUR_STEPS 17
-#define TOUR_SOUND 15
-static int walkStep = 0;
-
-static void drawTourStep(int step) {
-  const char* title = "";
-  const char* lines[7] = {0, 0, 0, 0, 0, 0, 0};
-  switch (step) {
-    case 0:
-      title = "WELCOME";
-      lines[0] = "Mono Note Mini";
-      lines[1] = "";
-      lines[2] = "A notebook you talk to.";
-      lines[3] = "";
-      lines[4] = "This tour shows every";
-      lines[5] = "feature. Press either";
-      lines[6] = "button to move on.";
-      break;
-    case 1:
-      title = "THE BUTTONS";
-      lines[0] = "Two buttons do it all.";
-      lines[1] = "";
-      lines[2] = "TOP  tap  = next";
-      lines[3] = "     hold = choose";
-      lines[4] = "     x2   = back";
-      lines[5] = "BOT  tap  = record";
-      lines[6] = "     hold = scroll";
-      break;
-    case 2:
-      title = "ON & OFF";
-      lines[0] = "Press either button to";
-      lines[1] = "wake it.";
-      lines[2] = "";
-      lines[3] = "Hold the BOTTOM button";
-      lines[4] = "five seconds to switch";
-      lines[5] = "it off. It also sleeps";
-      lines[6] = "on its own when idle.";
-      break;
-    case 3:
-      title = "THE MENU";
-      lines[0] = "Four rows:";
-      lines[1] = "";
-      lines[2] = "VIEW NOTES   your notes";
-      lines[3] = "MAKE NOTE    record";
-      lines[4] = "TO-DO        checklist";
-      lines[5] = "SETTINGS     the rest";
-      break;
-    case 4:
-      title = "MAKE A NOTE";
-      lines[0] = "Tap the BOTTOM button";
-      lines[1] = "to start recording.";
-      lines[2] = "";
-      lines[3] = "Tap it again to stop";
-      lines[4] = "and save.";
-      lines[5] = "";
-      lines[6] = "Two minutes per note.";
-      break;
-    case 5:
-      title = "TAG IT";
-      lines[0] = "Every note gets filed";
-      lines[1] = "the moment you save it:";
-      lines[2] = "";
-      lines[3] = "Work      Projects";
-      lines[4] = "Ideas     Quotes";
-      lines[5] = "Random";
-      lines[6] = "or skip at the bottom.";
-      break;
-    case 6:
-      title = "VIEW NOTES";
-      lines[0] = "Browse by tag. Each tag";
-      lines[1] = "shows how many notes";
-      lines[2] = "are filed under it.";
-      lines[3] = "";
-      lines[4] = "Hold BOTTOM to scroll,";
-      lines[5] = "hold TOP to open one.";
-      break;
-    case 7:
-      title = "PLAY & READ";
-      lines[0] = "PLAY hears the note on";
-      lines[1] = "the speaker.";
-      lines[2] = "";
-      lines[3] = "Hold BOTTOM to page on";
-      lines[4] = "through the transcript.";
-      lines[5] = "";
-      lines[6] = "DELETE asks twice.";
-      break;
-    case 8:
-      title = "TO-DO";
-      lines[0] = "A checklist kept on the";
-      lines[1] = "card as plain text.";
-      lines[2] = "";
-      lines[3] = "Hold TOP to tick a row";
-      lines[4] = "off. Add or edit jobs";
-      lines[5] = "from the web page.";
-      break;
-    case 9:
-      title = "WI-FI";
-      lines[0] = "Settings > Wi-Fi opens a";
-      lines[1] = "hotspot from the device:";
-      lines[2] = "";
-      lines[3] = "  MonoNote-XXXX";
-      lines[4] = "  key: record123";
-      lines[5] = "";
-      lines[6] = "Join it, browse the IP.";
-      break;
-    case 10:
-      title = "SYNC NOW";
-      lines[0] = "Settings > Sync now";
-      lines[1] = "sends every clip that";
-      lines[2] = "has no transcript yet";
-      lines[3] = "to your own server.";
-      lines[4] = "";
-      lines[5] = "Tap the screen while it";
-      lines[6] = "runs to stop early.";
-      break;
-    case 11:
-      title = "AUTO-SYNC";
-      lines[0] = "It also syncs on its own";
-      lines[1] = "every 4 hours.";
-      lines[2] = "";
-      lines[3] = "Change the rate, or turn";
-      lines[4] = "it off, in";
-      lines[5] = "Settings > Extra.";
-      break;
-    case 12:
-      title = "STORAGE";
-      lines[0] = "Shows how much card is";
-      lines[1] = "left.";
-      lines[2] = "";
-      lines[3] = "FREE SPACE deletes the";
-      lines[4] = "audio of notes already";
-      lines[5] = "transcribed. The text";
-      lines[6] = "is always kept.";
-      break;
-    case 13:
-      title = "MY ADDRESS";
-      lines[0] = "Settings > IP joins your";
-      lines[1] = "home Wi-Fi and shows the";
-      lines[2] = "address to type in a";
-      lines[3] = "browser.";
-      lines[4] = "";
-      lines[5] = "Drop your own site in";
-      lines[6] = "/www on the card.";
-      break;
-    case 14:
-      title = "EXTRA";
-      lines[0] = "Settings > Extra holds:";
-      lines[1] = "";
-      lines[2] = "Redo tutorial";
-      lines[3] = "Auto-sync rate";
-      lines[4] = "Factory reset";
-      lines[5] = "";
-      lines[6] = "Redo brings you here.";
-      break;
-    case TOUR_SOUND:
-      title = "SOUND";
-      break;
-    case 16:
-      title = "READY";
-      lines[0] = "That is every feature.";
-      lines[1] = "";
-      lines[2] = "Your notes live on the";
-      lines[3] = "card as plain files.";
-      lines[4] = "Nothing leaves the";
-      lines[5] = "device unless you point";
-      lines[6] = "it at your own server.";
-      break;
-  }
-
-  epd->EPD_Clear();
-  uiTextCentered(6, title, 1);
-  uiRect(0, 18, 200, 1);
-
-  if (step == TOUR_SOUND) {
-    uiTextCentered(28, "A soft tick on each press.", 1);
-    uiTextCentered(44, soundOn() ? "NOW: ON" : "NOW: OFF", 1);
-    uiRow(10, 62, 84, 32, "ON",  2, sel == 0);
-    uiRow(106, 62, 84, 32, "OFF", 2, sel == 1);
-    uiTextCentered(104, "Tap to switch,", 1);
-    uiTextCentered(118, "hold to carry on.", 1);
-  } else {
-    for (int i = 0; i < 7; i++)
-      if (lines[i] && lines[i][0]) uiText(4, 26 + i * 15, lines[i], 1);
-  }
-
-  uiTextCentered(138, "STEP " + String(step + 1) + " / " + String(TOUR_STEPS), 1);
-
-  if (step != TOUR_SOUND) {
-    uiFillRect(0, 154, 200, 46, 0x00);
-    uiTextCentered(160, step == TOUR_STEPS - 1 ? "PRESS = FINISH" : "PRESS = NEXT", 1, 0xff);
-    /* The way out has to be on the screen. A tour you cannot leave is worse
-       than no tour, and nobody guesses a gesture that was never shown. */
-    uiTextCentered(176, step > 0 ? "2 TAPS = BACK" : "2 TAPS = SKIP", 1, 0xff);
-  }
-  uiFlushFull();
-}
-
-/* Three rows. Everything else moved to the website, which has a keyboard and
-   does not cost twenty button presses to type a Wi-Fi password on. What is
-   left is what a browser cannot do for you: the hotspot that exists precisely
-   for when Bluetooth is not an option, the storage figures, and the reset. */
-static void drawSettings() {
-  epd->EPD_Clear();
-  uiTextCentered(6, "SETTINGS", 2);
-  uiRect(0, 26, 200, 1);
-  uiRow(6, 34, 188, 30, "WI-FI SETUP", 2, sel == 0);
-  uiRow(6, 70, 188, 30, "STORAGE",     2, sel == 1);
-  uiRow(6, 106, 188, 30, "EXTRA",      2, sel == 2);
-  uiText(6, 146, "Everything else is set", 1);
-  uiText(6, 159, "from the website, over", 1);
-  uiText(6, 172, "Bluetooth.", 1);
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "2 taps = back", 1, 0xff);
-  uiFlushFast(2);
-}
-
-static void drawExtra() {
-  epd->EPD_Clear();
-  uiTextCentered(6, "EXTRA", 2);
-  uiRect(0, 26, 200, 1);
-  uiRow(6, 30, 188, 26, "REDO TOUR", 2, sel == 0);
-  uiRow(6, 58, 188, 26, "SYNC NOW",  2, sel == 1);
-  uiRow(6, 86, 188, 26, "HOW TO",    2, sel == 2);
-  uiRow(6, 114, 188, 26, "SECURITY", 2, sel == 3);
-  uiRow(6, 142, 188, 26, "RESET",    2, sel == 4);
-  uiTextCentered(176, "double-tap = back", 1);
-  uiFlushFast(3);
-}
-
-/* Bluetooth transfer. Deliberately not automatic: the radio costs battery and
-   nobody wants their notes offered to the room by default, so it advertises
-   only while someone is looking at this screen. */
-static void drawBle() {
-  epd->EPD_Clear();
-  uiTextCentered(4, "BLUETOOTH", 2);
-  uiRect(0, 24, 200, 1);
-
-  if (!bleAdvertising()) {
-    uiText(4, 32, "Send notes to a", 1);
-    uiText(4, 45, "browser next to you.", 1);
-    uiText(4, 63, "No wi-fi, no account,", 1);
-    uiText(4, 76, "nothing to install.", 1);
-    uiText(4, 96, "Open the web app in", 1);
-    uiText(4, 109, "Chrome or Edge and", 1);
-    uiText(4, 122, "press Connect.", 1);
-    uiRow(6, 140, 188, 26, "TURN ON", 2, true);
-  } else {
-    uiTextCentered(34, bleConnected() ? "CONNECTED" : "DISCOVERABLE", 2);
-    uiTextCentered(58, bleStatus(), 1);
-    int p = bleProgress();
-    if (p >= 0) {
-      uiRect(20, 78, 160, 16);
-      uiFillRect(23, 81, (int)(154L * p / 100), 10, 0x00);
-      uiTextCentered(100, String(p) + "%", 1);
-    } else if (!bleConnected()) {
-      uiTextCentered(80, "look for", 1);
-      uiTextCentered(93, "Mono Note Mini", 1);
-    }
-    uiRow(6, 140, 188, 26, "TURN OFF", 2, true);
-  }
-  uiFillRect(0, 176, 200, 24, 0x00);
-  /* Name the button. "hold" alone read as either of them, and holding the
-     bottom one for five seconds switches the device off - so the ambiguous
-     label sent people to the one gesture that does the opposite of this
-     screen's job. */
-  uiTextCentered(182, "hold TOP to switch", 1, 0xff);
-  uiTextCentered(190, "2 taps = back", 1, 0xff);
-  uiFlushFast(7);
-}
-
-/* PIN entry on two buttons. Tap moves the digit, hold accepts it and steps
-   along. Six digits is about twenty presses - slow, deliberately: the only
-   defence a short PIN has is that each guess costs something. */
-/* Four digits, because the PIN this ships with is 1234 and the Security screen
-   says so on its face. The entry screen asked for six, so the default PIN
-   could not be typed at all: four presses left two boxes still to fill, and
-   what got submitted was 123400. There was no way to unlock a device that had
-   never had its PIN changed. cryptoSetPin's minimum is four, so this is the
-   shortest the rest of the code will accept. */
-static char pinBuf[5] = "0000";
-static int  pinPos = 0;
-static int  pinLen = 4;
-static bool pinForChange = false;         /* setting a new one, not unlocking */
-static String pinMessage;
-
-static void drawPinEntry() {
-  epd->EPD_Clear();
-  uiTextCentered(4, pinForChange ? "NEW PIN" : "ENTER PIN", 2);
-  uiRect(0, 24, 200, 1);
-
-  /* Digits large enough to read at arm's length, with the one being edited
-     boxed rather than merely bolder - on a 1-bit panel that is the only
-     difference that reads reliably. */
-  const int w = 30, x0 = (200 - pinLen * w) / 2;
-  for (int i = 0; i < pinLen; i++) {
-    int x = x0 + i * w;
-    if (i == pinPos) uiRect(x, 44, w - 4, 40);
-    String d = String(pinBuf[i]);
-    uiTextCenteredIn(x, w - 4, 56, i < pinPos ? String("*") : d, 3);
-  }
-
-  if (pinMessage.length()) uiTextCentered(96, pinMessage, 1);
-  uiText(4, 118, "tap  = next digit", 1);
-  uiText(4, 132, "hold = accept it", 1);
-  uiText(4, 146, "2 taps = back", 1);
-  uiFillRect(0, 176, 200, 24, 0x00);
-  uiTextCentered(184, pinForChange ? "sets a new PIN" : "unlocks your notes", 1, 0xff);
-  uiFlushFast(12);
-}
-
-static void drawSecurity() {
-  epd->EPD_Clear();
-  uiTextCentered(4, "SECURITY", 2);
-  uiRect(0, 24, 200, 1);
-
-  uiTextCentered(32, cryptoUnlocked() ? "UNLOCKED" : "LOCKED", 2);
-  if (cryptoPinIsDefault()) {
-    uiFillRect(6, 54, 188, 30, 0x00);
-    uiTextCenteredIn(6, 188, 58, "PIN IS STILL 1234", 1, 0xff);
-    uiTextCenteredIn(6, 188, 70, "anyone can read these", 1, 0xff);
-  } else {
-    uiTextCentered(60, "notes are encrypted", 1);
-    uiTextCentered(73, "with your own PIN", 1);
-  }
-
-  uiRow(6, 86, 188, 22, cryptoUnlocked() ? "LOCK NOW" : "UNLOCK", 2, sel == 0);
-  uiRow(6, 110, 188, 22, "CHANGE PIN", 2, sel == 1);
-  uiRow(6, 134, 188, 22, voiceEnabled() ? "VOICE: ON" : "VOICE: OFF", 1, sel == 2);
-  uiRow(6, 158, 188, 18, "SELF TEST", 1, sel == 3);
-  uiFillRect(0, 178, 200, 22, 0x00);
-  uiTextCentered(185, "2 taps = back", 1, 0xff);
-  uiFlushFast(11);
-}
-
-/* Voice unlock. The phrase is yours and the device never learns what it means
-   - it only keeps how it sounded, three times over, and compares. */
-static void drawVoice(const String& note) {
-  epd->EPD_Clear();
-  uiTextCentered(4, "VOICE UNLOCK", 2);
-  uiRect(0, 24, 200, 1);
-  if (note.length()) {
-    uiTextCentered(32, note, 1);
-  } else if (!voiceHasTemplates()) {
-    uiTextCentered(32, "not set up yet", 1);
-  } else {
-    uiTextCentered(32, voiceEnabled() ? "on - say your phrase" : "trained, but off", 1);
-  }
-  uiRow(6, 48, 188, 24, "TRAIN MY VOICE", 1, sel == 0);
-  uiRow(6, 76, 188, 24, "TEST IT", 1, sel == 1);
-  uiRow(6, 104, 188, 24, voiceEnabled() ? "TURN OFF" : "TURN ON", 1, sel == 2);
-  uiRow(6, 132, 188, 24, "FORGET MY VOICE", 1, sel == 3);
-  uiTextCentered(164, "the PIN still guards", 1);
-  uiTextCentered(176, "the notes themselves", 1);
-  uiFillRect(0, 188, 200, 12, 0x00);
-  uiTextCentered(190, "2 taps = back", 1, 0xff);
-  uiFlushFast(14);
-}
-
-/* Three recordings, because one is a snapshot of a single delivery and people
-   never say anything the same way twice. Whichever of the three the phrase is
-   closest to is the one that counts. */
-static void runVoiceEnrol() {
-  for (int i = 0; i < VOICE_ENROLS; i++) {
-    epd->EPD_Clear();
-    uiTextCentered(30, "SAY YOUR PHRASE", 2);
-    uiTextCentered(64, String(i + 1) + " of " + String(VOICE_ENROLS), 2);
-    uiTextCentered(104, "after the beep,", 1);
-    uiTextCentered(118, "speak for 3 seconds", 1);
-    uiFlushFull();
-    if (soundOn()) beep();
-    delay(300);
-
-    epd->EPD_Clear();
-    uiTextCentered(70, "LISTENING", 3);
-    uiFlushFast(15);
-
-    bool ok = voiceEnrol(i);
-    if (!ok) {
-      drawVoice("heard nothing - try again");
-      return;
-    }
-  }
-  voiceSetEnabled(true);
-  drawVoice("trained, and switched on");
-}
-
-static void drawSelfTest(const String& result) {
-  epd->EPD_Clear();
-  uiTextCentered(4, "SELF TEST", 2);
-  uiRect(0, 24, 200, 1);
-  bool ok = (result == "ok");
-  uiTextCentered(50, ok ? "PASSED" : "FAILED", 3);
-  if (!ok) uiTextCentered(90, result, 1);
-  else {
-    uiTextCentered(92, "encrypt, decrypt and", 1);
-    uiTextCentered(105, "tamper detection all", 1);
-    uiTextCentered(118, "verified on this card", 1);
-  }
-  uiFillRect(0, 178, 200, 22, 0x00);
-  uiTextCentered(185, "2 taps = back", 1, 0xff);
-  uiFlushFull();
-}
-
-static void drawFactory() {
-  epd->EPD_Clear();
-  if (factoryStage == 0) {
-    uiTextCentered(4, "RESET", 2);
-    uiRect(0, 24, 200, 1);
-    uiText(4, 30, "Erases the whole", 1);
-    uiText(4, 44, "card: every note,", 1);
-    uiText(4, 58, "transcript, tag and", 1);
-    uiText(4, 72, "the to-do list. Also", 1);
-    uiText(4, 86, "Wi-Fi, your server", 1);
-    uiText(4, 100, "address and settings.", 1);
-    uiText(4, 118, "Cannot be undone.", 1);
-    uiRow(6, 134, 92, 26, "CANCEL", 2, sel == 0);
-    uiRow(102, 134, 92, 26, "ERASE", 2, sel == 1);
-  } else {
-    uiTextCentered(20, "ARE YOU", 2);
-    uiTextCentered(44, "SURE?", 2);
-    uiRect(0, 70, 200, 1);
-    uiTextCentered(82, "Last chance.", 2);
-    uiTextCentered(106, "Everything goes.", 1);
-    uiRow(6, 134, 92, 26, "KEEP IT", 2, sel == 0);
-    uiRow(102, 134, 92, 26, "ERASE", 2, sel == 1);
-  }
-
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back", 1, 0xff);
-  uiFlushFast(10);
-}
-
-/* A clip whose transcript already exists doesn't need its audio on the card
-   any more - the words are the point. Count what could go. */
-static void reclaimableStats(int& count, uint64_t& bytes) {
-  count = 0;
-  bytes = 0;
-  std::vector<String> bases;
-  collectBases(bases);
-  for (size_t i = 0; i < bases.size(); i++) {
-    if (!noteHasAudio(bases[i])) continue;
-    if (!SD_MMC.exists(notePath(bases[i], ".txt"))) continue;
-    File w = SD_MMC.open(notePath(bases[i], ".wav"), "r");
-    if (w) { count++; bytes += w.size(); w.close(); }
-  }
-}
-
-static int freeTranscribedAudio() {
-  std::vector<String> bases, doomed;
-  collectBases(bases);
-  for (size_t i = 0; i < bases.size(); i++)
-    if (noteHasAudio(bases[i]) && SD_MMC.exists(notePath(bases[i], ".txt")))
-      doomed.push_back(notePath(bases[i], ".wav"));
-  for (auto& p : doomed) SD_MMC.remove(p);
-  countRecordings();
-  return doomed.size();
-}
-
-static void drawStorage() {
-  uint64_t total = SD_MMC.totalBytes();
-  uint64_t used = SD_MMC.usedBytes();
-  uint64_t freeB = total > used ? total - used : 0;
-  int rc; uint64_t rb;
-  reclaimableStats(rc, rb);
-  epd->EPD_Clear();
-  uiTextCentered(8, "STORAGE", 2);
-  uiRect(0, 26, 200, 1);
-  uiText(16, 34, "Total:  " + String(total / (1024ULL * 1024ULL)) + " MB", 1);
-  uiText(16, 50, "Used:   " + String(used / (1024ULL * 1024ULL)) + " MB", 1);
-  uiText(16, 66, "Free:   " + String(freeB / (1024ULL * 1024ULL)) + " MB", 1);
-  int pct = total ? (int)(used * 100 / total) : 0;
-  uiRect(20, 86, 160, 12);
-  uiFillRect(22, 88, (int)(156 * pct / 100), 8, 0x00);
-  uiTextCentered(106, String(pct) + "% used", 1);
-  uiRect(0, 122, 200, 1);
-  if (rc > 0) {
-    uiTextCentered(130, String(rc) + " clips already synced", 1);
-    uiTextCentered(144, "audio frees " + String((uint32_t)(rb / (1024ULL * 1024ULL))) + " MB", 1);
-    uiRow(6, 156, 188, 24, confirmFree ? "SURE? HOLD" : "FREE SPACE", 2, true);
-  } else {
-    uiTextCentered(140, "nothing to free yet", 1);
-    uiTextCentered(158, "transcripts are kept", 1);
-    uiTextCentered(170, "when audio is removed", 1);
-  }
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back", 1, 0xff);
-  uiFlushFast(13);
-}
-
-/* Depth-first delete. The tree is shallow (/recordings, /www) but a card the
-   user has been dropping files onto by hand can be anything, so recurse. */
-static void wipeDir(const String& path) {
-  File dir = SD_MMC.open(path);
-  if (!dir) return;
-  if (!dir.isDirectory()) { dir.close(); return; }
-  std::vector<String> files, dirs;
-  File f;
-  while ((f = dir.openNextFile())) {
-    String n = String(f.name());
-    if (!n.startsWith("/")) n = (path == "/" ? "/" : path + "/") + n;
-    if (f.isDirectory()) dirs.push_back(n); else files.push_back(n);
-    f.close();
-  }
-  dir.close();
-  for (auto& n : files) SD_MMC.remove(n);
-  for (auto& n : dirs) { wipeDir(n); SD_MMC.rmdir(n); }
-}
-
-static void doFactoryReset() {
-  playStop();
-  epd->EPD_Clear();
-  uiTextCentered(80, "ERASING", 2);
-  uiTextCentered(110, "do not unplug", 1);
-  uiFlushFull();
-  wipeDir("/");
-  SD_MMC.mkdir("/recordings");
-  SD_MMC.mkdir("/www");
-  netClearAll();
-  epd->EPD_Clear();
-  uiTextCentered(70, "ERASED", 2);
-  uiTextCentered(104, "out of the box again", 1);
-  uiTextCentered(124, "restarting...", 1);
-  uiFlushFull();
-  delay(2000);
-  ESP.restart();
-}
-
-/* Wi-Fi used to be set up by turning the device into a hotspot serving a web
-   page of its own. That meant two different websites, and the one you needed
-   first was the one you could only reach by leaving your own network. It is now
-   done over Bluetooth from the same page as everything else: one site, and the
-   device never has to host anything. */
-static void drawWifiScreen() {
-  epd->EPD_Clear();
-  uiTextCentered(14, "WI-FI SETUP", 2);
-  uiRect(0, 34, 200, 1);
-  uiTextCentered(58, "on your phone or PC:", 1);
-  uiTextCentered(84, "1. open the website", 1);
-  uiTextCentered(104, "2. tap SET UP DEVICE", 1);
-  uiTextCentered(124, "3. pick Mono Note Mini", 1);
-  uiTextCentered(152, bleConnected() ? "connected" :
-                      bleAdvertising() ? "bluetooth on" : "bluetooth off", 2);
-  uiFillRect(0, 184, 200, 16, 0x00);
-  uiTextCentered(188, "< back", 1, 0xff);
-  uiFlushFull();
-}
-
-static void drawViewTags() {
-  epd->EPD_Clear();
-  uiTextCentered(6, "VIEW NOTES", 2);
-  uiRect(0, 26, 200, 1);
-  std::vector<String> bases;
-  collectBases(bases);
-  for (int i = 0; i < 5; i++) {
-    int y = 32 + i * 29;
-    int count = 0;
-    for (size_t b = 0; b < bases.size(); b++) if (tagOf(bases[b]) == TAGS[i]) count++;
-    bool on = (sel == i);
-    if (on) uiFillRect(6, y, 188, 27, 0x00); else uiRect(6, y, 188, 27);
-    uiText(12, y + 6, String(TAGS[i]), 2, on ? 0xff : 0x00);
-    uiText(168, y + 6, String(count), 2, on ? 0xff : 0x00);
-  }
-  uiFillRect(0, 182, 200, 18, 0x00);
-  uiTextCentered(187, "hold=open  2tap=back", 1, 0xff);
-  uiFlushFast(4);
-}
-
-static void drawViewList() {
-  epd->EPD_Clear();
-  uiTextCentered(6, viewTag, 2);
-  uiRect(0, 26, 200, 1);
-  if (noteList.empty()) uiTextCentered(96, "nothing here yet", 2);
-  for (int i = 0; i < LIST_ROWS && listTop + i < (int)noteList.size(); i++) {
-    int idx = listTop + i;
-    int y = 32 + i * 29;
-    String n = noteList[idx];
-    if (!noteHasAudio(n)) n = "*" + n;    /* text-only, audio was freed */
-    if ((int)n.length() > 15) n = n.substring(n.length() - 15);
-    bool on = (idx == sel);
-    if (on) uiFillRect(6, y, 188, 27, 0x00);
-    uiText(10, y + 6, n, 2, on ? 0xff : 0x00);
-  }
-  uiFillRect(0, 182, 200, 18, 0x00);
-  {
-    const char* perr = playError();
-    String hint = playActive() ? "BOT=stop  hold=open"
-                               : (perr ? String("X ") + perr : String("BOT=play  hold=open"));
-    uiTextCentered(187, hint, 1, 0xff);
-  }
-  uiFlushFast(5);
-}
-
-#define NOTE_LINES 5
-
-static void drawViewNote() {
-  epd->EPD_Clear();
-  const String base = noteList[noteRow];
-  const bool hasAudio = noteHasAudio(base);
-  String n = base;
-  if ((int)n.length() > 15) n = n.substring(n.length() - 15);
-  uiText(4, 4, n, 2);
-  uiRect(0, 24, 200, 1);
-  if (transcriptLines.empty()) {
-    uiTextCentered(60, "not transcribed", 2);
-  } else {
-    int pages = (transcriptLines.size() + NOTE_LINES - 1) / NOTE_LINES;
-    int start = transcriptPage * NOTE_LINES;
-    for (int i = 0; i < NOTE_LINES && start + i < (int)transcriptLines.size(); i++)
-      uiText(4, 30 + i * 18, transcriptLines[start + i], 2);
-    if (pages > 1)
-      uiTextCentered(122, String(transcriptPage + 1) + "/" + String(pages), 1);
-  }
-  /* Say why, on the glass. A silent failure that just redraws the same screen
-     is indistinguishable from a button that did not register, and telling the
-     two apart from the outside took an evening. */
-  const char* perr = playError();
-  uiRow(6, 132, 188, 24,
-        !hasAudio ? "AUDIO FREED" : (playActive() ? "STOP" : (perr ? String("X ") + perr : String("PLAY"))),
-        2, sel == 0);
-  uiRow(6, 158, 188, 24, confirmDelete ? "SURE? HOLD" : "DELETE", 2, sel == 1);
-  uiFillRect(0, 184, 200, 16, 0x00);
-  /* Say what actually works. This used to claim "holds=pages", which is what
-     a long hold does to a transcript - not how anything gets played. */
-  uiTextCentered(188, "BOT=play  TOP hold=pick  2tap=back", 1, 0xff);
-  uiFlushFast(9);
-}
-
-static void drawSyncScreen(int done, int total, const String& name) {
-  epd->EPD_Clear();
-  uiTextCentered(20, "SYNCING", 2);
-  uiRect(0, 48, 200, 1);
-  uiTextCentered(80, String(done) + " / " + String(total), 2);
-  String shortName = name.length() > 24 ? "..." + name.substring(name.length() - 21) : name;
-  uiTextCentered(110, shortName, 1);
-  uiTextCentered(170, "tap to cancel", 1);
-  uiFlushFull();
-}
-
-static void showError(const String& msg) {
-  epd->EPD_Clear();
-  uiTextCentered(60, "ERROR", 2);
-  uiTextCentered(100, msg, 1);
-  uiTextCentered(150, "press = continue", 1);
-  uiFlushFull();
-  while (true) {
-    if (inputPoll() & BTN_ANY_DOWN) { delay(300); break; }
-    delay(20);
-  }
-}
-
-static bool startRecording() {
-  if (!recBegin()) {
-    /* Almost always PSRAM: the 3.8 MB buffer is the only big allocation. */
-    showError("no record buffer");
-    state = ST_MENU;
-    drawMenu();
+  if (!staConnect(20000)) {
+    statusLine = sayWhy ? "no wi-fi" : "";
     return false;
   }
-  state = ST_MAKE;
-  drawMake();
-  return true;
-}
-
-static void finishRecording() {
-  /* A mis-press can end here with nothing captured - say nothing was saved
-     rather than showing the square, which means "saved". */
-  if (recSeconds() == 0) {
-    recDiscard();
-    state = ST_MENU;
-    drawMenu();
-    return;
-  }
-  drawMakeStopped();
-  delay(700);            /* let the square be seen before the tag picker */
-  lastSavedName = timestampName();
-  if (!recSave("/recordings/" + lastSavedName)) {
-    state = ST_HOME;
-    drawHome();
-    showError("save failed - SD?");
-    return;
-  }
-  countRecordings();
-  state = ST_TAG;
-  drawTagScreen();
-}
-
-static void syncAll(bool autoRun) {
-  String api = netGet("api");
-  if (!api.length()) {
-    if (!autoRun) showError("set API in Wi-Fi page");
-    return;
-  }
-  State prev = state;
-  state = ST_SYNC;
-  syncCancel = false;
-  drawSyncScreen(0, 0, autoRun ? "daily auto-sync" : "connecting wifi...");
-  if (!staConnect(20000)) {
-    state = prev;
-    if (prev == ST_SETTINGS) drawSettings();
-    else drawHome();
-    if (!autoRun) showError("wifi failed");
-    return;
-  }
-  std::vector<String> bases, pending;
-  collectBases(bases);
-  for (size_t i = 0; i < bases.size(); i++)
-    if (noteHasAudio(bases[i]) && !SD_MMC.exists(notePath(bases[i], ".txt")))
-      pending.push_back(bases[i]);
-  int done = 0;
-  for (auto& base : pending) {
-    if (syncCancel) break;
-    drawSyncScreen(done, pending.size(), base);
-    String text;
-    if (transcribeFile(notePath(base, ".wav"), text)) {
-      File out = SD_MMC.open(notePath(base, ".txt"), "w");
-      if (out) { out.print(text); out.close(); }
-      done++;
-    }
-    delay(200);
-  }
-  /* Second half: push the notes to the owner's repo. Transcription and
-     publishing are one press because they are one intention - "make what is on
-     this device visible" - and whichever half is not configured is skipped
-     rather than treated as a failure. */
-  if (!syncCancel && syncConfigured()) {
-    drawSyncScreen(pending.size(), pending.size(), "publishing...");
-    std::vector<String> allBases;
-    collectBases(allBases);
-    std::vector<SyncNote> out;
-    for (auto& b : allBases) {
-      SyncNote n;
-      n.base = b;
-      n.tag  = tagOf(b);
-      n.secs = 0;
-      File tf = SD_MMC.open(notePath(b, ".txt"), "r");
-      if (tf) { n.transcript = tf.readString(); tf.close(); }
-      out.push_back(n);
-    }
-    todoLoad();
-    std::vector<SyncTodo> tds;
-    for (auto& t : todos) tds.push_back({t.text, t.done});
-    String perr;
-    if (!syncPublish(out, tds, perr) && !autoRun) {
-      staDisconnect();
-      state = prev;
-      if (prev == ST_SETTINGS) drawSettings(); else drawHome();
-      showError("publish: " + perr);
-      return;
-    }
-  }
-
-  time_t now = time(nullptr);
-  if (now > 1600000000) {
-    netSetU64("lastSync", (uint64_t)now);
-    /* NTP is the only source of truth the device gets. Hand it to the clock
-       chip so the next cold boot starts out knowing the date. */
-    rtcSaveSystemTime();
-  }
+  std::vector<SyncNote> notes;
+  std::vector<SyncTodo> todos;
+  gatherNotes(notes);
+  String err;
+  bool ok = syncPublish(notes, todos, err);
   staDisconnect();
-  state = prev;
-  if (prev == ST_SETTINGS) drawSettings();
-  else drawHome();
-  if (!syncCancel && done == 0 && !autoRun) {
-    /* full refresh: a partial one here has no base image behind it, which on
-       the real panel leaves ghosting rather than text */
-    uiTextCentered(188, "up to date", 1);
-    uiFlushFull();
-    delay(1500);
-    if (prev == ST_SETTINGS) drawSettings();
-    else drawHome();
-  }
-}
 
-static bool autoSyncTriedThisBoot = false;
-
-static void maybeAutoSync() {
-  uint32_t hrs = syncHours();
-  if (hrs == 0) return;
-  if (!netGet("ssid").length() || !netGet("api").length()) return;
-  time_t now = time(nullptr);
-  if (now < 1600000000) {
-    /* Clock isn't set yet - only NTP does that, and only a sync reaches NTP.
-       Without this the schedule could never start itself after a cold boot. */
-    if (autoSyncTriedThisBoot) return;
-    autoSyncTriedThisBoot = true;
+  if (ok) {
+    markAllSynced();
+    countNotes();
+    statusLine = "";
   } else {
-    uint64_t last = netGetU64("lastSync", 0);
-    if (now - (time_t)last < (time_t)hrs * 3600) return;
+    /* Whatever GitHub said, trimmed to what fits. Silence here once cost an
+       evening of guessing at a token that had the wrong permission. */
+    statusLine = err.length() ? err.substring(0, 24) : "sync failed";
   }
-  syncReturnTo = ST_HOME;
-  state = ST_HOME;
-  syncAll(true);
+  return ok;
 }
 
-static void deleteCurrentNote() {
-  const String base = noteList[noteRow];
-  SD_MMC.remove(notePath(base, ".wav"));
-  SD_MMC.remove(notePath(base, ".txt"));
-  SD_MMC.remove(notePath(base, ".tag"));
-  countRecordings();
-  refreshNoteList();
-  noteRow = -1;
-  confirmDelete = false;
-  state = ST_VIEW_LIST;
-  listTop = 0;
-  drawViewList();
+/* ---- USB ---------------------------------------------------------------
+   Deep sleep switches off the USB-Serial-JTAG peripheral, so a plugged-in
+   device drops off the bus and cannot be reflashed until somebody presses a
+   button. Asked once at boot, when a host is unambiguously awake: Windows
+   suspends a device no program has open, and a suspended bus sends nothing at
+   all, so asking later reads as "no USB" exactly when the answer needs to be
+   yes. */
+static bool bootedOnUsb = false;
+
+static bool usbSofSeen() {
+  USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
+  delay(4);
+  return USB_SERIAL_JTAG.int_raw.sof_int_raw != 0;
 }
+
+/* ---- sleep -------------------------------------------------------------- */
+
+static void sleepNow() {
+  bleStop();
+  /* Exactly the same screen it shows awake, so what it leaves on the glass is
+     what it wakes up to - byte for byte, not merely similar. */
+  statusLine = "";
+  drawScreen();
+  delay(300);
+  pwr.POWEER_Audio_OFF();
+  pwr.POWEER_EPD_OFF();
+  /* Either button wakes it. Only the top one does anything afterwards, but
+     waking on the button you happen to press is kinder than making people
+     learn which one is allowed to. */
+  esp_sleep_enable_ext1_wakeup(
+      (1ULL << BOOT_BUTTON_PIN) | (1ULL << PWR_BUTTON_PIN), ESP_EXT1_WAKEUP_ANY_LOW);
+  esp_deep_sleep_start();
+}
+
+/* ---- recording ---------------------------------------------------------- */
+
+/* Bluetooth is deliberately left running through a recording. Stopping and
+   restarting it around one would be worse than leaving it: bleStop only clears
+   the advertising flag, so the next bleBegin runs BLEDevice::init again,
+   builds a second server and service on top of the first, and starts another
+   bleTask. Every note would leak one. */
+static void startRecording() {
+  if (!recBegin()) { showMessage("MIC BUSY", "try again"); delay(1200); drawScreen(); return; }
+  recording = true;
+  drawRecordingMark(false);
+}
+
+static void stopRecording() {
+  recording = false;
+  String name = timestampName();
+  bool ok = recSave("/recordings/" + name);
+  drawRecordingMark(true);
+  delay(700);
+  if (!ok) {
+    showMessage("NOT SAVED", "card problem");
+    delay(1500);
+  }
+  countNotes();
+  trySync(false);
+  drawScreen();
+}
+
+/* ---- setup and loop ----------------------------------------------------- */
 
 void setup() {
   Serial.begin(115200);
@@ -1326,525 +334,92 @@ void setup() {
   analogSetAttenuation(ADC_11db);
   pwr.VBAT_POWER_ON();
   pwr.POWEER_EPD_ON();
-  /* The panel's rail is switched by a GPIO and needs time to come up. Init used
-     to run the instant it was asked for, and a panel that is not ready yet
-     holds BUSY high - which, before read_busy() had a timeout, hung setup()
-     forever with the previous image still on the glass. */
+  /* The panel's rail is switched by a GPIO and needs time to come up. A panel
+     that is not ready yet holds BUSY high, which used to hang setup() with the
+     previous image still on the glass. */
   delay(200);
 
   i2c = I2cMasterBus::requestInstance(ESP32_I2C_SCL_PIN, ESP32_I2C_SDA_PIN, ESP32_I2C_DEV_NUM);
   /* The clock kept running while the device was off. Ask it before anything
      needs a timestamp, so a note made before any sync still gets a real name. */
   if (rtcBegin()) rtcRestoreSystemTime();
-  /* Crypto is deliberately NOT started here. Deriving a key is 120,000 rounds
-     of PBKDF2 plus a curve multiply, and putting that in setup() meant the
-     device sat with a stale image on the glass, before the display was even
-     initialised, looking exactly like a hang. Nothing at boot needs a key:
-     it is set up the first time the Security screen is opened. */
   inputBegin();
+
   epd = new epaper_driver_display(EPD_WIDTH, EPD_HEIGHT,
-      {EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN, EPD_MOSI_PIN, EPD_SCK_PIN, EPD_SPI_NUM, EPD_WIDTH * EPD_HEIGHT / 8});
+      {EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN, EPD_MOSI_PIN, EPD_SCK_PIN,
+       EPD_SPI_NUM, EPD_WIDTH * EPD_HEIGHT / 8});
+  epd->EPD_Init();
   /* One retry: the rail coming up late is the likely reason a first attempt
      fails, and by the second the extra delay has usually settled it. */
-  /* Boot diagnostics, printed once. Deliberately not in any loop and never in
-     the button path: a write to the USB console can block until a host drains
-     it, and that is what froze the input task earlier. */
-  printf("[boot] busy level before init = %d (1 means busy or absent)\n",
-         gpio_get_level((gpio_num_t)EPD_BUSY_PIN));
-  epd->EPD_Init();
-  printf("[boot] panel responded first try: %s\n",
-         epd->panelResponded() ? "yes" : "NO");
   if (!epd->panelResponded()) {
     pwr.POWEER_EPD_OFF();
     delay(500);
     pwr.POWEER_EPD_ON();
     delay(600);
     epd->EPD_Init();
-    printf("[boot] after power-cycle retry: %s\n",
-           epd->panelResponded() ? "yes" : "NO");
-    printf("[boot] busy level now = %d\n", gpio_get_level((gpio_num_t)EPD_BUSY_PIN));
   }
   uiBegin(epd);
 
-  if (!SD_MMC.setPins(SDMMC_CLK_PIN, SDMMC_CMD_PIN, SDMMC_D0_PIN)) showError("sd pins rejected");
-  if (!SD_MMC.begin("/sdcard", true)) showError("no SD card");
+  SD_MMC.setPins(SDMMC_CLK_PIN, SDMMC_CMD_PIN, SDMMC_D0_PIN);
+  if (!SD_MMC.begin("/sdcard", true)) {
+    showMessage("NO SD CARD", "nothing can be saved");
+    delay(3000);
+  }
   SD_MMC.mkdir("/recordings");
-  SD_MMC.mkdir("/www");
+
   netBegin();
+  applyTimezone();
   pwr.POWEER_Audio_ON();
   audioReady();
-  countRecordings();
-  /* No first_boot_done key means this card/device has never been set up -
-     a fresh unit, or one that was just factory reset. Run the tour. */
-  /* The tour greets a new device again. What it must never do is trap anyone:
-     the first version ran automatically, demanded one specific button, and had
-     no exit - so a device whose button was not the one it wanted could not be
-     used at all. Now every screen takes either button, and a double-tap always
-     walks back and then out. */
-  if (!netHasKey("first_boot_done")) {
-    tourFromExtra = false;
-    walkStep = 0;
-    state = ST_WALKTHROUGH;
-    drawTourStep(walkStep);
-  } else {
-    drawHome();
+
+  /* One look for a USB host, while it is unambiguously awake. */
+  for (int i = 0; i < 8 && !bootedOnUsb; i++) {
+    if (usbSofSeen()) bootedOnUsb = true;
+    delay(120);
   }
+
+  countNotes();
+  drawScreen();
+
+  /* Bluetooth is how the website sets Wi-Fi and the token, and there is no
+     button to turn it on with. It runs whenever the device is awake. */
+  bleBegin();
+
+  trySync(true);
+  drawScreen();
   lastActivity = millis();
-  printf("[boot] setup complete - device is running\n");
-  if (state != ST_WALKTHROUGH) maybeAutoSync();
 }
 
 void loop() {
-  usbWatch();
-  const uint16_t ev = inputPoll();
+  uint16_t ev = inputPoll();
+
   if (ev & BTN_ANY_DOWN) lastActivity = millis();
 
-  /* Holding the bottom button means "off" from anywhere. Recording is the one
-     exception: losing a note because a thumb lingered would be the worst
-     possible failure, so a recording has to be stopped deliberately first. */
-  if ((ev & BTN_POWER_OFF) && state != ST_MAKE && state != ST_WALKTHROUGH) {
-    sleepNow();
+  /* The whole interface. */
+  if (ev & BTN_TOP_TAP) {
+    lastActivity = millis();
+    if (recording) stopRecording();
+    else           startRecording();
+  }
+
+  if (recording) {
+    if (recSeconds() >= MAX_NOTE_SECONDS) {
+      stopRecording();
+      showMessage("TWO MINUTES", "saved - that is the most");
+      delay(1600);
+      drawScreen();
+    }
+    delay(20);
     return;
   }
 
-  /* Clear accumulated ghosting during a lull rather than mid-navigation. Two
-     seconds without a press means nobody is scrolling, so the flash costs
-     nothing anyone is waiting on. Never while recording or playing - a full
-     refresh blocks for over two seconds and the audio tasks should not be
-     competing with the panel for that. */
-  if (state != ST_MAKE && !playActive() && !inputAnyHeld() &&
-      millis() - lastActivity > 2000 && uiGhostingDue()) {
-    uiClearGhosting();
+  /* Retry a failed or postponed sync now and then, so a device that comes back
+     into Wi-Fi range catches up without being touched. */
+  if (millis() - lastSyncTry > SYNC_RETRY_MS && syncedCount < totalCount) {
+    if (trySync(false)) drawScreen();
   }
 
-  switch (state) {
-    case ST_HOME:
-      if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD | BTN_BOT_HOLD)) {
-        if (soundOn()) beep();
-        selReset(5);
-        state = ST_MENU;
-        drawMenu();
-      }
-      if (millis() - lastActivity > 30000 && !inputAnyHeld() && !bootedOnUsb) sleepNow();
-      if (millis() - lastAutoCheck > 300000UL) { lastAutoCheck = millis(); maybeAutoSync(); }
-      break;
+  if (millis() - lastActivity > IDLE_SLEEP_MS && !inputAnyHeld() && !bootedOnUsb) sleepNow();
 
-    case ST_MENU:
-      /* The bottom button records from anywhere in the menu - the point of the
-         device is that catching a thought is one press, not four. */
-      if (ev & BTN_BOT_TAP) { if (soundOn()) beep(); startRecording(); break; }
-      if (ev & BTN_TOP_TAP)    { selNext(); drawMenu(); }
-      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) { state = ST_HOME; drawHome(); break; }
-      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
-        if (soundOn()) beep();
-        switch (sel) {
-          case 0:
-            if (voiceEnabled() && voiceHasTemplates() && !voiceOkThisWake) {
-              epd->EPD_Clear();
-              uiTextCentered(28, "SAY YOUR", 2);
-              uiTextCentered(56, "PHRASE", 2);
-              uiTextCentered(96, "after the beep", 1);
-              uiFlushFull();
-              if (soundOn()) beep();
-              delay(300);
-              epd->EPD_Clear();
-              uiTextCentered(70, "LISTENING", 3);
-              uiFlushFast(15);
-
-              float score = 0;
-              if (!voiceVerify(&score)) {
-                epd->EPD_Clear();
-                uiTextCentered(50, "NOT YOU", 2);
-                uiTextCentered(86, "or not the phrase", 1);
-                uiTextCentered(106, String(score, 1) + " vs " + String(voiceThreshold(), 1), 1);
-                uiTextCentered(134, "hold to try again", 1);
-                uiFlushFull();
-                delay(1800);
-                drawMenu();
-                break;
-              }
-              voiceOkThisWake = true;
-            }
-            viewTag = ""; selReset(5); state = ST_VIEW_TAGS; drawViewTags();
-            break;
-          case 1: startRecording(); break;
-          case 2: state = ST_BLE; drawBle(); break;
-          case 3: todoLoad(); todoTop = 0; selReset(todos.size()); state = ST_TODO; drawTodo(); break;
-          case 4: selReset(3); state = ST_SETTINGS; drawSettings(); break;
-        }
-      }
-      if (millis() - lastActivity > 60000 && !inputAnyHeld() && !bootedOnUsb) sleepNow();
-      break;
-
-    case ST_MAKE:
-      /* Nothing to repaint while it runs - the screen was drawn when
-         recording started and is not touched again until it stops. */
-      if (recSeconds() >= MAKE_MAX_SECONDS) { finishRecording(); break; }
-      /* The same button starts and stops, so a note costs one press each end. */
-      if (ev & (BTN_BOT_TAP | BTN_TOP_HOLD | BTN_TOP_DOUBLE)) finishRecording();
-      break;
-
-    case ST_TODO:
-      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_MENU; drawMenu(); break; }
-      if (todos.empty()) break;
-      if (ev & BTN_TOP_TAP)    { selNext(); selEnsureVisible(todoTop, LIST_ROWS); drawTodo(); }
-      if (ev & BTN_TOP_REPEAT) { selPrev(); selEnsureVisible(todoTop, LIST_ROWS); drawTodo(); }
-      if (ev & BTN_BOT_REPEAT) { selNext(); selEnsureVisible(todoTop, LIST_ROWS); drawTodo(); }
-      if (ev & BTN_TOP_HOLD) {
-        todos[sel].done = !todos[sel].done;
-        todoSave();
-        if (soundOn()) beep();
-        drawTodo();
-      }
-      break;
-
-    case ST_TAG:
-      if (ev & BTN_TOP_TAP)  { selNext(); drawTagScreen(); }
-      if (ev & BTN_TOP_HOLD) {
-        if (sel < 5) saveTag(TAGS[sel]);
-        if (soundOn()) beep();
-        state = ST_HOME;
-        drawHome();
-      }
-      if (ev & BTN_TOP_DOUBLE) { state = ST_HOME; drawHome(); }
-      break;
-
-    case ST_SETTINGS:
-      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_MENU; drawMenu(); break; }
-      if (ev & BTN_TOP_TAP)    { selNext(); drawSettings(); }
-      if (ev & BTN_TOP_HOLD) {
-        if (soundOn()) beep();
-        switch (sel) {
-          case 0: bleBegin(); state = ST_SET_WIFI; drawWifiScreen(); break;
-          case 1: confirmFree = false; state = ST_STORAGE; drawStorage(); break;
-          case 2: selReset(5); state = ST_EXTRA; drawExtra(); break;
-        }
-      }
-      break;
-
-    case ST_HOWTO:
-      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
-        howtoPage = 0; selReset(3); state = ST_SETTINGS; drawSettings();
-        break;
-      }
-      if (ev & (BTN_TOP_TAP | BTN_BOT_TAP | BTN_TOP_HOLD)) {
-        howtoPage = howtoPage ? 0 : 1;
-        drawHowTo();
-      }
-      break;
-
-    case ST_EXTRA:
-      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_SETTINGS; drawSettings(); break; }
-      if (ev & BTN_TOP_TAP)    { selNext(); drawExtra(); }
-      if (ev & BTN_TOP_HOLD) {
-        if (soundOn()) beep();
-        switch (sel) {
-          case 0: tourFromExtra = true; walkStep = 0; sel = 0; state = ST_WALKTHROUGH; drawTourStep(walkStep); break;
-          case 1: syncAll(false); break;
-          case 2: howtoPage = 0; state = ST_HOWTO; drawHowTo(); break;
-          case 3:
-            selReset(4);
-            state = ST_SECURITY;
-            if (!cryptoHasKey()) {
-              /* First visit: the keypair has to be made, and it is slow enough
-                 that saying nothing would look like a hang. */
-              epd->EPD_Clear();
-              uiTextCentered(60, "SETTING UP", 2);
-              uiTextCentered(90, "this takes a moment", 1);
-              uiFlushFull();
-              if (!cryptoBegin()) cryptoSetPin("1234");
-            }
-            drawSecurity();
-            break;
-          case 4: factoryStage = 0; selReset(2); state = ST_FACTORY; drawFactory(); break;
-        }
-      }
-      break;
-
-    case ST_BLE:
-      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
-        /* Leaving the screen stops the radio. Advertising quietly forever is
-           not something to leave running behind someone's back. */
-        bleStop();
-        selReset(3); state = ST_SETTINGS; drawSettings();
-        break;
-      }
-      if (ev & BTN_TOP_HOLD) {
-        if (bleAdvertising()) bleStop(); else bleBegin();
-        drawBle();
-      }
-      /* Redraw when the transfer moves on meaningfully - not every percent,
-         which would repaint the panel a hundred times per note. */
-      {
-        static int lastShown = -2;
-        static bool lastConn = false;
-        int p = bleProgress();
-        int bucket = p < 0 ? -1 : p / 10;
-        if (bleAdvertising() && (bucket != lastShown || bleConnected() != lastConn)) {
-          lastShown = bucket; lastConn = bleConnected();
-          drawBle();
-        }
-      }
-      break;
-
-    case ST_SECURITY:
-      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) { selReset(4); state = ST_EXTRA; drawExtra(); break; }
-      if (ev & BTN_TOP_TAP) { selNext(); drawSecurity(); }
-      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
-        if (sel == 0) {
-          if (cryptoUnlocked()) { cryptoLock(); drawSecurity(); }
-          else {
-            pinForChange = false; pinPos = 0; pinMessage = "";
-            for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
-            state = ST_PIN; drawPinEntry();
-          }
-        } else if (sel == 1) {
-          /* Changing the PIN re-derives the key, so the old one has to be
-             proven first - otherwise a thief could simply set their own. */
-          if (!cryptoUnlocked()) {
-            pinForChange = false; pinPos = 0; pinMessage = "unlock first";
-            for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
-            state = ST_PIN; drawPinEntry();
-          } else {
-            pinForChange = true; pinPos = 0; pinMessage = "";
-            for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
-            state = ST_PIN; drawPinEntry();
-          }
-        } else if (sel == 2) {
-          selReset(4); state = ST_VOICE; drawVoice("");
-        } else if (!cryptoUnlocked()) {
-          pinForChange = false; pinPos = 0; pinMessage = "unlock to test";
-          for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
-          state = ST_PIN; drawPinEntry();
-        } else {
-          state = ST_SELFTEST;
-          drawSelfTest("running...");
-          drawSelfTest(cryptoSelfTest());
-        }
-      }
-      break;
-
-    case ST_VOICE:
-      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) { selReset(4); state = ST_SECURITY; drawSecurity(); break; }
-      if (ev & BTN_TOP_TAP) { selNext(); drawVoice(""); }
-      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
-        if (sel == 0) {
-          runVoiceEnrol();
-        } else if (sel == 1) {
-          if (!voiceHasTemplates()) { drawVoice("train it first"); break; }
-          epd->EPD_Clear();
-          uiTextCentered(70, "LISTENING", 3);
-          uiFlushFast(15);
-          float score = 0;
-          bool pass = voiceVerify(&score);
-          /* The score is shown because the threshold cannot be guessed from
-             here - it wants setting against a real voice in a real room. */
-          drawVoice(String(pass ? "match " : "no match ") + String(score, 1) +
-                    " (limit " + String(voiceThreshold(), 1) + ")");
-        } else if (sel == 2) {
-          if (!voiceHasTemplates() && !voiceEnabled()) { drawVoice("train it first"); break; }
-          voiceSetEnabled(!voiceEnabled());
-          drawVoice("");
-        } else {
-          voiceForget();
-          drawVoice("forgotten");
-        }
-      }
-      break;
-
-    case ST_SELFTEST:
-      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE | BTN_TOP_HOLD)) {
-        selReset(4); state = ST_SECURITY; drawSecurity();
-      }
-      break;
-
-    case ST_PIN:
-      if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
-        selReset(4); state = ST_SECURITY; drawSecurity(); break;
-      }
-      if (ev & BTN_TOP_TAP) {
-        pinBuf[pinPos] = (char)('0' + ((pinBuf[pinPos] - '0' + 1) % 10));
-        drawPinEntry();
-      }
-      if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
-        pinPos++;
-        if (pinPos < pinLen) { drawPinEntry(); break; }
-        String pin = String(pinBuf).substring(0, pinLen);
-        pinPos = 0;
-        if (pinForChange) {
-          bool ok = cryptoSetPin(pin);
-          pinMessage = ok ? "" : "could not set";
-          selReset(4); state = ST_SECURITY; drawSecurity();
-        } else {
-          bool ok = cryptoUnlock(pin);
-          if (ok) { selReset(4); state = ST_SECURITY; drawSecurity(); }
-          else {
-            pinMessage = "wrong PIN";
-            for (int i = 0; i < pinLen; i++) pinBuf[i] = '0';
-            /* A pause after a wrong guess. It is the difference between a PIN
-               that takes minutes to brute-force by hand and one that takes
-               days, and it costs an honest user nothing. */
-            delay(2000);
-            drawPinEntry();
-          }
-        }
-      }
-      break;
-
-    case ST_FACTORY:
-      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_EXTRA; drawExtra(); break; }
-      if (ev & BTN_TOP_TAP)    { selNext(); drawFactory(); }
-      if (ev & BTN_TOP_HOLD) {
-        if (sel == 0) { selReset(5); state = ST_EXTRA; drawExtra(); }
-        else if (factoryStage == 0) { factoryStage = 1; selReset(2); drawFactory(); }
-        else doFactoryReset();
-      }
-      break;
-
-    case ST_WALKTHROUGH:
-      /* Gated: only a deliberate hold moves on, so no screen gets skipped. */
-      if (walkStep == TOUR_SOUND) {
-        if (ev & (BTN_TOP_TAP | BTN_BOT_TAP)) { sel = sel ? 0 : 1; drawTourStep(walkStep); }
-        if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD)) {
-          netSet("sound", sel == 0 ? "1" : "0");
-          if (soundOn()) beep();
-          walkStep++; sel = 0;
-          drawTourStep(walkStep);
-        }
-      } else {
-        if (ev & (BTN_TOP_DOUBLE | BTN_BOT_DOUBLE)) {
-          if (walkStep > 0) {
-            walkStep--; if (soundOn()) beep(); drawTourStep(walkStep);
-          } else {
-            /* Back from the first screen means "I do not want this" - honour
-               it, and do not ask again. Settings > Extra still has it. */
-            netSetBool("first_boot_done", true);
-            if (tourFromExtra) { tourFromExtra = false; selReset(5); state = ST_EXTRA; drawExtra(); }
-            else { state = ST_HOME; drawHome(); }
-          }
-        } else if (ev & (BTN_TOP_HOLD | BTN_BOT_HOLD | BTN_TOP_TAP | BTN_BOT_TAP)) {
-          walkStep++;
-          if (walkStep >= TOUR_STEPS) {
-            netSetBool("first_boot_done", true);
-            if (tourFromExtra) { tourFromExtra = false; selReset(5); state = ST_EXTRA; drawExtra(); }
-            else { state = ST_HOME; drawHome(); }
-          } else {
-            if (soundOn()) beep();
-            drawTourStep(walkStep);
-          }
-        }
-      }
-      break;
-
-    case ST_SET_WIFI:
-      if (ev & BTN_TOP_DOUBLE) { selReset(3); state = ST_SETTINGS; drawSettings(); }
-      break;
-
-    case ST_SYNC:
-      if (ev & (BTN_TOP_TAP | BTN_TOP_DOUBLE)) syncCancel = true;
-      break;
-
-    case ST_STORAGE:
-      if (ev & BTN_TOP_DOUBLE) { confirmFree = false; selReset(3); state = ST_SETTINGS; drawSettings(); break; }
-      if (ev & BTN_TOP_HOLD) {
-        if (confirmFree) { freeTranscribedAudio(); confirmFree = false; if (soundOn()) beep(); }
-        else confirmFree = true;
-        drawStorage();
-      }
-      break;
-
-    case ST_VIEW_TAGS:
-      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_MENU; drawMenu(); break; }
-      if (ev & BTN_TOP_TAP)    { selNext(); drawViewTags(); }
-      if (ev & BTN_TOP_HOLD) {
-        if (soundOn()) beep();
-        viewTag = TAGS[sel];
-        refreshNoteList();
-        listTop = 0; noteRow = -1;
-        selReset(noteList.size());
-        state = ST_VIEW_LIST;
-        drawViewList();
-      }
-      break;
-
-    case ST_VIEW_LIST:
-      if (ev & BTN_TOP_DOUBLE) { selReset(5); state = ST_VIEW_TAGS; drawViewTags(); break; }
-      if (noteList.empty()) break;
-      if (ev & BTN_TOP_TAP)    { selNext(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
-      if (ev & BTN_TOP_REPEAT) { selPrev(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
-      if (ev & BTN_BOT_REPEAT) { selNext(); selEnsureVisible(listTop, LIST_ROWS); drawViewList(); }
-      /* Play the highlighted note without opening it first. Hearing a note
-         back is the whole point of the list, and burying it behind "hold to
-         open, then find the right row, then hold again" is how a working
-         device comes to look broken. */
-      if (ev & BTN_BOT_TAP) {
-        if (playActive()) playStop();
-        else if (noteHasAudio(noteList[sel])) playFile(notePath(noteList[sel], ".wav"));
-        drawViewList();
-      }
-      if (ev & BTN_TOP_HOLD) {
-        if (soundOn()) beep();
-        noteRow = sel;
-        confirmDelete = false;
-        transcriptPage = 0;
-        loadTranscript(noteList[noteRow]);
-        selReset(2);
-        state = ST_VIEW_NOTE;
-        drawViewNote();
-      }
-      break;
-
-    case ST_VIEW_NOTE:
-      playPoll();
-      /* Playback runs in its own task now, so the screen has to notice when it
-         finishes on its own - otherwise the row keeps offering STOP for a note
-         that stopped playing a minute ago. */
-      {
-        static bool wasPlaying = false;
-        if (wasPlaying && !playActive()) { wasPlaying = false; drawViewNote(); }
-        else if (playActive()) wasPlaying = true;
-      }
-      if (ev & BTN_TOP_DOUBLE) {
-        playStop();
-        selReset(noteList.size());
-        sel = noteRow < 0 ? 0 : noteRow;
-        state = ST_VIEW_LIST;
-        drawViewList();
-        break;
-      }
-      /* Holds page the transcript here - top back, bottom forward - because
-         the two buttons on this screen are chosen by tapping, not holding. */
-      if (ev & BTN_TOP_REPEAT) {
-        if (transcriptPage > 0) { transcriptPage--; drawViewNote(); }
-      }
-      if (ev & BTN_BOT_REPEAT) {
-        int pages = ((int)transcriptLines.size() + NOTE_LINES - 1) / NOTE_LINES;
-        if (transcriptPage < pages - 1) { transcriptPage++; drawViewNote(); }
-      }
-      /* The bottom button plays and stops, with one plain press and no
-         selection to get right first. Holding to activate a highlighted row is
-         fine on a menu, but on the one screen where the obvious action is
-         "let me hear it", asking for a hold on the correct row is a way to
-         make a working device look broken. */
-      if (ev & BTN_BOT_TAP) {
-        if (playActive()) playStop();
-        else if (noteHasAudio(noteList[noteRow])) playFile(notePath(noteList[noteRow], ".wav"));
-        drawViewNote();
-      }
-      if (ev & BTN_TOP_TAP) { selNext(); confirmDelete = false; drawViewNote(); }
-      if (ev & BTN_TOP_HOLD) {
-        if (sel == 0) {
-          if (playActive()) { playStop(); if (soundOn()) beep(); }
-          else if (noteHasAudio(noteList[noteRow]) && playFile(notePath(noteList[noteRow], ".wav"))) {
-            if (soundOn()) beep();
-          }
-          drawViewNote();
-        } else {
-          if (confirmDelete) deleteCurrentNote();
-          else { confirmDelete = true; drawViewNote(); }
-        }
-      }
-      break;
-  }
-  delay(10);
+  delay(20);
 }
