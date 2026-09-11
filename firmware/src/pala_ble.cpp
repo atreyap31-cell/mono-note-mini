@@ -160,12 +160,10 @@ static void serveSettings() {
   j += "\"device\":\"" + syncDeviceId() + "\",";
   j += "\"ssid\":\"" + netGet("ssid") + "\",";
   j += "\"api\":\"" + netGet("api") + "\",";
-  j += "\"ghOwner\":\"" + netGet("ghOwner") + "\",";
-  j += "\"ghRepo\":\"" + netGet("ghRepo") + "\",";
   j += "\"syncHrs\":" + String(netGetU32("syncHrs", 4)) + ",";
   j += "\"sound\":" + String(netGet("sound", "1") == "1" ? "true" : "false") + ",";
   j += "\"hasWifiPass\":" + String(netGet("pass").length() ? "true" : "false") + ",";
-  j += "\"hasToken\":" + String(netGet("ghToken").length() ? "true" : "false") + ",";
+  j += "\"wps\":" + String(netWpsState()) + ",";
   j += "\"clock\":" + String((uint32_t)time(nullptr));
   j += "}";
   sendHeader(j.length());
@@ -187,9 +185,6 @@ static void applySetting(const String& kv) {
   if      (k == "ssid")    netSet("ssid", v);
   else if (k == "pass")    netSet("pass", v);
   else if (k == "api")     netSet("api", v);
-  else if (k == "ghOwner") netSet("ghOwner", v);
-  else if (k == "ghRepo")  netSet("ghRepo", v);
-  else if (k == "ghToken") netSet("ghToken", v);
   else if (k == "sound")   netSet("sound", v == "1" ? "1" : "0");
   else if (k == "syncHrs") {
     uint32_t h = (uint32_t)v.toInt();
@@ -230,6 +225,28 @@ static void serveConnect() {
   setStatus(ok ? "wi-fi ok" : "wi-fi failed");
 }
 
+/* Networks in range. Takes a couple of seconds, which is why it happens here
+   in the task and not in the write callback - blocking the Bluetooth stack for
+   the length of a scan drops the connection. */
+static void serveScan() {
+  setStatus("scanning");
+  String j = netScanJson();
+  sendHeader(j.length());
+  sendChunks((const uint8_t*)j.c_str(), j.length());
+  setStatus(connected ? "connected" : "waiting");
+}
+
+/* Starts WPS and answers immediately. Waiting for the router's button could
+   take a minute, and a reply that never comes is indistinguishable from a
+   dropped connection - the page polls the settings for the outcome instead. */
+static void serveWps() {
+  setStatus("push the router button");
+  bool started = netWpsStart();
+  const char* r = started ? "ok" : "no";
+  sendHeader(2);
+  sendChunks((const uint8_t*)r, 2);
+}
+
 static void bleTask(void*) {
   for (;;) {
     if (pending && connected) {
@@ -239,6 +256,8 @@ static void bleTask(void*) {
       else if (c.startsWith("S")) serveSettings();
       else if (c.startsWith("W")) applySetting(c.substring(1));
       else if (c.startsWith("C")) serveConnect();
+      else if (c.startsWith("N")) serveScan();
+      else if (c.startsWith("P")) serveWps();
       pending = false;
     }
     vTaskDelay(pdMS_TO_TICKS(20));

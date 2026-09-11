@@ -101,9 +101,10 @@ static void drawBatteryBar(int quarter) {
 }
 
 /* ---- counting what has gone up ------------------------------------------
-   syncPublish replaces this device's whole file every time, so after it
-   succeeds everything present is up. A marker file per note is what makes
-   that survive a reboot, and it is what the counter on screen reads. */
+   A marker file beside each note records that it reached the server. That is
+   what makes the count survive a reboot, and it is what the counter on screen
+   reads. Per note rather than all-or-nothing: a sync that gets three of seven
+   up shows three, and only the other four are tried again. */
 
 static bool isWav(const String& n) { return n.endsWith(".wav"); }
 
@@ -130,25 +131,6 @@ static void countNotes() {
     if (SD_MMC.exists("/recordings/" + baseOf(n) + ".synced")) syncedCount++;
   }
   dir.close();
-}
-
-static void markAllSynced() {
-  File dir = SD_MMC.open("/recordings");
-  if (!dir) return;
-  std::vector<String> bases;
-  File f;
-  while ((f = dir.openNextFile())) {
-    String n = f.name();
-    f.close();
-    if (isWav(n)) bases.push_back(baseOf(n));
-  }
-  dir.close();
-  for (size_t i = 0; i < bases.size(); i++) {
-    String p = "/recordings/" + bases[i] + ".synced";
-    if (SD_MMC.exists(p)) continue;
-    File m = SD_MMC.open(p, "w");
-    if (m) { m.print("1"); m.flush(); m.close(); }
-  }
 }
 
 /* ---- the screen ---------------------------------------------------------
@@ -210,32 +192,32 @@ static String timestampName() {
 
 /* ---- sync --------------------------------------------------------------- */
 
-static void gatherNotes(std::vector<SyncNote>& out) {
+static void unsyncedBases(std::vector<String>& out) {
   File dir = SD_MMC.open("/recordings");
   if (!dir) return;
   File f;
   while ((f = dir.openNextFile())) {
     String n = f.name();
-    size_t bytes = f.size();
     f.close();
     if (!isWav(n)) continue;
-    SyncNote note;
-    note.base = baseOf(n);
-    note.secs = bytes > 44 ? (uint32_t)((bytes - 44) / 32000) : 0;
-    File tf = SD_MMC.open("/recordings/" + note.base + ".txt", "r");
-    if (tf) { note.transcript = tf.readString(); tf.close(); }
-    out.push_back(note);
+    String b = baseOf(n);
+    if (!SD_MMC.exists("/recordings/" + b + ".synced")) out.push_back(b);
   }
   dir.close();
 }
 
-/* Returns true when something was actually published. Quiet about the ordinary
-   case of there being no Wi-Fi yet: that is the normal state of a device in a
-   pocket, not a fault worth putting on screen. */
+static void markSynced(const String& base) {
+  File m = SD_MMC.open("/recordings/" + base + ".synced", "w");
+  if (m) { m.print("1"); m.flush(); m.close(); }
+}
+
+/* Returns true when anything went up. Quiet about there being no Wi-Fi yet:
+   that is the normal state of a device in a pocket, not a fault worth putting
+   on screen. */
 static bool trySync(bool sayWhy) {
   lastSyncTry = millis();
   if (totalCount == 0 || syncedCount >= totalCount) return false;
-  if (!syncConfigured()) { if (sayWhy) statusLine = "set up on the website"; return false; }
+  if (!syncConfigured())            { if (sayWhy) statusLine = "set up on the website"; return false; }
   if (netGet("ssid").length() == 0) { if (sayWhy) statusLine = "no wi-fi set"; return false; }
 
   statusLine = "syncing...";
@@ -245,23 +227,22 @@ static bool trySync(bool sayWhy) {
     statusLine = sayWhy ? "no wi-fi" : "";
     return false;
   }
-  std::vector<SyncNote> notes;
-  std::vector<SyncTodo> todos;
-  gatherNotes(notes);
-  String err;
-  bool ok = syncPublish(notes, todos, err);
-  staDisconnect();
 
-  if (ok) {
-    markAllSynced();
-    countNotes();
-    statusLine = "";
-  } else {
-    /* Whatever GitHub said, trimmed to what fits. Silence here once cost an
-       evening of guessing at a token that had the wrong permission. */
-    statusLine = err.length() ? err.substring(0, 24) : "sync failed";
+  std::vector<String> todo;
+  unsyncedBases(todo);
+  int done = 0;
+  String err;
+  for (size_t i = 0; i < todo.size(); i++) {
+    if (syncUploadNote(todo[i], err)) { markSynced(todo[i]); done++; }
+    else break;                 /* the next will fail the same way */
   }
-  return ok;
+  staDisconnect();
+  countNotes();
+
+  /* Whatever went wrong, in the words the server or the stack used. Silence
+     here once cost an evening of guessing. */
+  statusLine = (done == (int)todo.size()) ? "" : (err.length() ? err.substring(0, 24) : "");
+  return done > 0;
 }
 
 /* ---- USB ---------------------------------------------------------------

@@ -18,6 +18,7 @@ import glob
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import tempfile
@@ -442,6 +443,72 @@ async def firmware_file(name: str) -> Response:
     if not f:
         raise HTTPException(status_code=404, detail=f"{name} has not been built")
     return Response(content=f.read_bytes(), media_type="application/octet-stream",
+                    headers={"Cache-Control": "no-store"})
+
+
+# Where notes from the device land. This replaced publishing to GitHub: that
+# needed an account, a repo and a write-capable token living in plaintext on a
+# device small enough to lose. The page is served from here anyway, so the
+# notes may as well be too - nothing leaves the machine, and there is no
+# credential to leak.
+NOTES_DIR = Path(os.getenv("NOTES_DIR", str(Path(__file__).resolve().parent / "notes")))
+
+
+def _safe_note_name(name: str) -> str:
+    """Device-supplied, so it decides a path on this disk. Anything but a plain
+    recording name is refused rather than sanitised - a caller sending '..' is
+    not making a typo."""
+    clean = os.path.basename(name).strip()
+    if not clean or clean != name.strip() or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="bad note name")
+    if not re.fullmatch(r"[A-Za-z0-9._-]{1,80}", clean):
+        raise HTTPException(status_code=400, detail="bad note name")
+    if not clean.endswith((".wav", ".txt")):
+        raise HTTPException(status_code=400, detail="only .wav and .txt")
+    return clean
+
+
+@app.post("/notes")
+async def put_note(file: UploadFile = File(...), name: str = Form(...)) -> dict[str, Any]:
+    """One note from the device. Called once per recording, and again for any
+    that failed earlier - the device keeps trying until this returns ok."""
+    clean = _safe_note_name(name)
+    NOTES_DIR.mkdir(parents=True, exist_ok=True)
+    dest = NOTES_DIR / clean
+    data = await file.read()
+    dest.write_bytes(data)
+    print(f"[notes] {clean}  {len(data)} bytes")
+    return {"ok": True, "name": clean, "bytes": len(data)}
+
+
+@app.get("/notes")
+async def list_notes() -> dict[str, Any]:
+    if not NOTES_DIR.is_dir():
+        return {"notes": []}
+    out = []
+    for wav in sorted(NOTES_DIR.glob("*.wav")):
+        txt = wav.with_suffix(".txt")
+        size = wav.stat().st_size
+        out.append({
+            "base": wav.stem,
+            "bytes": size,
+            # 16 kHz mono 16-bit, less the 44-byte header.
+            "secs": max(0, (size - 44) // 32000),
+            "at": int(wav.stat().st_mtime),
+            "transcript": txt.read_text(encoding="utf-8", errors="replace") if txt.exists() else "",
+        })
+    out.sort(key=lambda n: n["at"], reverse=True)
+    return {"notes": out}
+
+
+@app.get("/notes/{name}")
+async def get_note(name: str) -> Response:
+    clean = _safe_note_name(name)
+    f = NOTES_DIR / clean
+    if not f.exists():
+        raise HTTPException(status_code=404, detail="no such note")
+    kind = "audio/wav" if clean.endswith(".wav") else "text/plain"
+    return Response(content=f.read_bytes(), media_type=kind,
                     headers={"Cache-Control": "no-store"})
 
 

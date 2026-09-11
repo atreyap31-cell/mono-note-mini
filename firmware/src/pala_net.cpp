@@ -10,6 +10,8 @@
 #include <ArduinoJson.h>
 #include <esp_heap_caps.h>
 #include <vector>
+#include "esp_wps.h"
+#include "esp_wifi.h"
 
 static Preferences prefs;
 
@@ -139,3 +141,98 @@ bool transcribeFile(const String& wavPath, String& outText) {
   heap_caps_free(body);
   return ok;
 }
+
+
+/* ---- finding a network -------------------------------------------------
+   Typing a network name on a device with one button is impossible, and typing
+   it on the page means getting the spelling and the capitals exactly right for
+   something most people have never actually read. Scanning and offering the
+   list removes the question. */
+String netScanJson() {
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(false, false);
+  delay(100);
+  int n = WiFi.scanNetworks(false, false);
+  String out = "[";
+  /* Strongest first, and only the first of each name: mesh networks and
+     repeaters put the same SSID on screen three times otherwise. */
+  std::vector<String> seen;
+  bool first = true;
+  for (int i = 0; i < n && (int)seen.size() < 20; i++) {
+    String ssid = WiFi.SSID(i);
+    if (!ssid.length()) continue;
+    bool dup = false;
+    for (size_t k = 0; k < seen.size(); k++) if (seen[k] == ssid) { dup = true; break; }
+    if (dup) continue;
+    seen.push_back(ssid);
+
+    String esc = ssid;
+    esc.replace("\\", "\\\\");
+    esc.replace("\"", "\\\"");
+    if (!first) out += ",";
+    first = false;
+    out += "{\"ssid\":\"" + esc + "\",";
+    out += "\"rssi\":" + String(WiFi.RSSI(i)) + ",";
+    out += "\"lock\":" + String(WiFi.encryptionType(i) == WIFI_AUTH_OPEN ? "false" : "true") + "}";
+  }
+  out += "]";
+  WiFi.scanDelete();
+  return out;
+}
+
+/* ---- WPS ---------------------------------------------------------------
+   Push the button on the router and the router hands over the credentials.
+   The button is the proof you are standing next to it, so nothing has to be
+   typed and no password passes through the page at all.
+
+   The credentials land in the Wi-Fi driver's own store, which a factory reset
+   would clear without warning, so they are copied into preferences where the
+   rest of the settings live. */
+static volatile int wpsState = 0;      /* 0 idle, 1 running, 2 ok, 3 failed */
+
+static void wpsEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
+  switch (event) {
+    case ARDUINO_EVENT_WPS_ER_SUCCESS: {
+      esp_wifi_wps_disable();
+      wifi_config_t cfg;
+      if (esp_wifi_get_config(WIFI_IF_STA, &cfg) == ESP_OK) {
+        String ssid = String((const char*)cfg.sta.ssid);
+        String pass = String((const char*)cfg.sta.password);
+        if (ssid.length()) {
+          netSet("ssid", ssid);
+          netSet("pass", pass);
+        }
+      }
+      wpsState = 2;
+      break;
+    }
+    case ARDUINO_EVENT_WPS_ER_FAILED:
+    case ARDUINO_EVENT_WPS_ER_TIMEOUT:
+      esp_wifi_wps_disable();
+      wpsState = 3;
+      break;
+    default:
+      break;
+  }
+}
+
+bool netWpsStart() {
+  if (wpsState == 1) return true;            /* already waiting for the button */
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect(false, false);
+  delay(100);
+  WiFi.onEvent(wpsEvent);
+
+  esp_wps_config_t cfg = WPS_CONFIG_INIT_DEFAULT(WPS_TYPE_PBC);
+  strlcpy(cfg.factory_info.manufacturer, "Waveshare", sizeof(cfg.factory_info.manufacturer));
+  strlcpy(cfg.factory_info.model_name,   "Mono Note", sizeof(cfg.factory_info.model_name));
+  strlcpy(cfg.factory_info.model_number, "Mini",      sizeof(cfg.factory_info.model_number));
+  strlcpy(cfg.factory_info.device_name,  "Mono Note Mini", sizeof(cfg.factory_info.device_name));
+
+  if (esp_wifi_wps_enable(&cfg) != ESP_OK) { wpsState = 3; return false; }
+  if (esp_wifi_wps_start(0) != ESP_OK)     { esp_wifi_wps_disable(); wpsState = 3; return false; }
+  wpsState = 1;
+  return true;
+}
+
+int netWpsState() { return wpsState; }

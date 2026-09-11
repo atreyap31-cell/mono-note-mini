@@ -221,14 +221,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <div class="stack-row"><label class="eyebrow" for="voiceSelect">Read-aloud voice</label><select class="field" id="voiceSelect"></select></div>
   <div class="stack-row"><label class="eyebrow" for="tagsInput">Tag buttons (comma separated)</label><input class="field" id="tagsInput" type="text" placeholder="idea, reminder, task, journal"><p class="hint">Tap tags on a recording to file it. No typing per note.</p></div>
   
-  <div class="stack-row">
-    <label class="eyebrow">GitHub sync</label>
-    <div class="grid2"><input class="field" id="ghOwner" placeholder="owner (atreyap31-cell)"><input class="field" id="ghRepo" placeholder="repo (your-repo)"></div>
-    <div class="grid2"><input class="field" id="ghBranch" placeholder="branch (main)"><input class="field" id="ghPath" placeholder="path (data/notes.json)"></div>
-    <input class="field" id="ghToken" type="password" autocomplete="off" placeholder="Personal access token (Contents: read and write)">
-    <div class="check-row"><input type="checkbox" id="ghAuto"><label for="ghAuto">Auto-sync once per day while this page is open</label></div>
-    <p class="hint">Syncs one JSON file (names, tags, transcripts, to-dos) plus wav audio when under 8 MB. Larger wavs stay local. To edit on GitHub, change the JSON and increase its edited number.</p>
-    <div class="inline-actions"><span class="hint" id="lastSyncLabel" style="margin:0"></span><button class="btn" id="syncFromSettings">Sync now</button></div>
+  
   </div>
   <div class="stack-row"><span style="font-size:.86rem">Local storage</span><span class="hint" id="storageLine" style="margin:0"></span></div>
   <div class="dialog-actions"><button class="btn primary" id="closeSettings">Done</button></div>
@@ -246,7 +239,7 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
   <h2>Welcome — first boot</h2>
   <p>This looks like your very first time opening Mono Note Mini. Here's the 30-second tour — everything is black & white, paper-ruled, and yours alone.</p>
   <p><b>1</b> Tap <b>+ New note</b> or hit the mic to record — it saves instantly and appears in the list.<br><b>2</b> Click any note to edit the Courier transcript — it autosaves and lines up on the ruled paper.<br><b>3</b> Tap a <b>bubbly tag</b> in the top bar to filter, or tap a chip in the reader to file a note.<br><b>4</b> Use the search box to find anything by name, text, or tag.<br><b>5</b> Settings → Speech speed to change how fast it reads aloud, and Typewriter sounds to make typing feel nice.</p>
-  <p style="padding:10px 12px;background:var(--paper);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink)">Tip: your notes sync with wav audio (<8 MB) to GitHub when you set owner/repo/token in Settings → GitHub sync. No server needed for speaking or live transcription.</p>
+  <p style="padding:10px 12px;background:var(--paper);border:2px solid var(--ink);box-shadow:2px 2px 0 var(--ink)">Tip: the device posts each note to this machine as it records. Press <b>Sync now</b> to pull whatever is waiting.</p>
   <div class="dialog-actions"><button class="btn primary" id="closeFirstRun">Got it — start writing</button></div>
 </dialog>
 <dialog id="flashDialog" style="max-width:min(560px,92vw);border:2px solid var(--ink);background:var(--paper);color:var(--ink);padding:0">
@@ -278,20 +271,24 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
 
     <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Wi-Fi</h4>
     <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Lets the device sync and fetch the time on its own. It uses 2.4&nbsp;GHz networks.</p>
-    <input class="field" id="suSsid" placeholder="network name" autocomplete="off">
+    <div style="display:flex;gap:8px">
+      <select class="field" id="suSsidPick" style="flex:1"><option value="">— scan for networks —</option></select>
+      <button class="btn" id="suScan" type="button">Scan</button>
+    </div>
+    <input class="field" id="suSsid" placeholder="or type the name" autocomplete="off" style="margin-top:6px">
     <input class="field" id="suPass" type="password" placeholder="your wi-fi password" autocomplete="new-password" style="margin-top:6px">
+    <div style="margin-top:10px;padding:10px 12px;border:2px solid var(--ink)">
+      <div style="font-family:var(--mono);font-size:.66rem;letter-spacing:.1em;text-transform:uppercase">No password at all</div>
+      <p style="font-size:.78rem;opacity:.75;margin:6px 0 8px">Press the WPS button on your router within two minutes and it hands the device the network itself.</p>
+      <button class="btn" id="suWps" type="button">Use my router's button</button>
+      <div id="suWpsState" class="eyebrow" style="margin-top:8px"></div>
+    </div>
 
     <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Transcription</h4>
     <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Your own machine, running the server from this project. Blank turns it off.</p>
     <input class="field" id="suApi" placeholder="http://192.168.1.20:8000" autocomplete="off">
 
-    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Publish to a repo</h4>
-    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">So you can read notes when you are away from the device. Use a fine-grained token limited to that one repository, Contents: read and write.</p>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <input class="field" id="suOwner" placeholder="owner" autocomplete="off">
-      <input class="field" id="suRepo" placeholder="repo" autocomplete="off">
-    </div>
-    <input class="field" id="suToken" type="password" placeholder="github_pat_…" autocomplete="new-password" style="margin-top:6px">
+    
 
     <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Device</h4>
     <label style="display:flex;align-items:center;gap:10px;font-size:.85rem;margin:6px 0">
@@ -319,33 +316,10 @@ const PREF_KEY='pala-prefs-v2',TODO_KEY='pala-todos-v1',DB_NAME='squiggly-record
    different engine entirely, none of which anything could produce. */
 const PIPER_DEFAULT='en_GB-northern_english_male-medium';
 const VOICE_LABELS={'en_GB-northern_english_male-medium':'Northern English male'};
-const defaults={theme:'light',voice:PIPER_DEFAULT,tags:['idea','reminder','task','journal'],apiBase:'http://localhost:8000',ttsRate:1,gh:{owner:'',repo:'',branch:'main',path:'data/notes.json',token:'',auto:true},lastSync:0,typeSounds:false};
+const defaults={theme:'light',voice:PIPER_DEFAULT,tags:['idea','reminder','task','journal'],apiBase:'http://localhost:8000',ttsRate:1,lastSync:0,typeSounds:false};
 let prefs=Object.assign({},defaults,JSON.parse(localStorage.getItem(PREF_KEY)||'{}'));
-let savePrefsDeferred=false;
-prefs.gh=Object.assign({},defaults.gh,prefs.gh||{});
-/* One site, many people. The URL says whose notes to open, so a link can be
-   shared or bookmarked without anyone having to fill in settings first:
-     ?o=owner&r=repo            a repo, default path
-     ?d=mnm-1dd81ab0            a specific device's file in that repo
-     ?p=data/whatever.json      an explicit path, overriding ?d
-   Reading a public repo needs no token. A private one still does, and that
-   stays in this browser - it is never put in the URL, where it would end up in
-   history, bookmarks and every server log along the way. */
-(function readLink(){
-  const q=new URLSearchParams(location.search);
-  const o=q.get('o')||q.get('owner'), r=q.get('r')||q.get('repo');
-  const d=q.get('d')||q.get('device'), pth=q.get('p')||q.get('path'), b=q.get('b')||q.get('branch');
-  if(o) prefs.gh.owner=o.trim();
-  if(r) prefs.gh.repo=r.trim();
-  if(b) prefs.gh.branch=b.trim();
-  if(pth) prefs.gh.path=pth.replace(/^\/+/,'').trim();
-  else if(d && /^[A-Za-z0-9._-]+$/.test(d)) prefs.gh.path='data/'+d.trim()+'.json';
-  if(o||r||d||pth||b) savePrefsDeferred=true;
-})();
 if(!Array.isArray(prefs.tags)||!prefs.tags.length)prefs.tags=defaults.tags.slice();
 const savePrefs=()=>localStorage.setItem(PREF_KEY,JSON.stringify(prefs));
-/* A link that names a repo should still be there after a refresh. */
-if(savePrefsDeferred) savePrefs();
 const $=s=>document.querySelector(s);
 const uid=()=>crypto.randomUUID?crypto.randomUUID():'id-'+Date.now()+'-'+Math.random().toString(36).slice(2);
 const SUFFIX=/(?:\/(?:transcribe|tts|rewrite|chat))+\/?$/;
@@ -622,7 +596,7 @@ try{if(recognizer)recognizer.stop();}catch(_){}
 
 async function startRec(){
 if(!canRecord){
-showFeedback('Microphone unavailable','This browser cannot record here.','Browsers only allow the microphone over HTTPS or localhost. Open this page from GitHub Pages for recording and free live transcription, or import WAV files copied off the SD card.');
+showFeedback('Microphone unavailable','This browser cannot record here.','Browsers only allow the microphone over HTTPS or localhost. Open this page over HTTPS or from localhost to record here, or press Sync now to pull what the device has already recorded.');
 return;
 }
 try{
@@ -860,16 +834,16 @@ document.querySelectorAll('[data-sound]').forEach(button=>button.classList.toggl
 const tr=$('#ttsRate'); const rl=$('#ttsRateLabel'); if(tr){ tr.value=prefs.ttsRate||1; if(rl) rl.textContent=Number(prefs.ttsRate||1).toFixed(1)+'×'; }
 $('#voiceSelect').value=prefs.voice;
 $('#tagsInput').value=prefs.tags.join(', ');
-$('#ghOwner').value=prefs.gh.owner;$('#ghRepo').value=prefs.gh.repo;
-$('#ghBranch').value=prefs.gh.branch;$('#ghPath').value=prefs.gh.path;
-$('#ghToken').value=prefs.gh.token;$('#ghAuto').checked=!!prefs.gh.auto;
 updateSyncLabels();
 applySounds();
 }
 function updateSyncLabels(){
 const label=prefs.lastSync?'Last sync: '+new Date(prefs.lastSync).toLocaleString():'Never synced';
-$('#lastSyncLabel').textContent=label;
-$('#lastSyncTop').textContent=prefs.gh.owner&&prefs.lastSync?label.replace('Last sync: ','synced '):'';
+/* #lastSyncLabel sat in the settings dialog's GitHub block and went with it.
+   Called from openSettings, so an unguarded write here threw every time the
+   gear was pressed. */
+const inDialog=$('#lastSyncLabel'); if(inDialog) inDialog.textContent=label;
+$('#lastSyncTop').textContent=prefs.lastSync?label.replace('Last sync: ','synced '):'';
 }
 const openSettings=()=>{refreshSettings();if(!$('#settingsDialog').open)$('#settingsDialog').showModal();};
 $('#settingsBtn').onclick=openSettings;
@@ -882,15 +856,7 @@ $('#tagsInput').oninput=event=>{
 const tags=[...new Set(event.target.value.split(',').map(t=>t.trim().replace(/^#/,'')).filter(Boolean))];
 if(tags.length){prefs.tags=tags;savePrefs();}
 };
-['ghOwner','ghRepo','ghBranch','ghPath'].forEach(id=>{
-$('#'+id).oninput=event=>{
-const map={ghOwner:'owner',ghRepo:'repo',ghBranch:'branch',ghPath:'path'};
-prefs.gh[map[id]]=event.target.value.trim();
-savePrefs();
-};
-});
-$('#ghToken').oninput=event=>{prefs.gh.token=event.target.value.trim();savePrefs();};
-$('#ghAuto').onchange=event=>{prefs.gh.auto=event.target.checked;savePrefs();};
+
 
 async function loadVoices(){
   const sel=$('#voiceSelect'); if(!sel) return;
@@ -924,7 +890,7 @@ const wrap=$('#todoItems');
 wrap.replaceChildren();
 if(!todos.items.length){
 const p=document.createElement('p');p.className='empty';p.style.padding='14px 2px';
-p.textContent='No tasks yet. Add one above, or sync them from GitHub.';
+p.textContent='No tasks yet. Add one above.';
 wrap.append(p);
 return;
 }
@@ -972,123 +938,71 @@ const bytes=new Uint8Array(binary.length);
 for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
 return new TextDecoder().decode(bytes);
 }
-const ghContentsUrl=()=>{
-const g=prefs.gh;
-return 'https://api.github.com/repos/'+encodeURIComponent(g.owner)+'/'+encodeURIComponent(g.repo)+'/contents/'+g.path.split('/').filter(Boolean).map(encodeURIComponent).join('/');
-};
-async function fetchRemote(){
-const headers={'Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'};
-if(prefs.gh.token)headers.Authorization='Bearer '+prefs.gh.token;
-const response=await fetch(ghContentsUrl()+'?ref='+encodeURIComponent(prefs.gh.branch||'main'),{headers});
-if(response.status===404)return null;
-if(!response.ok){
-let detail='';
-try{detail=(await response.json()).message||'';}catch(_){}
-throw new Error('GitHub HTTP '+response.status+(detail?' \u00B7 '+detail:''));
-}
-return response.json();
-}
-async function pushPayload(text,sha){
-if(!prefs.gh.token)throw new Error('A personal access token is required to push.');
-const body={message:'Mono Note Mini sync '+new Date().toISOString(),content:utf8ToB64(text),branch:prefs.gh.branch||'main'};
-if(sha)body.sha=sha;
-const response=await fetch(ghContentsUrl(),{
-method:'PUT',
-headers:{'Accept':'application/vnd.github+json','Authorization':'Bearer '+prefs.gh.token},
-body:JSON.stringify(body)
-});
-if(!response.ok){
-let detail='';
-try{detail=(await response.json()).message||'';}catch(_){}
-throw new Error('Push HTTP '+response.status+(detail?' \u00B7 '+detail:''));
-}
-}
-async function mergeRemote(data){
-if(!data)return{pulled:0};
-let pulled=0;
-for(const remote of (data.notes||[])){
-if(!remote||!remote.id) continue;
-let local=items.find(i=>i.id===remote.id);
-let wavBlob=null;
-if(remote.wavData){
-try{ wavBlob=base64ToBlob(remote.wavData, 'audio/wav'); }catch(_){}
-}
-if(!local){
-const item={id:remote.id,name:remote.name||'Cloud note',created:remote.created||Date.now(),edited:remote.edited||0,blob:wavBlob,tags:Array.isArray(remote.tags)?remote.tags:[],transcript:remote.transcript||'',source:'',transcribedAt:0,duration:remote.duration||0,kind:remote.kind==='speech'?'speech':'recording'};
-items.push(item); await dbPut(item); pulled++;
-}else if((remote.edited||0)>(local.edited||0)){
-local.name=remote.name||local.name;
-local.tags=Array.isArray(remote.tags)?remote.tags:(local.tags||[]);
-if(typeof remote.transcript==='string')local.transcript=remote.transcript;
-if(remote.duration)local.duration=remote.duration;
-local.edited=remote.edited||local.edited;
-if(wavBlob){ local.blob=wavBlob; }
-await dbPut(local); pulled++;
-}else if(wavBlob && !local.blob){
-local.blob=wavBlob; await dbPut(local);
-}
-}
-if(Array.isArray(data.todos)&&(data.todosEdited||0)>todos.edited){
-todos={items:data.todos.map(task=>({id:task.id||uid(),text:String(task.text||''),done:!!task.done})),edited:data.todosEdited||todos.edited};
-localStorage.setItem(TODO_KEY,JSON.stringify(todos));
-renderTodos();
-}
-return{pulled};
-}
-async function buildPayload(){
-const notes=[];
-for(const item of items){
-let wavData=null;
-if(item.blob && item.blob.size && item.blob.size < 8*1024*1024){
-try{ wavData=await blobToBase64(item.blob); }catch(_){}
-}
-notes.push({id:item.id,name:item.name,created:item.created,edited:item.edited||0,tags:item.tags||[],transcript:item.transcript||'',duration:item.duration||0,kind:item.kind, wavData});
-}
-return{
-version:2,
-exportedAt:new Date().toISOString(),
-todosEdited:todos.edited,
-todos:todos.items.map(task=>({id:task.id,text:task.text,done:!!task.done})),
-notes
-};
-}
 let syncing=false;
+
+/* Notes now arrive from the machine that serves this page, not from a repo.
+   The device posts each one as it is recorded; this pulls whatever is there
+   and merges it into the local library.
+
+   What went away with GitHub: an account, a repository, a file path, a branch,
+   and a personal access token with write access to all of it, stored in plain
+   text both in this browser and on a device small enough to lose. */
 async function doSync(manual){
-if(syncing)return;
-if(!prefs.gh.owner||!prefs.gh.repo){
-if(manual)showFeedback('GitHub sync not configured','Enter your owner, repo, and file path in Settings.','Example: atreyap31-cell / your-repo / main / data/notes.json, plus a token with Contents read and write.');
-return;
+  if(syncing) return;
+  const base = apiBase();
+  if(!base){
+    if(manual) showFeedback('No server address','This page does not know where to fetch notes from.','Set the server address in Settings, then try again. It is usually http://localhost:8000.');
+    return;
+  }
+  syncing = true;
+  [$('#syncBtn'),$('#syncFromSettings')].forEach(b=>{ if(b){ b.disabled=true; b.textContent='Syncing…'; } });
+  setStatus('Fetching notes from the device…');
+  try{
+    const r = await fetch(apiUrl('notes'));
+    if(!r.ok) throw new Error('server said HTTP ' + r.status);
+    const remote = (await r.json()).notes || [];
+
+    let added = 0;
+    for(const n of remote){
+      if(items.some(it => it.source === 'device:' + n.base)) continue;
+      const audio = await fetch(apiUrl('notes/' + encodeURIComponent(n.base + '.wav')));
+      if(!audio.ok) continue;
+      const blob = await audio.blob();
+      const entry = {
+        id: uid(), name: n.base, created: (n.at||0)*1000 || Date.now(), edited: 0,
+        blob, tags: [], transcript: n.transcript || '', source: 'device:' + n.base,
+        transcribedAt: 0, duration: n.secs || 0, kind: 'recording'
+      };
+      await dbPut(entry);
+      items.push(entry);
+      added++;
+    }
+    prefs.lastSync = Date.now();
+    savePrefs();
+    updateSyncLabels();
+    setStatus(added ? ('Synced · ' + added + ' new note' + (added===1?'':'s') + '.')
+                    : 'Synced · nothing new.', false, true);
+    render();
+  }catch(error){
+    setStatus('Sync failed: ' + (error.message || error), true);
+    if(manual) showFeedback('Sync failed', String(error.message||error), 'Check the server is running and that the address in Settings points at it.');
+  }finally{
+    syncing = false;
+    [$('#syncBtn'),$('#syncFromSettings')].forEach(b=>{ if(b){ b.disabled=false; b.textContent='Sync now'; } });
+  }
 }
-syncing=true;
-[$('#syncBtn'),$('#syncFromSettings')].forEach(button=>{button.disabled=true;button.textContent='Syncingâ€¦';});
-setStatus('Syncing with GitHubâ€¦');
-try{
-const remote=await fetchRemote();
-let sha=null,data=null;
-if(remote){
-sha=remote.sha;
-try{data=JSON.parse(b64ToUtf8(remote.content));}catch(_){data=null;}
-}
-const{pulled}=await mergeRemote(data);
-const payload=await buildPayload();
-await pushPayload(JSON.stringify(payload,null,2),sha);
-prefs.lastSync=Date.now();
-savePrefs();
-updateSyncLabels();
-setStatus('Synced \u00B7 '+pulled+' pulled \u00B7 '+(items.length)+' notes and '+todos.items.length+' tasks pushed.',false,true);
-render();
-}catch(error){
-setStatus('Sync failed: '+(error.message||error),true);
-if(manual)showFeedback('GitHub sync failed',String(error.message||error),'Check owner, repo, branch, and path. The token needs Contents read and write. Pulling a public repo works without a token, but pushing never does.');
-}finally{
-syncing=false;
-[$('#syncBtn'),$('#syncFromSettings')].forEach(button=>{button.disabled=false;button.textContent='Sync now';});
-}
-}
-$('#syncBtn').onclick=$('#syncFromSettings').onclick=()=>doSync(true);
-function maybeAutoSync(){
-if(prefs.gh.auto&&prefs.gh.owner&&prefs.gh.repo&&prefs.gh.token&&Date.now()-(prefs.lastSync||0)>=DAY)doSync(false);
-}
+/* The settings dialog had its own Sync now beside the GitHub fields; it went
+   when they did. Anything that might not be on the page is bound one at a
+   time - assigning onclick straight onto a missing element throws, and a throw
+   at the top level of this script stops every definition after it, which is
+   how two buttons once silently did nothing at all. */
+['#syncBtn','#syncFromSettings'].forEach(sel=>{
+  const b = $(sel);
+  if(b) b.onclick = () => doSync(true);
+});
+
+/* Every half hour while the page is open, quietly. */
+function maybeAutoSync(){ if(apiBase() && Date.now()-(prefs.lastSync||0) >= 30*60*1000) doSync(false); }
 setInterval(maybeAutoSync,30*60*1000);
 
 applyTheme(); applySounds();
@@ -1357,13 +1271,14 @@ async function bleLoadSetup(){
   const s = await bleGetSettings();
   $('#suDevice').textContent = s.device || '—';
   $('#suSsid').value    = s.ssid || '';
+  /* 2 means WPS finished and saved a network, so the fields below are stale. */
+  if(s.wps === 2) $('#suWpsState').textContent = 'Joined ' + (s.ssid || 'a network') + ' by router button.';
+  else if(s.wps === 1) $('#suWpsState').textContent = 'Waiting for the router button…';
+  else if(s.wps === 3) $('#suWpsState').textContent = 'The router button was not pressed in time.';
   $('#suApi').value     = s.api || '';
-  $('#suOwner').value   = s.ghOwner || '';
-  $('#suRepo').value    = s.ghRepo || '';
   $('#suSync').value    = String(s.syncHrs ?? 4);
   $('#suSound').checked = s.sound !== false;
   $('#suPass').placeholder  = s.hasWifiPass ? 'unchanged' : 'your wi-fi password';
-  $('#suToken').placeholder = s.hasToken ? 'unchanged' : 'github_pat_…';
 
   const now = Math.floor(Date.now()/1000);
   const drift = s.clock ? Math.abs(now - s.clock) : 99999;
@@ -1380,9 +1295,6 @@ async function bleSaveSetup(){
   push('ssid', $('#suSsid').value.trim());
   if($('#suPass').value) push('pass', $('#suPass').value);
   push('api', $('#suApi').value.trim());
-  push('ghOwner', $('#suOwner').value.trim());
-  push('ghRepo', $('#suRepo').value.trim());
-  if($('#suToken').value) push('ghToken', $('#suToken').value);
   push('syncHrs', $('#suSync').value);
   push('sound', $('#suSound').checked ? '1' : '0');
 
@@ -1397,7 +1309,7 @@ async function bleSaveSetup(){
     bleSay('Saving ' + k + '… (' + (i+1) + ' of ' + jobs.length + ')');
     await bleSetSetting(k, v);
   }
-  $('#suPass').value = ''; $('#suToken').value = '';
+  $('#suPass').value = '';
   await bleLoadSetup();
 
   /* Ask the device to actually join, rather than reporting success for
@@ -1418,6 +1330,72 @@ async function bleSaveSetup(){
   }
   bleSay('Device configured.');
 }
+
+/* Scanning happens on the device - it is the thing that has to reach the
+   network, and it knows what it can actually see from where it is sitting. */
+const _suScan = document.getElementById('suScan');
+if(_suScan) _suScan.onclick = async () => {
+  const sel = $('#suSsidPick');
+  _suScan.disabled = true;
+  const was = _suScan.textContent;
+  _suScan.textContent = 'Scanning…';
+  try{
+    if(!bleIsConnected()) await bleConnect();
+    await bleSend('N');
+    const list = JSON.parse(new TextDecoder().decode(await bleReceive()));
+    sel.innerHTML = '<option value="">— pick a network —</option>';
+    for(const n of list){
+      const o = document.createElement('option');
+      o.value = n.ssid;
+      /* Signal as bars rather than dBm: -67 means nothing to most people. */
+      const bars = n.rssi > -55 ? '●●●' : n.rssi > -70 ? '●●' : '●';
+      o.textContent = n.ssid + '  ' + bars + (n.lock ? '' : '  (open)');
+      sel.append(o);
+    }
+    if(!list.length) sel.innerHTML = '<option value="">nothing in range</option>';
+  }catch(err){
+    bleSay(err.message || String(err), true);
+  }finally{
+    _suScan.disabled = false;
+    _suScan.textContent = was;
+  }
+};
+
+const _suPick = document.getElementById('suSsidPick');
+if(_suPick) _suPick.onchange = e => { if(e.target.value) $('#suSsid').value = e.target.value; };
+
+/* WPS answers straight away and finishes in its own time, so the outcome is
+   polled rather than waited for - a reply that takes a minute to arrive is
+   indistinguishable from a dropped connection. */
+const _suWps = document.getElementById('suWps');
+if(_suWps) _suWps.onclick = async () => {
+  const out = $('#suWpsState');
+  _suWps.disabled = true;
+  try{
+    if(!bleIsConnected()) await bleConnect();
+    await bleSend('P');
+    const r = new TextDecoder().decode(await bleReceive());
+    if(r !== 'ok') throw new Error('the device could not start WPS');
+    out.textContent = 'Press the WPS button on your router now…';
+    const until = Date.now() + 130000;
+    while(Date.now() < until){
+      await new Promise(r => setTimeout(r, 4000));
+      let st;
+      try{ st = await bleGetSettings(); }catch(_){ continue; }
+      if(st.wps === 2){
+        out.textContent = 'Joined ' + (st.ssid || 'the network') + '. Nothing else to enter.';
+        $('#suSsid').value = st.ssid || '';
+        return;
+      }
+      if(st.wps === 3){ out.textContent = 'No button pressed in time. Try again, or type the password.'; return; }
+    }
+    out.textContent = 'Gave up waiting. Try again, or type the password.';
+  }catch(err){
+    out.textContent = err.message || String(err);
+  }finally{
+    _suWps.disabled = false;
+  }
+};
 
 const _suSave = document.getElementById('suSave');
 if(_suSave) _suSave.onclick = async () => {

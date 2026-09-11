@@ -18,6 +18,18 @@ void netSetBool(const char* key, bool v);
 bool netGetBool(const char* key, bool def);
 void netClearAll();
 bool staConnect(uint32_t timeoutMs);
+
+/* Networks in range, as JSON: [{"ssid":"...","rssi":-54,"lock":true}]. Picking
+   from a list beats typing a name nobody remembers exactly. */
+String netScanJson();
+
+/* WPS push-button. The router's button is the second factor, so no password is
+   typed anywhere. Returns false if it could not be started at all; success
+   arrives later and is reported by netWpsState. */
+bool netWpsStart();
+
+/* 0 idle, 1 running, 2 joined and saved, 3 failed or timed out. */
+int netWpsState();
 void staDisconnect();
 bool transcribeFile(const String& wavPath, String& outText);
 
