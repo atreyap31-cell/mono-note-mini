@@ -302,19 +302,6 @@ body.sounds-on #recordBtn:hover{transform:translate(-2px,-2px) scale(1.08)}
       <option value="0">Off</option><option value="1">Every hour</option><option value="2">Every 2 hours</option>
       <option value="4">Every 4 hours</option><option value="8">Every 8 hours</option><option value="24">Once a day</option>
     </select>
-    <h4 style="font-family:var(--mono);font-size:.68rem;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 4px">Voice unlock</h4>
-    <p style="font-size:.78rem;opacity:.7;margin:0 0 8px">Say a phrase to open your notes instead of tapping out a PIN. Train it on the device itself — <b>Settings &rsaquo; Extra &rsaquo; Security &rsaquo; Voice</b> — then tune how fussy it is from here.</p>
-    <div id="suVoiceState" class="eyebrow" style="margin:6px 0">—</div>
-    <label style="display:flex;align-items:center;gap:10px;font-size:.85rem;margin:6px 0">
-      <input type="checkbox" id="suVoiceOn" style="width:18px;height:18px;accent-color:#000"> Ask for my phrase
-    </label>
-    <label style="display:block;font-family:var(--mono);font-size:.62rem;letter-spacing:.1em;text-transform:uppercase;opacity:.7;margin:10px 0 3px">How close a match it wants</label>
-    <div style="display:flex;gap:12px;align-items:center">
-      <input type="range" id="suVoiceThr" min="2" max="12" step="0.5" style="flex:1;accent-color:var(--ink)">
-      <span id="suVoiceThrLabel" class="eyebrow" style="min-width:56px;text-align:right"></span>
-    </div>
-    <p style="font-size:.78rem;opacity:.7;margin-top:6px">Lower is stricter. The device shows a score each time you use <b>Test it</b> — set this just above the scores you get, and below what someone else gets.</p>
-    <p style="font-size:.78rem;opacity:.7;margin-top:8px">Voice is a convenience. Your notes are encrypted with the PIN, so this never decides whether they can be read — only whether the device shows them to you.</p>
     <p style="font-size:.78rem;opacity:.7;margin-top:8px">The time zone and clock are set automatically from this browser whenever you save.</p>
   </div>
   <div style="border-top:2px solid var(--ink);padding:12px 16px;display:flex;gap:8px;align-items:center">
@@ -1375,13 +1362,6 @@ async function bleLoadSetup(){
   $('#suRepo').value    = s.ghRepo || '';
   $('#suSync').value    = String(s.syncHrs ?? 4);
   $('#suSound').checked = s.sound !== false;
-  $('#suVoiceOn').checked = !!s.voiceOn;
-  const thr = Number(s.voiceThr ?? 5.5);
-  $('#suVoiceThr').value = thr;
-  $('#suVoiceThrLabel').textContent = thr.toFixed(1);
-  $('#suVoiceState').textContent = s.voiceTrained
-    ? (s.voiceOn ? 'Trained, and asked for.' : 'Trained, but switched off.')
-    : 'Not trained yet — do that on the device first.';
   $('#suPass').placeholder  = s.hasWifiPass ? 'unchanged' : 'your wi-fi password';
   $('#suToken').placeholder = s.hasToken ? 'unchanged' : 'github_pat_…';
 
@@ -1405,8 +1385,6 @@ async function bleSaveSetup(){
   if($('#suToken').value) push('ghToken', $('#suToken').value);
   push('syncHrs', $('#suSync').value);
   push('sound', $('#suSound').checked ? '1' : '0');
-  push('voiceOn', $('#suVoiceOn').checked ? '1' : '0');
-  push('voiceThr', $('#suVoiceThr').value);
 
   /* The device has no clock of its own until something tells it, and this
      browser knows both the time and the offset. Send them every save; it is
@@ -1440,12 +1418,6 @@ async function bleSaveSetup(){
   }
   bleSay('Device configured.');
 }
-
-const _suThr = document.getElementById('suVoiceThr');
-if(_suThr) _suThr.oninput = e => {
-  const l = document.getElementById('suVoiceThrLabel');
-  if(l) l.textContent = Number(e.target.value).toFixed(1);
-};
 
 const _suSave = document.getElementById('suSave');
 if(_suSave) _suSave.onclick = async () => {
