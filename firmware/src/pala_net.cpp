@@ -3,12 +3,8 @@
 #include "pala_rtc.h"
 #include <sys/time.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <Preferences.h>
 #include <SD_MMC.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
-#include <esp_heap_caps.h>
 #include <vector>
 #include "esp_wps.h"
 #include "esp_wifi.h"
@@ -28,8 +24,10 @@ void applyTimezone() {
   tzset();
 }
 
-void netBegin() { prefs.begin("pala", false); applyTimezone(); if(!prefs.isKey("devpass")) prefs.putString("devpass","record123"); }
-String base64Encode(const String& s){ static const char tbl[]="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"; String out; out.reserve(((s.length()+2)/3)*4); for(size_t i=0;i<s.length();i+=3){ uint32_t v=(uint8_t)s[i]<<16 | (i+1<s.length()?(uint8_t)s[i+1]<<8:0) | (i+2<s.length()?(uint8_t)s[i+2]:0); out+=tbl[(v>>18)&63]; out+=tbl[(v>>12)&63]; out+=(i+1<s.length()?tbl[(v>>6)&63]:'='); out+=(i+2<s.length()?tbl[v&63]:'='); } return out; }
+/* devpass used to be the password on the device's own web server. That server
+   is gone, and nothing has read the key since - it was only still being
+   written. */
+void netBegin() { prefs.begin("pala", false); applyTimezone(); }
 
 String netGet(const char* key, const String& def) { return prefs.getString(key, def); }
 void netSet(const char* key, const String& value) { prefs.putString(key, value); }
@@ -98,49 +96,6 @@ static String netBaseOf(const String& fileName) {
   return n;
 }
 
-bool transcribeFile(const String& wavPath, String& outText) {
-  String api = netGet("api");
-  api.trim();
-  while (api.length() && api.endsWith("/")) api.remove(api.length() - 1);
-  if (!api.length() || WiFi.status() != WL_CONNECTED) return false;
-  File f = SD_MMC.open(wavPath, "r");
-  if (!f) return false;
-  size_t fileLen = f.size();
-  const char* boundary = "----pala7d91bnd";
-  String head = "--"; head += boundary;
-  head += "\r\nContent-Disposition: form-data; name=\"audio\"; filename=\"clip.wav\"\r\nContent-Type: audio/wav\r\n\r\n";
-  String tail = "\r\n--"; tail += boundary; tail += "--\r\n";
-  size_t bodyLen = head.length() + fileLen + tail.length();
-  uint8_t* body = (uint8_t*)heap_caps_malloc(bodyLen, MALLOC_CAP_SPIRAM);
-  if (!body) { f.close(); return false; }
-  memcpy(body, head.c_str(), head.length());
-  f.read(body + head.length(), fileLen);
-  f.close();
-  memcpy(body + head.length() + fileLen, tail.c_str(), tail.length());
-
-  WiFiClientSecure client;
-  client.setInsecure();
-  client.setTimeout(30);
-  HTTPClient http;
-  bool ok = false;
-  if (http.begin(client, api + "/transcribe")) {
-    http.setTimeout(60000);
-    http.addHeader("Content-Type", String("multipart/form-data; boundary=") + boundary);
-    int code = http.POST(body, bodyLen);
-    if (code == 200) {
-      String resp = http.getString();
-      JsonDocument doc;
-      if (!deserializeJson(doc, resp)) {
-        String t = doc["text"] | doc["content"] | doc["transcript"] | doc["result"] | "";
-        outText = t;
-        ok = outText.length() > 0;
-      }
-    }
-    http.end();
-  }
-  heap_caps_free(body);
-  return ok;
-}
 
 
 /* ---- finding a network -------------------------------------------------

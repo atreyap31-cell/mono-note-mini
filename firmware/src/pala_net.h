@@ -31,6 +31,5 @@ bool netWpsStart();
 /* 0 idle, 1 running, 2 joined and saved, 3 failed or timed out. */
 int netWpsState();
 void staDisconnect();
-bool transcribeFile(const String& wavPath, String& outText);
 
 #endif

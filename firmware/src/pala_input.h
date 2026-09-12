@@ -2,22 +2,20 @@
 #define PALA_INPUT_H
 #include <Arduino.h>
 
-/* Two buttons are the whole input device on this board - there is no touch
-   panel. The top button navigates; the bottom button records, scrolls down and
-   powers off.
-
-   Gestures, as the user asked for them:
-     top    tap         move to the next option
-     top    double tap  go back (and leave a scrolling view)
-     top    hold 1s     choose the highlighted option
-     top    hold        scroll up, repeating, on screens that scroll
-     bottom tap         start or stop recording
-     bottom hold        scroll down, repeating
-     bottom hold 5s     power off
-
-   The two meanings of a top hold - choose, and scroll up - never collide
-   because a screen is either a menu or a scrolling view, never both. The
-   screen decides which of the two it listens for. */
+/* Two buttons exist on this board, and the device uses one of them.
+ *
+ *   top    tap   start recording, or stop it
+ *   either -     wakes it from sleep, and does nothing else
+ *
+ * The rest of the gestures below - double tap, hold, the repeating scroll -
+ * are still detected because the layer was written for a device with menus.
+ * Nothing reads them now. They are cheap to leave and were expensive to get
+ * right, so they stay for whatever comes next rather than being deleted and
+ * rewritten from memory later.
+ *
+ * One rule about this file has not changed and must not: never print from the
+ * sampling task. A write to the USB console blocks until a host drains it,
+ * and that froze every button on the device for an evening. */
 
 enum BtnEvent : uint16_t {
   BTN_NONE          = 0,

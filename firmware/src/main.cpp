@@ -1,7 +1,8 @@
 /* Mono Note Mini - a recorder, and nothing else.
  *
  * One button. Press it to start, press it again to stop. The note is saved to
- * the card, and goes up to your repo the next time there is Wi-Fi.
+ * the card, and goes up to the machine that serves the website the next
+ * time there is Wi-Fi. No account, no repository, no token.
  *
  * There are no menus, no settings and no second button. Everything that used
  * to be on the device - browsing notes, tagging, to-dos, Wi-Fi setup, the PIN,

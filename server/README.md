@@ -8,7 +8,10 @@ put `http://<your-pc>:8000` in the device's API field and it works.
 
 | Route | What |
 |---|---|
-| `POST /transcribe` | multipart, field `audio` → `{"text": "..."}` — the device calls this |
+| `POST /transcribe` | multipart, field `audio` → `{"text": "..."}` |
+| `POST /notes` | multipart, fields `name` and `file` — the device posts each recording here |
+| `GET /notes` | what has arrived, newest first |
+| `GET /notes/<name>` | one recording or its transcript |
 | `POST /enrich` | `{"text": ...}` → `{"title", "tag", "todos"}` — the device's web page calls this |
 | `GET /health` | model, device, CUDA status |
 
@@ -99,9 +102,14 @@ New-NetFirewallRule -DisplayName "Mono Note Mini backend" -Direction Inbound `
 public Wi-Fi. Check your network is classified Private, or the rule will not
 apply.
 
-Then set the device's API field (Settings → Wi-Fi → the web form) to
-`http://<your-pc>:8000`. Sync sends each clip there and writes the transcript
-back to the card.
+Then set the device's address, on the web page under **Set up device over
+Bluetooth**, to `http://<your-pc>:8000`. The device posts each recording there
+as it is made, and retries the ones that did not get through.
+
+Notes land in `server/notes/`, which is gitignored — they are yours, not the
+project's. This replaced publishing to a GitHub repository, which needed an
+account, a repo and a write-capable token stored in plain text on a device
+small enough to lose.
 
 **Give the PC a static DHCP reservation** on your router. The device stores the
 API address in NVS, so if the PC's IP moves, sync quietly stops working.

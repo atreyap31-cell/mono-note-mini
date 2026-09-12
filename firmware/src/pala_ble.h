@@ -3,7 +3,7 @@
 #include <Arduino.h>
 
 /* Bluetooth transfer, so a browser next to the device can read its notes with
-   no Wi-Fi, no server, no GitHub account and nothing installed.
+   no Wi-Fi, no account and nothing installed.
 
    This is not audio streaming to a speaker - the ESP32-S3 has no Bluetooth
    Classic radio at all, so A2DP is impossible on this hardware at any firmware
