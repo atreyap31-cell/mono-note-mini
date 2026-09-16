@@ -14,18 +14,29 @@ static Preferences prefs;
 /* POSIX TZ strings run the opposite way round to everyone else: a zone two
    hours ahead of UTC is written "UTC-2". JS getTimezoneOffset already returns
    minutes behind UTC, so its sign is the one POSIX wants. */
+/* Two conventions meet here and they have opposite signs.
+ *
+ * What is stored is what a browser's getTimezoneOffset() reports: minutes WEST
+ * of UTC, so India is -330. POSIX TZ strings use the same inverted sign, which
+ * is why applyTimezone can hand the stored number straight to snprintf and get
+ * a correct "UTC-5:30" for a place that is five and a half hours ahead.
+ *
+ * Nobody thinks in minutes-west. These two functions speak minutes EAST, the
+ * way people say "UTC+5:30", and convert. Written without the conversion, the
+ * label showed the wrong sign and the + button moved the clock backwards. */
 int netTimezoneMinutes() {
   const uint32_t stored = netGetU32("tzmin", 0);
-  return stored ? (int)stored - 1000 : 0;
+  return stored ? -((int)stored - 1000) : 0;
 }
 
 bool netTimezoneSet() { return netGetU32("tzmin", 0) != 0; }
 
-void netSetTimezoneMinutes(int minutes) {
-  if (minutes < -720 || minutes > 840) return;
-  /* Offset when stored, so zero still means "never chosen" - UTC is itself a
-     legitimate answer and has to be distinguishable from silence. */
-  netSetU32("tzmin", (uint32_t)(minutes + 1000));
+void netSetTimezoneMinutes(int minutesEast) {
+  if (minutesEast < -720 || minutesEast > 840) return;
+  /* Negated on the way in, and offset by 1000 so that zero still means "never
+     chosen" - UTC is itself a legitimate answer and has to be distinguishable
+     from silence. */
+  netSetU32("tzmin", (uint32_t)(-minutesEast + 1000));
   applyTimezone();
 }
 

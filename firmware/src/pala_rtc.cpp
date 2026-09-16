@@ -45,6 +45,8 @@ bool rtcBegin() {
   return rtcPresent;
 }
 
+bool rtcChipFound() { return rtcPresent; }
+
 static bool readRaw(uint8_t buf[7]) {
   if (!rtcPresent) return false;
   return readRegs(PCF_SEC_REG, buf, 7);

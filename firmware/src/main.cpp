@@ -41,6 +41,7 @@
 #include "pala_sync.h"
 #include "pala_rtc.h"
 #include "pala_ble.h"
+#include "pala_usb.h"
 #include "logo_mn.h"
 #include "soc/usb_serial_jtag_struct.h"
 
@@ -58,7 +59,8 @@ static const char* SLEEP_LABELS[4]     = { "30 sec", "1 min", "3 min", "10 min" 
 enum Screen {
   SCR_LOCK, SCR_REC, SCR_NOTES, SCR_NOTE, SCR_TASKS,
   SCR_WIFI, SCR_WIFI_PASS, SCR_MORE, SCR_PASSCODE,
-  SCR_STORAGE, SCR_FACTORY, SCR_INTRO, SCR_BATTERY, SCR_TIME, SCR_DISPLAY
+  SCR_STORAGE, SCR_FACTORY, SCR_INTRO, SCR_BATTERY, SCR_TIME, SCR_DISPLAY,
+  SCR_USBDRIVE
 };
 
 static const char* TABS[] = { "NOTES", "RECORD", "TASKS", "WI-FI", "MORE" };
@@ -197,7 +199,7 @@ static void loadNotes() {
       if (notes[j].base < notes[j + 1].base) {
         Note t = notes[j]; notes[j] = notes[j + 1]; notes[j + 1] = t;
       }
-  notePager.perPage = 5;
+  notePager.perPage = 4;
   notePager.page = 0;
 }
 
@@ -279,6 +281,7 @@ static void markSynced(const String& base) {
 
 static bool syncAll(bool sayWhy) {
   lastSyncTry = millis();
+  if (usbDriveActive()) { if (sayWhy) statusLine = "card is on the computer"; return false; }
   if (totalCount == 0 || syncedCount >= totalCount) { if (sayWhy) statusLine = "nothing to send"; return false; }
   if (!syncConfigured())            { if (sayWhy) statusLine = "no server address"; return false; }
   if (netGet("ssid").length() == 0) { if (sayWhy) statusLine = "no wi-fi set"; return false; }
@@ -443,7 +446,10 @@ static void screenNotes(const UiTap& t) {
     return;
   }
 
-  const int top = UI_HEADER_H + 54, rowH = 52;
+  /* Four rows of 48 on a 54 pitch. Five of 52 put the last one at y=358,
+     which reached 410 - under a tab bar that starts at 408, and under the
+     pager as well. */
+  const int top = UI_HEADER_H + 54, rowH = 48;
   for (int i = 0; i < notePager.perPage; i++) {
     const int k = notePager.first() + i;
     if (k >= (int)show.size()) break;
@@ -456,7 +462,7 @@ static void screenNotes(const UiTap& t) {
       screen = SCR_NOTE;
     }
   }
-  uiPagerBar(t, notePager, LCD_HEIGHT - UI_TABBAR_H - 54);
+  uiPagerBar(t, notePager, LCD_HEIGHT - UI_TABBAR_H - 64);
 }
 
 static void screenNote(const UiTap& t) {
@@ -506,7 +512,7 @@ static void screenTasks(const UiTap& t) {
     dispTextCentered(180, "no tasks", TXT_BODY, COL_DIM);
     dispTextCentered(210, "add them from the website", TXT_SMALL, COL_DIM);
   }
-  const int top = UI_HEADER_H + 10, rowH = 54;
+  const int top = UI_HEADER_H + 10, rowH = 46;
   for (int i = 0; i < taskPager.perPage; i++) {
     const int idx = taskPager.first() + i;
     if (idx >= (int)tasks.size()) break;
@@ -520,7 +526,7 @@ static void screenTasks(const UiTap& t) {
       saveTasks();
     }
   }
-  uiPagerBar(t, taskPager, LCD_HEIGHT - UI_TABBAR_H - 56);
+  uiPagerBar(t, taskPager, LCD_HEIGHT - UI_TABBAR_H - 64);
 }
 
 static void screenWifi(const UiTap& t) {
@@ -553,7 +559,9 @@ static void screenWifi(const UiTap& t) {
     wifiPager.page = 0;
     wifiNote = wifiNames.empty() ? "nothing in range" : "";
   }
-  if (uiButton(t, LCD_WIDTH - UI_PAD - 210, 96, 210, 58, "ROUTER BUTTON", COL_DIM, false)) {
+  /* "ROUTER BUTTON" needed 234 pixels in a button with 194 of room, so it
+     was being drawn past its own edge. */
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 210, 96, 210, 58, "ROUTER WPS", COL_DIM, false)) {
     wifiNote = netWpsStart() ? "press WPS on the router" : "could not start WPS";
   }
 
@@ -561,7 +569,10 @@ static void screenWifi(const UiTap& t) {
   if (wps == 2) wifiNote = "joined by router button";
   else if (wps == 3) wifiNote = "router button not pressed in time";
 
-  const int top = 168, rowH = 50;
+  /* The space between the scan buttons (which end at 154) and the pager (at
+     344) is 190 pixels. Four rows on a 46 pitch is exactly what fits; the
+     first attempt at this started at 150 and ran into the buttons above it. */
+  const int top = 158, rowH = 40;
   for (int i = 0; i < wifiPager.perPage; i++) {
     const int idx = wifiPager.first() + i;
     if (idx >= (int)wifiNames.size()) break;
@@ -572,7 +583,7 @@ static void screenWifi(const UiTap& t) {
       screen = SCR_WIFI_PASS;
     }
   }
-  uiPagerBar(t, wifiPager, LCD_HEIGHT - UI_TABBAR_H - 56);
+  uiPagerBar(t, wifiPager, LCD_HEIGHT - UI_TABBAR_H - 64);
   if (wifiNote.length()) dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 96, wifiNote, TXT_SMALL, COL_AMBER);
 }
 
@@ -613,7 +624,7 @@ static void screenMore(const UiTap& t) {
      header and the tab bar. The previous layout put a full-width row and two
      buttons at the same y - they were drawn on top of each other, and since
      the row is hit-tested first, tapping BATTERY locked the device instead. */
-  const int H = 38, P = 42;
+  const int H = 34, P = 37;
   int y = UI_HEADER_H + 2;
 
   if (uiRow(t, y, H, ble ? "Bluetooth: on" : "Bluetooth: off",
@@ -662,6 +673,14 @@ static void screenMore(const UiTap& t) {
   if (uiRow(t, y, H, "Display and behaviour",
             SLEEP_LABELS[cfgSleep], COL_DIM)) {
     screen = SCR_DISPLAY;
+  }
+  y += P;
+  if (uiRow(t, y, H, "USB drive",
+            usbDriveActive() ? "open on the computer"
+              : (usbHostPresent() ? "plugged in" : "not plugged in"),
+            usbDriveActive() ? COL_GREEN : COL_DIM)) {
+    statusLine = "";
+    screen = SCR_USBDRIVE;
   }
   y += P;
   if (uiRow(t, y, H, "Lock now", "", COL_DIM)) {
@@ -806,7 +825,7 @@ static void screenStorage(const UiTap& t) {
     screen = SCR_MORE;
   }
   if (uiButton(t, LCD_WIDTH - UI_PAD - 180, LCD_HEIGHT - UI_TABBAR_H - 74, 180, 58,
-               "FACTORY RESET", COL_RED, false)) {
+               "RESET", COL_RED, false)) {
     factoryStage = 0;
     screen = SCR_FACTORY;
   }
@@ -877,6 +896,63 @@ static void screenIntro(const UiTap& t) {
     screen = SCR_REC;
 }
 
+/* The card, handed to whatever it is plugged into.
+ *
+ * This is the transfer method that needs nothing: no app, no pairing, no
+ * network, no account. It also cannot coexist with the device using its own
+ * card, so recording stops for as long as the host has it - stated on the
+ * screen rather than left to be discovered.
+ */
+static void screenUsbDrive(const UiTap& t) {
+  drawChrome("USB DRIVE");
+
+  if (!usbDriveActive()) {
+    dispTextCentered(104, "Show the card as a drive", TXT_BODY, COL_WHITE);
+    dispTextCentered(140, "on whatever this is plugged", TXT_SMALL, COL_DIM);
+    dispTextCentered(160, "into. No app, no pairing.", TXT_SMALL, COL_DIM);
+
+    if (!usbHostPresent()) {
+      dispTextCentered(210, "nothing plugged in", TXT_BODY, COL_AMBER);
+    } else if (!usbDriveAvailable()) {
+      dispTextCentered(210, "no card", TXT_BODY, COL_RED);
+    } else if (uiButton(t, UI_PAD, 196, LCD_WIDTH - UI_PAD * 2, 70,
+                        "HAND OVER THE CARD", COL_BLUE)) {
+      if (usbDriveBegin()) statusLine = "";
+      else statusLine = "could not start";
+    }
+    dispTextCentered(292, "recording stops while the", TXT_SMALL, COL_DIM);
+    dispTextCentered(312, "other machine has the card", TXT_SMALL, COL_DIM);
+  } else {
+    dispFillCircle(CX, 176, 58, COL_GREEN);
+    dispTextCentered(166, "OPEN", TXT_BODY, COL_WHITE);
+    dispTextCentered(256, "Your notes are a folder", TXT_BODY, COL_WHITE);
+    dispTextCentered(286, "in /recordings", TXT_SMALL, COL_DIM);
+    dispTextCentered(316, "eject it there first", TXT_SMALL, COL_AMBER);
+
+    if (uiButton(t, UI_PAD, 346, LCD_WIDTH - UI_PAD * 2, 62,
+                 "TAKE THE CARD BACK", COL_AMBER)) {
+      usbDriveEnd();
+      loadNotes();
+      loadTasks();
+      statusLine = "card back";
+    }
+  }
+
+  if (statusLine.length())
+    dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 38, statusLine, TXT_SMALL, COL_AMBER);
+
+  /* Below the hand-over button rather than across it. The two are in
+     opposite branches so they never drew together, but overlapping rectangles
+     are how the BATTERY button became unreachable, and leaving one in place
+     means the checker has to be argued with every time it runs. */
+  if (!usbDriveActive() &&
+      uiButton(t, LCD_WIDTH - UI_PAD - 150, 414, 150, 56,
+               "< BACK", COL_DIM, false)) {
+    statusLine = "";
+    screen = SCR_MORE;
+  }
+}
+
 /* Display and the handful of behaviours worth being able to change.
  *
  * Everything here is a preference rather than a feature: the device works with
@@ -891,7 +967,12 @@ static void screenDisplay(const UiTap& t) {
 
   /* Brightness, as five blocks rather than a slider: a slider on a touch panel
      wants dragging, and a drag that starts on a control is hard to tell from a
-     tap that missed. */
+     tap that missed.
+
+     check_layout cannot evaluate bx, so this row is the one thing it reports
+     as unchecked. Worked out by hand: bx = 470 - (5 - i) * 62 gives 160, 222,
+     284, 346 and 408, and the last block ends at 464 against a 480 panel. The
+     row below starts at y+48, clear of these at y+44. */
   dispText(UI_PAD, y + 12, "brightness", TXT_SMALL, COL_DIM);
   const int bw = 56;
   for (int i = 0; i < 5; i++) {
@@ -918,7 +999,7 @@ static void screenDisplay(const UiTap& t) {
     saveSettings();
   }
   y += P;
-  dispText(UI_PAD, y, "boosts contrast outdoors, costs battery", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD, y, "boosts contrast outdoors", TXT_SMALL, COL_DIM);
   y += 24;
 
   if (uiRow(t, y, H, "Stay awake on USB", cfgStayOnUsb ? "yes" : "no",
@@ -955,6 +1036,9 @@ static void screenTime(const UiTap& t) {
   dispTextCentered(96, clockNow(), TXT_HUGE, clockKnown() ? COL_WHITE : COL_DIM);
   dispTextCentered(168, dateNow(), TXT_BODY, clockKnown() ? COL_DIM : COL_AMBER);
 
+  dispText(UI_PAD, 196, rtcChipFound() ? "clock chip: found"
+                                       : "clock chip: NOT FOUND", TXT_SMALL,
+           rtcChipFound() ? COL_DIM : COL_RED);
   dispText(UI_PAD, 216, "time zone", TXT_SMALL, COL_DIM);
   dispTextCentered(244, tzLabel(), TXT_TITLE,
                    netTimezoneSet() ? COL_WHITE : COL_AMBER);
@@ -968,8 +1052,7 @@ static void screenTime(const UiTap& t) {
   /* Whole hours only. Offsets of 30 and 45 minutes exist, and can still be set
      exactly from the website over Bluetooth; handling them here would mean
      three controls instead of two arrows for a case most people never meet. */
-  dispTextCentered(300, "whole hours - the website can set any offset",
-                   TXT_SMALL, COL_DIM);
+  dispTextCentered(300, "whole hours only", TXT_SMALL, COL_DIM);
 
   if (uiButton(t, UI_PAD, 330, LCD_WIDTH - UI_PAD * 2, 60,
                "SET FROM THE INTERNET", COL_GREEN)) {
@@ -989,7 +1072,7 @@ static void screenTime(const UiTap& t) {
   if (statusLine.length())
     dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 40, statusLine, TXT_SMALL, COL_AMBER);
 
-  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, LCD_HEIGHT - UI_TABBAR_H - 74, 150, 58,
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, 414, 150, 56,
                "< BACK", COL_DIM, false)) {
     statusLine = "";
     screen = SCR_MORE;
@@ -1056,11 +1139,10 @@ static void screenBattery(const UiTap& t) {
 
 /* ---- USB, sleep --------------------------------------------------------- */
 
-static bool usbSofSeen() {
-  USB_SERIAL_JTAG.int_clr.sof_int_clr = 1;
-  delay(4);
-  return USB_SERIAL_JTAG.int_raw.sof_int_raw != 0;
-}
+/* Was a poke at the USB-Serial/JTAG peripheral's start-of-frame flag. That
+   peripheral is not the one in use now, so its registers read as nothing
+   whatever is plugged in - TinyUSB is asked instead. */
+static bool usbSofSeen() { return usbHostPresent(); }
 
 static void sleepNow() {
   playStop();
@@ -1078,6 +1160,10 @@ static void sleepNow() {
 /* ---- recording ---------------------------------------------------------- */
 
 static void startRecording() {
+  /* The host has the card. Writing to it from here at the same time is how a
+     filesystem gets corrupted, and the damage surfaces later as missing notes
+     rather than as an error anyone sees now. */
+  if (usbDriveActive()) { statusLine = "card is on the computer"; return; }
   /* A recording that loses power part way through is lost anyway, and writing
      to the card while the rail collapses is how a filesystem gets damaged
      rather than merely a file. Refusing is kinder than a corrupt card.
@@ -1214,6 +1300,7 @@ void loop() {
     case SCR_BATTERY:   screenBattery(tap); break;
     case SCR_TIME:      screenTime(tap);    break;
     case SCR_DISPLAY:   screenDisplay(tap); break;
+    case SCR_USBDRIVE:  screenUsbDrive(tap); break;
     default:            screenRecord(tap);   break;
   }
 
@@ -1227,7 +1314,7 @@ void loop() {
 
   if (screen != SCR_WIFI_PASS && screen != SCR_STORAGE
       && screen != SCR_FACTORY && screen != SCR_BATTERY && screen != SCR_TIME
-      && screen != SCR_DISPLAY) {
+      && screen != SCR_DISPLAY && screen != SCR_USBDRIVE) {
     const int hit = uiTabBar(tap, activeTab, TABS, 5);
     if (hit >= 0) {
       activeTab = hit;
@@ -1251,7 +1338,8 @@ void loop() {
   }
 
   if (millis() - lastActivity > SLEEP_CHOICES[cfgSleep] && !touchDown()
-      && !playActive() && !(bootedOnUsb && cfgStayOnUsb)) sleepNow();
+      && !playActive() && !usbDriveActive()
+      && !(bootedOnUsb && cfgStayOnUsb)) sleepNow();
 
   delay(20);
 }

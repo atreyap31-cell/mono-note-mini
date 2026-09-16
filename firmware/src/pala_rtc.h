@@ -29,4 +29,9 @@ bool rtcSaveSystemTime();
 /* True when the chip holds a time it believes in. */
 bool rtcHasTime();
 
+/* Whether the chip answered at all, as opposed to answering with nothing.
+   Worth telling apart on screen: a missing chip and a chip that has never been
+   set look identical from the outside, and only one of them is a fault. */
+bool rtcChipFound();
+
 #endif
