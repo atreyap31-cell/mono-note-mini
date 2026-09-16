@@ -52,7 +52,25 @@ void dispFillCircle(int cx, int cy, int r, uint16_t colour);
 void dispCircle(int cx, int cy, int r, uint16_t colour);
 void dispArc(int cx, int cy, int r, int thickness, float fromDeg, float toDeg, uint16_t colour);
 
-/* Text is drawn from the built-in font at integer scales. size 1 is 6x8. */
+/* Text is drawn from the built-in font at integer scales: size 1 is a 6x8
+   cell, so size N is 6N wide and 8N tall.
+
+   Sizes are named rather than written as numbers, because the numbers are
+   misleading on this panel. 480 pixels across a 2.16 inch diagonal is about
+   12.4 pixels per millimetre, so size 1 text stands 0.65mm tall - far below
+   anything readable at arm's length. Laid out by pixel count alone, which is
+   how the first pass was written, half the interface came out too small to
+   read and the rest inconsistent with it.
+
+   Roughly: TXT_SMALL is 1.3mm, TXT_BODY 1.9mm, TXT_TITLE 2.6mm. Body text
+   wants to be TXT_BODY or larger; TXT_SMALL is for genuinely secondary
+   labels, and nothing uses size 1 at all. */
+#define TXT_SMALL 2
+#define TXT_BODY  3
+#define TXT_TITLE 4
+#define TXT_BIG   6
+#define TXT_HUGE  8
+
 void dispText(int x, int y, const String& s, int size, uint16_t colour);
 void dispTextCentered(int y, const String& s, int size, uint16_t colour);
 int  dispTextWidth(const String& s, int size);

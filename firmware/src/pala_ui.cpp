@@ -9,48 +9,69 @@ bool uiButton(const UiTap& t, int x, int y, int w, int h,
               const String& label, uint16_t colour, bool filled) {
   dispRoundRect(x, y, w, h, 12, filled ? colour : COL_FAINT, true);
   if (!filled) dispRoundRect(x, y, w, h, 12, colour, false);
-  const int size = (h >= 56) ? 2 : 1;
+  const int size = (h >= 56) ? TXT_BODY : TXT_SMALL;
   const int tw = dispTextWidth(label, size);
   dispText(x + (w - tw) / 2, y + (h - 8 * size) / 2, label, size,
            filled ? COL_WHITE : colour);
   return uiHit(t, x, y, w, h);
 }
 
+/* Clip a label to the space it has. Wi-Fi names run to 32 characters and note
+   names are whatever the clock produced, so without this a long one simply
+   runs off the edge of the panel - and on a device with no console, a word
+   missing its end is the only sign anything went wrong. */
+static String clipTo(const String& s, int pixels, int size) {
+  const int per = 6 * size;
+  const int fits = pixels / per;
+  if (fits <= 0) return String("");
+  if ((int)s.length() <= fits) return s;
+  if (fits <= 2) return s.substring(0, fits);
+  return s.substring(0, fits - 2) + "..";
+}
+
 bool uiRow(const UiTap& t, int y, int h, const String& left, const String& right,
            uint16_t colour, bool selected) {
   const int x = UI_PAD, w = LCD_WIDTH - UI_PAD * 2;
   dispRoundRect(x, y, w, h, 10, selected ? COL_BLUE : 0x1082, true);
-  dispText(x + 14, y + (h - 16) / 2, left, 2, COL_WHITE);
+  /* The right-hand label is laid out first and keeps its room; the left is
+     given whatever is left over. */
+  const int rightW = right.length() ? dispTextWidth(right, TXT_SMALL) + 12 : 0;
+  dispText(x + 14, y + (h - 8 * TXT_BODY) / 2,
+           clipTo(left, w - 28 - rightW, TXT_BODY), TXT_BODY, COL_WHITE);
   if (right.length()) {
-    const int tw = dispTextWidth(right, 1);
-    dispText(x + w - 14 - tw, y + (h - 8) / 2, right, 1, colour);
+    const int tw = dispTextWidth(right, TXT_SMALL);
+    dispText(x + w - 14 - tw, y + (h - 8 * TXT_SMALL) / 2, right, TXT_SMALL, colour);
   }
   return uiHit(t, x, y, w, h);
 }
 
 void uiHeader(const String& title, const String& right) {
   dispFillRect(0, 0, LCD_WIDTH, UI_HEADER_H, COL_BLACK);
-  dispText(UI_PAD, 24, title, 2, COL_WHITE);
+  const int titleRoom = LCD_WIDTH - UI_PAD * 2 -
+                        (right.length() ? dispTextWidth(right, TXT_SMALL) + 16 : 0);
+  dispText(UI_PAD, (UI_HEADER_H - 8 * TXT_TITLE) / 2,
+           clipTo(title, titleRoom, TXT_TITLE), TXT_TITLE, COL_WHITE);
   if (right.length()) {
-    const int tw = dispTextWidth(right, 1);
-    dispText(LCD_WIDTH - UI_PAD - tw, 28, right, 1, COL_DIM);
+    const int tw = dispTextWidth(right, TXT_SMALL);
+    dispText(LCD_WIDTH - UI_PAD - tw, (UI_HEADER_H - 8 * TXT_SMALL) / 2, right,
+             TXT_SMALL, COL_DIM);
   }
-  dispFillRect(0, UI_HEADER_H - 2, LCD_WIDTH, 1, COL_FAINT);
+  dispFillRect(0, UI_HEADER_H - 2, LCD_WIDTH, TXT_SMALL, COL_FAINT);
 }
 
 int uiTabBar(const UiTap& t, int active, const char* const* labels, int count) {
   const int y = LCD_HEIGHT - UI_TABBAR_H;
   const int w = LCD_WIDTH / count;
   dispFillRect(0, y, LCD_WIDTH, UI_TABBAR_H, 0x0841);
-  dispFillRect(0, y, LCD_WIDTH, 1, COL_FAINT);
+  dispFillRect(0, y, LCD_WIDTH, TXT_SMALL, COL_FAINT);
   int hit = -1;
   for (int i = 0; i < count; i++) {
     const int x = i * w;
     const bool on = (i == active);
-    if (on) dispFillRect(x + 6, y + 4, w - 12, 3, COL_BLUE);
+    if (on) dispFillRect(x + 6, y + 4, w - 12, TXT_TITLE, COL_BLUE);
     const String label = labels[i];
-    const int tw = dispTextWidth(label, 1);
-    dispText(x + (w - tw) / 2, y + 32, label, 1, on ? COL_WHITE : COL_DIM);
+    const int tw = dispTextWidth(label, TXT_SMALL);
+    dispText(x + (w - tw) / 2, y + 28, label, TXT_SMALL, on ? COL_WHITE : COL_DIM);
     if (uiHit(t, x, y, w, UI_TABBAR_H)) hit = i;
   }
   return hit;
@@ -68,7 +89,7 @@ void uiBatteryPill(int x, int y, int pct, bool charging) {
     if (fill < 3) fill = 3;
     dispRoundRect(x + 3, y + 3, fill, h - 6, 3, colour, true);
   }
-  if (charging) dispText(x - 14, y + 8, "+", 1, COL_GREEN);
+  if (charging) dispText(x - 14, y + 8, "+", TXT_SMALL, COL_GREEN);
 }
 
 void uiPagerBar(const UiTap& t, UiPager& p, int y) {
@@ -78,7 +99,7 @@ void uiPagerBar(const UiTap& t, UiPager& p, int y) {
   if (uiButton(t, LCD_WIDTH - UI_PAD - bw, y, bw, h, ">", COL_BLUE, false)
       && p.page < p.pages() - 1) p.page++;
   String label = String(p.page + 1) + " / " + String(p.pages());
-  dispTextCentered(y + 16, label, 1, COL_DIM);
+  dispTextCentered(y + 16, label, TXT_SMALL, COL_DIM);
 }
 
 void uiField(int x, int y, int w, const String& text, const String& placeholder,
@@ -92,11 +113,11 @@ void uiField(int x, int y, int w, const String& text, const String& placeholder,
     else shown = text;
     /* Show the tail rather than the head: what was typed most recently is what
        somebody is checking. */
-    const int fits = (w - 24) / 12;
+    const int fits = (w - 24) / (6 * TXT_BODY);
     if ((int)shown.length() > fits) shown = shown.substring(shown.length() - fits);
-    dispText(x + 12, y + 15, shown, 2, COL_WHITE);
+    dispText(x + 12, y + (h - 8 * TXT_BODY) / 2, shown, TXT_BODY, COL_WHITE);
   } else {
-    dispText(x + 12, y + 18, placeholder, 1, COL_DIM);
+    dispText(x + 12, y + (h - 8 * TXT_SMALL) / 2, placeholder, TXT_SMALL, COL_DIM);
   }
 }
 
@@ -125,7 +146,8 @@ KeyResult uiKeyboard(const UiTap& t, int y, bool& shift, bool& symbols, char* ou
       const int kx = x0 + i * (kw + gap);
       dispRoundRect(kx, ry, kw, kh, 6, 0x2104, true);
       String ch = String(row[i]);
-      dispText(kx + (kw - 12) / 2, ry + (kh - 16) / 2, ch, 2, COL_WHITE);
+      dispText(kx + (kw - 6 * TXT_BODY) / 2, ry + (kh - 8 * TXT_BODY) / 2, ch,
+               TXT_BODY, COL_WHITE);
       if (uiHit(t, kx, ry, kw, kh)) { *out = row[i]; result = KEY_CHAR; }
     }
   }
@@ -167,13 +189,15 @@ KeyResult uiKeypad(const UiTap& t, int y, char* out) {
     const int ky = y + (i / 3) * (kh + gap);
     dispRoundRect(kx, ky, kw, kh, 10, 0x2104, true);
     String ch = String(keys[i]);
-    dispText(kx + (kw - 18) / 2, ky + (kh - 24) / 2, ch, 3, COL_WHITE);
+    dispText(kx + (kw - 6 * TXT_BIG) / 2, ky + (kh - 8 * TXT_BIG) / 2, ch,
+             TXT_BIG, COL_WHITE);
     if (uiHit(t, kx, ky, kw, kh)) { *out = keys[i]; result = KEY_CHAR; }
   }
   const int by = y + 3 * (kh + gap);
   if (uiButton(t, x0, by, kw, kh, "del", COL_AMBER, false)) result = KEY_BACKSPACE;
   dispRoundRect(x0 + kw + gap, by, kw, kh, 10, 0x2104, true);
-  dispText(x0 + kw + gap + (kw - 18) / 2, by + (kh - 24) / 2, "0", 3, COL_WHITE);
+  dispText(x0 + kw + gap + (kw - 6 * TXT_BIG) / 2, by + (kh - 8 * TXT_BIG) / 2, "0",
+           TXT_BIG, COL_WHITE);
   if (uiHit(t, x0 + kw + gap, by, kw, kh)) { *out = '0'; result = KEY_CHAR; }
   if (uiButton(t, x0 + 2 * (kw + gap), by, kw, kh, "ok", COL_GREEN, true)) result = KEY_ENTER;
   return result;

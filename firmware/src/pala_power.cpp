@@ -35,3 +35,9 @@ int powerPercent() {
 
 bool powerCharging()  { return ready && pmu.isCharging(); }
 int  powerMillivolts(){ return ready ? pmu.getBattVoltage() : 0; }
+
+bool  powerBatteryPresent()    { return ready && pmu.isBatteryConnect(); }
+bool  powerUsbPresent()        { return ready && pmu.isVbusIn(); }
+int   powerUsbMillivolts()     { return ready ? pmu.getVbusVoltage() : 0; }
+int   powerSystemMillivolts()  { return ready ? pmu.getSystemVoltage() : 0; }
+float powerTemperatureC()      { return ready ? pmu.getTemperature() : 0.0f; }

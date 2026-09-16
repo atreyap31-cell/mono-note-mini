@@ -52,7 +52,7 @@
 enum Screen {
   SCR_LOCK, SCR_REC, SCR_NOTES, SCR_NOTE, SCR_TASKS,
   SCR_WIFI, SCR_WIFI_PASS, SCR_MORE, SCR_PASSCODE,
-  SCR_STORAGE, SCR_FACTORY, SCR_INTRO
+  SCR_STORAGE, SCR_FACTORY, SCR_INTRO, SCR_BATTERY
 };
 
 static const char* TABS[] = { "NOTES", "RECORD", "TASKS", "WI-FI", "MORE" };
@@ -304,14 +304,14 @@ static void screenRecord(const UiTap& t) {
     dispArc(CX, cy, r, 7, -90.0f, -90.0f + 360.0f * frac,
             frac > 0.9f ? COL_AMBER : COL_RED);
     dispFillCircle(CX, cy, 62, COL_RED);
-    dispTextCentered(cy - 12, mmss(secs), 3, COL_WHITE);
-    dispTextCentered(cy + 22, "TAP TO STOP", 1, COL_WHITE);
-    dispTextCentered(330, "recording", 2, COL_RED);
+    dispTextCentered(cy - 12, mmss(secs), TXT_TITLE, COL_WHITE);
+    dispTextCentered(cy + 22, "TAP TO STOP", TXT_SMALL, COL_WHITE);
+    dispTextCentered(330, "recording", TXT_BODY, COL_RED);
   } else {
     dispBitmap1(CX - LOGO_W / 2, 92, LOGO_W, LOGO_H, LOGO_MN, COL_WHITE);
     dispFillCircle(CX, 232, 72, COL_BLUE);
-    dispTextCentered(220, "TAP TO", 2, COL_WHITE);
-    dispTextCentered(242, "RECORD", 2, COL_WHITE);
+    dispTextCentered(220, "TAP TO", TXT_BODY, COL_WHITE);
+    dispTextCentered(242, "RECORD", TXT_BODY, COL_WHITE);
 
     String counter;
     uint16_t colour;
@@ -320,7 +320,14 @@ static void screenRecord(const UiTap& t) {
     else { counter = String(syncedCount) + " of " + String(totalCount) + " synced";
            colour = COL_AMBER; }
     dispTextCentered(324, counter, 2, colour);
-    if (statusLine.length()) dispTextCentered(350, statusLine, 1, COL_DIM);
+    const int pct = powerPercent();
+    if (pct >= 0 && pct < POWER_WARN_PCT && !powerCharging()) {
+      dispTextCentered(350, pct < POWER_TOO_LOW_PCT ? "battery too low to record"
+                                                    : "battery low - charge soon",
+                       1, pct < POWER_TOO_LOW_PCT ? COL_RED : COL_AMBER);
+    } else if (statusLine.length()) {
+      dispTextCentered(350, statusLine, TXT_SMALL, COL_DIM);
+    }
   }
 }
 
@@ -394,7 +401,7 @@ static void screenNote(const UiTap& t) {
     return;
   }
 
-  dispText(UI_PAD, 176, "tag", 1, COL_DIM);
+  dispText(UI_PAD, 176, "tag", TXT_SMALL, COL_DIM);
   const String cur = tagOf(openNote);
   const int bw = (LCD_WIDTH - UI_PAD * 2 - 4 * 6) / 5;
   for (int i = 0; i < 5; i++) {
@@ -410,7 +417,7 @@ static void screenNote(const UiTap& t) {
     }
   }
 
-  if (playError()) dispTextCentered(266, String("playback: ") + playError(), 1, COL_RED);
+  if (playError()) dispTextCentered(266, String("playback: ") + playError(), TXT_SMALL, COL_RED);
 
   if (uiButton(t, UI_PAD, LCD_HEIGHT - UI_TABBAR_H - 74, 180, 58, "< BACK", COL_DIM, false)) {
     playStop();
@@ -421,8 +428,8 @@ static void screenNote(const UiTap& t) {
 static void screenTasks(const UiTap& t) {
   drawChrome("TASKS");
   if (tasks.empty()) {
-    dispTextCentered(180, "no tasks", 2, COL_DIM);
-    dispTextCentered(210, "add them from the website", 1, COL_DIM);
+    dispTextCentered(180, "no tasks", TXT_BODY, COL_DIM);
+    dispTextCentered(210, "add them from the website", TXT_SMALL, COL_DIM);
   }
   const int top = UI_HEADER_H + 10, rowH = 54;
   for (int i = 0; i < taskPager.perPage; i++) {
@@ -450,7 +457,7 @@ static void screenWifi(const UiTap& t) {
 
   if (uiButton(t, UI_PAD, 96, 210, 58, "SCAN", COL_BLUE)) {
     wifiNote = "scanning...";
-    dispTextCentered(300, wifiNote, 2, COL_DIM);
+    dispTextCentered(300, wifiNote, TXT_BODY, COL_DIM);
     dispShow();
     String js = netScanJson();
     wifiNames.clear();
@@ -491,14 +498,14 @@ static void screenWifi(const UiTap& t) {
     }
   }
   uiPagerBar(t, wifiPager, LCD_HEIGHT - UI_TABBAR_H - 56);
-  if (wifiNote.length()) dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 96, wifiNote, 1, COL_AMBER);
+  if (wifiNote.length()) dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 96, wifiNote, TXT_SMALL, COL_AMBER);
 }
 
 static void screenWifiPass(const UiTap& t) {
   dispClear(COL_BLACK);
   uiHeader(wifiPick.length() > 18 ? wifiPick.substring(0, 18) : wifiPick);
   uiField(UI_PAD, 72, LCD_WIDTH - UI_PAD * 2, wifiPass, "wi-fi password", false);
-  if (wifiNote.length()) dispTextCentered(126, wifiNote, 1, COL_AMBER);
+  if (wifiNote.length()) dispTextCentered(126, wifiNote, TXT_SMALL, COL_AMBER);
 
   char ch = 0;
   const KeyResult k = uiKeyboard(t, 152, kbShift, kbSyms, &ch);
@@ -511,7 +518,7 @@ static void screenWifiPass(const UiTap& t) {
     netSet("ssid", wifiPick);
     netSet("pass", wifiPass);
     wifiNote = "joining...";
-    dispTextCentered(126, wifiNote, 1, COL_AMBER);
+    dispTextCentered(126, wifiNote, TXT_SMALL, COL_AMBER);
     dispShow();
     const bool ok = staConnect(20000);
     wifiNote = ok ? "joined" : "wrong password, or out of range";
@@ -538,7 +545,7 @@ static void screenMore(const UiTap& t) {
        whole interface is frozen while it does. Say so before starting, or the
        tap looks like it did nothing at all. */
     statusLine = "working...";
-    dispTextCentered(352, statusLine, 1, COL_AMBER);
+    dispTextCentered(352, statusLine, TXT_SMALL, COL_AMBER);
     dispShow();
     syncAll(true);
   }
@@ -564,10 +571,12 @@ static void screenMore(const UiTap& t) {
     factoryStage = 0;
     screen = SCR_FACTORY;
   }
+  if (uiButton(t, UI_PAD, 344, 140, 58, "BATTERY", COL_BLUE, false)) {
+    screen = SCR_BATTERY;
+  }
   if (statusLine.length())
-    dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 42, statusLine, 1, COL_AMBER);
-  dispText(UI_PAD, LCD_HEIGHT - UI_TABBAR_H - 24,
-           syncDeviceId() + "   " + String(powerMillivolts()) + " mV", 1, COL_DIM);
+    dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 42, statusLine, TXT_SMALL, COL_AMBER);
+  dispText(UI_PAD, LCD_HEIGHT - UI_TABBAR_H - 24, syncDeviceId(), TXT_SMALL, COL_DIM);
 }
 
 /* The passcode screen does three jobs: unlocking, choosing one on first use,
@@ -579,9 +588,9 @@ static void screenPasscode(const UiTap& t) {
   const uint32_t penalty = lockPenaltyMs();
   if (penalty && millis() < codeBlockedUntil) {
     const uint32_t left = (codeBlockedUntil - millis()) / 1000;
-    dispTextCentered(180, "TOO MANY TRIES", 2, COL_RED);
-    dispTextCentered(230, "wait " + String(left + 1) + "s", 2, COL_DIM);
-    dispTextCentered(280, String(lockFailures()) + " wrong attempts", 1, COL_DIM);
+    dispTextCentered(180, "TOO MANY TRIES", TXT_BODY, COL_RED);
+    dispTextCentered(230, "wait " + String(left + 1) + "s", TXT_BODY, COL_DIM);
+    dispTextCentered(280, String(lockFailures()) + " wrong attempts", TXT_SMALL, COL_DIM);
     return;
   }
 
@@ -592,8 +601,8 @@ static void screenPasscode(const UiTap& t) {
   else if (codeStage == 2) title = "CONFIRM IT";
   else title = "PASSCODE";
 
-  dispTextCentered(26, title, 2, COL_WHITE);
-  if (codeNote.length()) dispTextCentered(54, codeNote, 1, COL_AMBER);
+  dispTextCentered(26, title, TXT_BODY, COL_WHITE);
+  if (codeNote.length()) dispTextCentered(54, codeNote, TXT_SMALL, COL_AMBER);
 
   /* Dots rather than digits: shoulder-surfing a four digit code off a screen
      this size is otherwise trivial. */
@@ -615,7 +624,7 @@ static void screenPasscode(const UiTap& t) {
       codeNote = "at least 4 digits";
       return;
     }
-    dispTextCentered(96, "checking", 1, COL_DIM);
+    dispTextCentered(96, "checking", TXT_SMALL, COL_DIM);
     dispShow();
 
     if (screen == SCR_LOCK && !lockIsSet()) {
@@ -670,12 +679,12 @@ static void screenStorage(const UiTap& t) {
   const uint64_t used = SD_MMC.usedBytes() / (1024ULL * 1024ULL);
   const uint64_t all  = SD_MMC.totalBytes() / (1024ULL * 1024ULL);
   dispText(UI_PAD, 84, "card " + String((uint32_t)used) + " of " +
-           String((uint32_t)all) + " MB used", 2, COL_WHITE);
+           String((uint32_t)all) + " MB used", TXT_BODY, COL_WHITE);
 
   int upCount = 0;
   for (size_t i = 0; i < notes.size(); i++) if (notes[i].synced) upCount++;
-  dispText(UI_PAD, 120, String(upCount) + " notes are on the server", 1, COL_DIM);
-  dispText(UI_PAD, 138, String((int)notes.size() - upCount) + " are not, and stay", 1, COL_DIM);
+  dispText(UI_PAD, 120, String(upCount) + " notes are on the server", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD, 138, String((int)notes.size() - upCount) + " are not, and stay", TXT_SMALL, COL_DIM);
 
   /* Only notes that reached the server can be removed here. Deleting one that
      has not been uploaded would be destroying the only copy, which is not
@@ -693,8 +702,8 @@ static void screenStorage(const UiTap& t) {
       statusLine = "deleted";
     }
   }
-  if (freeStage) dispTextCentered(252, "the audio goes from the card", 1, COL_RED);
-  else           dispTextCentered(252, "only notes already uploaded", 1, COL_DIM);
+  if (freeStage) dispTextCentered(252, "the audio goes from the card", TXT_SMALL, COL_RED);
+  else           dispTextCentered(252, "only notes already uploaded", TXT_SMALL, COL_DIM);
 
   if (uiButton(t, UI_PAD, LCD_HEIGHT - UI_TABBAR_H - 74, 180, 58, "< BACK", COL_DIM, false)) {
     freeStage = 0;
@@ -704,11 +713,11 @@ static void screenStorage(const UiTap& t) {
 
 static void screenFactory(const UiTap& t) {
   drawChrome("RESET");
-  dispText(UI_PAD, 84, "This forgets:", 2, COL_WHITE);
-  dispText(UI_PAD, 118, "the passcode", 1, COL_DIM);
-  dispText(UI_PAD, 136, "the wi-fi network and password", 1, COL_DIM);
-  dispText(UI_PAD, 154, "the server address", 1, COL_DIM);
-  dispText(UI_PAD, 180, "Your notes on the card are kept.", 1, COL_GREEN);
+  dispText(UI_PAD, 84, "This forgets:", TXT_BODY, COL_WHITE);
+  dispText(UI_PAD, 118, "the passcode", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD, 136, "the wi-fi network and password", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD, 154, "the server address", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD, 180, "Your notes on the card are kept.", TXT_SMALL, COL_GREEN);
 
   const String label = factoryStage == 0 ? "ERASE SETTINGS"
                      : factoryStage == 1 ? "ARE YOU SURE"
@@ -720,7 +729,7 @@ static void screenFactory(const UiTap& t) {
       netClearAll();
       lockClear();
       dispClear(COL_BLACK);
-      dispTextCentered(220, "erased", 3, COL_WHITE);
+      dispTextCentered(220, "erased", TXT_TITLE, COL_WHITE);
       dispShow();
       delay(1200);
       ESP.restart();
@@ -750,10 +759,10 @@ static void screenIntro(const UiTap& t) {
                            "the bottom. That is all.",
                            "Notes upload themselves." };
 
-  dispTextCentered(120, title[introPage], 3, COL_BLUE);
-  dispTextCentered(190, line1[introPage], 2, COL_WHITE);
-  dispTextCentered(218, line2[introPage], 2, COL_WHITE);
-  dispTextCentered(246, line3[introPage], 2, COL_WHITE);
+  dispTextCentered(120, title[introPage], TXT_TITLE, COL_BLUE);
+  dispTextCentered(190, line1[introPage], TXT_BODY, COL_WHITE);
+  dispTextCentered(218, line2[introPage], TXT_BODY, COL_WHITE);
+  dispTextCentered(246, line3[introPage], TXT_BODY, COL_WHITE);
 
   for (int i = 0; i < 3; i++)
     dispFillCircle(CX - 24 + i * 24, 300, 6, i == introPage ? COL_WHITE : COL_FAINT);
@@ -765,6 +774,64 @@ static void screenIntro(const UiTap& t) {
   }
   if (uiButton(t, LCD_WIDTH - UI_PAD - 90, LCD_HEIGHT - 56, 90, 44, "skip", COL_DIM, false))
     screen = SCR_REC;
+}
+
+/* Everything the PMU knows about power, on one screen.
+ *
+ * The old board could only estimate this: a divider on an ADC pin, needing the
+ * chip's factory calibration applied by hand, and even then it could not tell
+ * a flat cell from no cell at all. The AXP2101 measures the battery itself,
+ * so the percentage here is a real reading rather than a voltage curve guess -
+ * which is why it is shown as a number instead of rounded to quarters to hide
+ * how rough it was.
+ */
+static void screenBattery(const UiTap& t) {
+  drawChrome("BATTERY");
+
+  const int pct = powerPercent();
+  const bool chg = powerCharging();
+  const bool usb = powerUsbPresent();
+  const bool fitted = powerBatteryPresent();
+
+  uint16_t colour = COL_GREEN;
+  if (pct >= 0 && pct < POWER_TOO_LOW_PCT)  colour = COL_RED;
+  else if (pct >= 0 && pct < POWER_WARN_PCT) colour = COL_AMBER;
+  if (chg) colour = COL_GREEN;
+
+  const int cy = 178, r = 78;
+  dispArc(CX, cy, r, 10, -90.0f, 270.0f, COL_FAINT);
+  if (pct > 0) dispArc(CX, cy, r, 10, -90.0f, -90.0f + 3.6f * pct, colour);
+
+  if (pct < 0) {
+    dispTextCentered(cy - 12, "--", TXT_TITLE, COL_DIM);
+  } else {
+    const String n = String(pct);
+    dispText(CX - dispTextWidth(n, 4) / 2 - 8, cy - 16, n, TXT_BIG, COL_WHITE);
+    dispText(CX + dispTextWidth(n, 4) / 2 + 2, cy - 4, "%", TXT_BODY, COL_DIM);
+  }
+
+  String state;
+  if (!fitted)     state = "no battery fitted";
+  else if (chg)    state = "charging";
+  else if (usb)    state = "on USB, charged";
+  else             state = "on battery";
+  dispTextCentered(cy + r + 14, state, 2, chg ? COL_GREEN : COL_DIM);
+
+  const int ly = 300;
+  dispText(UI_PAD, ly, "battery", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD + 150, ly, String(powerMillivolts()) + " mV", TXT_SMALL, COL_WHITE);
+  dispText(UI_PAD, ly + 20, "system rail", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD + 150, ly + 20, String(powerSystemMillivolts()) + " mV", TXT_SMALL, COL_WHITE);
+  dispText(UI_PAD, ly + 40, "usb", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD + 150, ly + 40, usb ? (String(powerUsbMillivolts()) + " mV") : String("not connected"),
+           1, usb ? COL_WHITE : COL_DIM);
+  dispText(UI_PAD, ly + 60, "regulator", TXT_SMALL, COL_DIM);
+  dispText(UI_PAD + 150, ly + 60, String(powerTemperatureC(), 1) + " C", TXT_SMALL, COL_WHITE);
+
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, LCD_HEIGHT - UI_TABBAR_H - 74, 150, 58,
+               "< BACK", COL_DIM, false)) {
+    screen = SCR_MORE;
+  }
 }
 
 /* ---- USB, sleep --------------------------------------------------------- */
@@ -791,6 +858,15 @@ static void sleepNow() {
 /* ---- recording ---------------------------------------------------------- */
 
 static void startRecording() {
+  /* A recording that loses power part way through is lost anyway, and writing
+     to the card while the rail collapses is how a filesystem gets damaged
+     rather than merely a file. Refusing is kinder than a corrupt card.
+     Charging overrides it: on USB there is no rail about to collapse. */
+  const int pct = powerPercent();
+  if (pct >= 0 && pct < POWER_TOO_LOW_PCT && !powerCharging()) {
+    statusLine = "battery too low to record";
+    return;
+  }
   playStop();
   if (!recBegin()) { statusLine = "microphone busy"; return; }
   recording = true;
@@ -815,7 +891,7 @@ void setup() {
   powerBegin();
   if (!dispBegin()) { delay(2000); ESP.restart(); }
   dispClear(COL_BLACK);
-  dispTextCentered(230, "starting", 2, COL_DIM);
+  dispTextCentered(230, "starting", TXT_BODY, COL_DIM);
   dispShow();
 
   touchBegin();
@@ -826,8 +902,8 @@ void setup() {
   SD_MMC.setPins(SDMMC_CLK_PIN, SDMMC_CMD_PIN, SDMMC_D0_PIN);
   if (!SD_MMC.begin("/sdcard", true)) {
     dispClear(COL_BLACK);
-    dispTextCentered(200, "NO SD CARD", 3, COL_RED);
-    dispTextCentered(250, "nothing can be saved", 1, COL_DIM);
+    dispTextCentered(200, "NO SD CARD", TXT_TITLE, COL_RED);
+    dispTextCentered(250, "nothing can be saved", TXT_SMALL, COL_DIM);
     dispShow();
     delay(2500);
   }
@@ -902,6 +978,7 @@ void loop() {
     case SCR_MORE:      screenMore(tap);     break;
     case SCR_STORAGE:   screenStorage(tap); break;
     case SCR_FACTORY:   screenFactory(tap); break;
+    case SCR_BATTERY:   screenBattery(tap); break;
     default:            screenRecord(tap);   break;
   }
 
@@ -913,7 +990,8 @@ void loop() {
     return;
   }
 
-  if (screen != SCR_WIFI_PASS && screen != SCR_STORAGE && screen != SCR_FACTORY) {
+  if (screen != SCR_WIFI_PASS && screen != SCR_STORAGE
+      && screen != SCR_FACTORY && screen != SCR_BATTERY) {
     const int hit = uiTabBar(tap, activeTab, TABS, 5);
     if (hit >= 0) {
       activeTab = hit;

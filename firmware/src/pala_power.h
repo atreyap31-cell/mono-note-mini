@@ -21,4 +21,20 @@ int  powerPercent();
 bool powerCharging();
 int  powerMillivolts();
 
+/* The rest of what the PMU can see. None of this was knowable on the old
+   board, where the battery was a voltage divider on an ADC pin: whether a
+   cell is even fitted, whether USB is supplying, how warm the regulator is
+   running, and what the system rail is actually sitting at. */
+bool powerBatteryPresent();
+bool powerUsbPresent();
+int  powerUsbMillivolts();
+int  powerSystemMillivolts();
+float powerTemperatureC();
+
+/* Below this, starting a recording is refused: losing power part way through
+   loses the note anyway, and writing to the card as the rail collapses is how
+   a filesystem gets corrupted rather than merely a file. */
+#define POWER_TOO_LOW_PCT 5
+#define POWER_WARN_PCT   15
+
 #endif
