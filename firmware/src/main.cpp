@@ -1,18 +1,29 @@
 /* Mono Note Mini - a recorder, and nothing else.
  *
- * One button. Press it to start, press it again to stop. The note is saved to
- * the card, and goes up to the machine that serves the website the next
- * time there is Wi-Fi. No account, no repository, no token.
+ * Tap the screen to start, tap it again to stop. The note is saved to the card
+ * and goes up to the machine that serves the website the next time there is
+ * Wi-Fi. No account, no repository, no token.
  *
- * There are no menus, no settings and no second button. Everything that used
- * to be on the device - browsing notes, tagging, to-dos, Wi-Fi setup, the PIN,
- * voice unlock, transcription - either lives on the website now or is gone.
- * The previous version is backed up in full at T:\mnm-backup-2026-09-10.
+ * Hardware: Waveshare ESP32-S3-Touch-AMOLED-2.16. A 480x480 colour AMOLED on
+ * quad-SPI, a CST9220 touch panel, an ES7210 microphone array with an ES8311
+ * for playback, and an AXP2101 looking after the battery.
  *
- * The one thing the device cannot do without is Wi-Fi credentials, and there
- * is nowhere to type them. So it advertises over Bluetooth whenever it is
- * awake and not recording, and the website writes them in. That needs no
- * button, which is the point.
+ * It replaced a 1.54" e-paper board with two physical buttons, and almost
+ * nothing about the screen carried over. Three differences drive the whole
+ * interface:
+ *
+ *   The panel is fast, so the elapsed time can simply tick. On e-paper a
+ *   redraw took 2.7 seconds and flashed the whole display, so a recording
+ *   showed a circle and nothing moved until it stopped.
+ *
+ *   The panel does not hold an image without power, so sleeping is now
+ *   genuinely off. The old device slept showing something useful, for free.
+ *
+ *   Black costs nothing on an AMOLED, so the interface is light on black. That
+ *   is the efficient choice as well as the better-looking one.
+ *
+ * The previous firmware, for the e-paper board, is at
+ * T:\mnm-backup-epaper-final and will not run on this hardware.
  */
 
 #include <Arduino.h>
@@ -22,11 +33,9 @@
 #include <time.h>
 #include <vector>
 #include "user_config.h"
-#include "i2c_bsp.h"
-#include "pala_input.h"
-#include "board_power_bsp.h"
-#include "epaper_driver_bsp.h"
-#include "pala_ui.h"
+#include "pala_display.h"
+#include "pala_touch.h"
+#include "pala_power.h"
 #include "pala_record.h"
 #include "pala_net.h"
 #include "pala_sync.h"
@@ -35,77 +44,28 @@
 #include "logo_mn.h"
 #include "soc/usb_serial_jtag_struct.h"
 
-#define BAT_ADC_PIN 4
-#define BAT_EMPTY_MV 3300
-#define BAT_FULL_MV 4200
-
-#define IDLE_SLEEP_MS   30000UL     /* awake this long with nothing happening */
+#define IDLE_SLEEP_MS   45000UL     /* awake this long with nothing happening */
 #define SYNC_RETRY_MS  300000UL     /* how often to try again after a failure */
 
 /* The recorder's buffer holds two minutes and its task simply stops when it is
-   full. Left to that, the screen would still say RECORDING over a microphone
-   that had stopped listening, so the cap is enforced here where it can be
-   said out loud. */
+   full. Left to that, the screen would go on saying RECORDING over a
+   microphone that had stopped listening. */
 #define MAX_NOTE_SECONDS 119
 
-static board_power_bsp_t pwr(EPD_PWR_PIN, Audio_PWR_PIN, VBAT_PWR_PIN);
-static I2cMasterBus* i2c = nullptr;
-static epaper_driver_display* epd = nullptr;
+#define CX (LCD_WIDTH / 2)
+#define CY (LCD_HEIGHT / 2)
 
-static bool recording = false;
+static bool     recording = false;
+static uint32_t recStarted = 0;
 static uint32_t lastActivity = 0;
 static uint32_t lastSyncTry = 0;
-static int syncedCount = 0, totalCount = 0;
-static String statusLine;          /* shown under the counter when it matters */
-
-/* ---- battery ------------------------------------------------------------ */
-
-static int batteryPct() {
-  /* analogReadMilliVolts applies the chip's factory ADC calibration from
-     eFuse. The raw-count conversion this replaced ignored it, and the S3's ADC
-     is non-linear enough for that to be worth over 100mV - most of a quarter
-     on a 3.3-4.2V cell. The divider is 2x. */
-  analogReadMilliVolts(BAT_ADC_PIN);
-  analogReadMilliVolts(BAT_ADC_PIN);
-  uint32_t sum = 0;
-  for (int i = 0; i < 8; i++) { sum += analogReadMilliVolts(BAT_ADC_PIN); delay(2); }
-  uint32_t mv = (sum / 8) * 2;
-  if (mv > 4650) return -1;                  /* on charge, or no cell fitted */
-  int pct = (int)(mv - BAT_EMPTY_MV) * 100 / (BAT_FULL_MV - BAT_EMPTY_MV);
-  if (pct < 0) pct = 0;
-  if (pct > 100) pct = 100;
-  return pct;
-}
-
-/* Four steps. A percentage on a 1-bit panel invites re-reading a number that
-   has not changed, and four steps is all anyone reads off a battery gauge. */
-static int batteryQuarter() {
-  int pct = batteryPct();
-  if (pct < 0)  return 4;                    /* charging shows as full */
-  if (pct >= 75) return 4;
-  if (pct >= 50) return 3;
-  if (pct >= 25) return 2;
-  if (pct >= 10) return 1;
-  return 0;
-}
-
-static void drawBatteryBar(int quarter) {
-  const int x = 20, y = 10, w = 160, h = 14;
-  uiRect(x, y, w, h);
-  uiFillRect(x + w, y + 4, 3, 6, 0x00);      /* the little terminal nub */
-  const int cell = (w - 4) / 4;
-  for (int i = 0; i < 4; i++) {
-    int cx = x + 2 + i * cell;
-    if (i < quarter) uiFillRect(cx + 1, y + 3, cell - 2, h - 6, 0x00);
-    if (i > 0)       uiFillRect(cx, y + 1, 1, h - 2, 0x00);   /* divider */
-  }
-}
+static int      syncedCount = 0, totalCount = 0;
+static String   statusLine;
 
 /* ---- counting what has gone up ------------------------------------------
-   A marker file beside each note records that it reached the server. That is
-   what makes the count survive a reboot, and it is what the counter on screen
-   reads. Per note rather than all-or-nothing: a sync that gets three of seven
-   up shows three, and only the other four are tried again. */
+   A marker file beside each note records that it reached the server, so the
+   count survives a reboot. Per note rather than all-or-nothing: a sync that
+   gets three of seven up shows three, and only the other four are retried. */
 
 static bool isWav(const String& n) { return n.endsWith(".wav"); }
 
@@ -134,46 +94,107 @@ static void countNotes() {
   dir.close();
 }
 
-/* ---- the screen ---------------------------------------------------------
-   There is one, and it is what the device shows awake and what it leaves on
-   the glass asleep. Waking changes nothing, so there is no second version to
-   disagree with the first. */
+/* ---- the screen --------------------------------------------------------- */
 
-static void drawScreen() {
-  uiFillRect(0, 0, 200, 200, 0xff);
-  drawBatteryBar(batteryQuarter());
-  uiBitmap((200 - LOGO_W) / 2, 56, LOGO_W, LOGO_H, LOGO_MN);
+static void drawBattery() {
+  const int pct = powerPercent();
+  const bool chg = powerCharging();
+  const int x = CX - 40, y = 34, w = 64, h = 26;
 
+  uint16_t colour = COL_GREEN;
+  if (pct >= 0 && pct < 15)      colour = COL_RED;
+  else if (pct >= 0 && pct < 40) colour = COL_AMBER;
+  if (chg) colour = COL_GREEN;
+
+  dispRoundRect(x, y, w, h, 6, COL_FAINT, false);
+  dispFillRect(x + w + 3, y + 8, 4, 10, COL_FAINT);   /* the terminal nub */
+  if (pct > 0) {
+    int fill = (w - 6) * pct / 100;
+    if (fill < 3) fill = 3;
+    dispRoundRect(x + 3, y + 3, fill, h - 6, 3, colour, true);
+  }
+  String label = (pct < 0) ? "--" : String(pct);
+  dispText(x + w + 14, y + 6, label + "%", 2, COL_DIM);
+  if (chg) dispText(x - 22, y + 6, "+", 2, COL_GREEN);
+}
+
+static void drawSyncLine(int y) {
   String counter;
-  if (totalCount == 0)               counter = "no notes yet";
-  else if (syncedCount >= totalCount) counter = "all synced";
-  else counter = String(syncedCount) + " of " + String(totalCount) + " synced";
-  uiTextCentered(140, counter, 2);
-
-  if (statusLine.length()) uiTextCentered(166, statusLine, 1);
-  else                     uiTextCentered(166, "press to record", 1);
-  uiFlushFull();
+  uint16_t colour;
+  if (totalCount == 0)                { counter = "no notes yet";  colour = COL_DIM; }
+  else if (syncedCount >= totalCount) { counter = "all synced";    colour = COL_GREEN; }
+  else {
+    counter = String(syncedCount) + " of " + String(totalCount) + " synced";
+    colour = COL_AMBER;
+  }
+  dispTextCentered(y, counter, 2, colour);
 }
 
-/* Recording deliberately does not redraw. A full refresh takes about 2.7
-   seconds and flashes the whole panel, which is unusable as a live meter and
-   pointless besides - you know you are talking. A circle means recording, a
-   square means it stopped, and nothing moves in between. */
-static void drawRecordingMark(bool square) {
-  uiFillRect(0, 0, 200, 200, 0xff);
-  drawBatteryBar(batteryQuarter());
-  if (square) uiFillRect(70, 60, 60, 60, 0x00);
-  else        uiFillCircle(100, 90, 32, 0x00);
-  uiTextCentered(150, square ? "SAVED" : "RECORDING", 2);
-  uiTextCentered(176, square ? "" : "press to stop", 1);
-  uiFlushFull();
+/* The idle screen. One obvious thing to press, filling the middle of a
+   480-pixel panel, because there is only ever one thing to do. */
+static void drawIdle() {
+  dispClear(COL_BLACK);
+  drawBattery();
+  dispBitmap1(CX - LOGO_W / 2, 92, LOGO_W, LOGO_H, LOGO_MN, COL_WHITE);
+
+  dispCircle(CX, CY + 58, 96, COL_FAINT);
+  dispCircle(CX, CY + 58, 95, COL_FAINT);
+  dispFillCircle(CX, CY + 58, 74, COL_BLUE);
+  dispTextCentered(CY + 46, "TAP TO", 2, COL_WHITE);
+  dispTextCentered(CY + 68, "RECORD", 2, COL_WHITE);
+
+  drawSyncLine(LCD_HEIGHT - 74);
+  if (statusLine.length()) dispTextCentered(LCD_HEIGHT - 44, statusLine, 1, COL_DIM);
+  dispShow();
 }
 
-static void showMessage(const String& a, const String& b) {
-  uiFillRect(0, 0, 200, 200, 0xff);
-  uiTextCentered(80, a, 2);
-  if (b.length()) uiTextCentered(112, b, 1);
-  uiFlushFull();
+static String mmss(uint32_t secs) {
+  char buf[8];
+  snprintf(buf, sizeof(buf), "%u:%02u", (unsigned)(secs / 60), (unsigned)(secs % 60));
+  return String(buf);
+}
+
+/* Recording. The ring fills as the two minutes run down, so the limit is
+   visible before it arrives rather than announced when it does. */
+static void drawRecording(uint32_t secs) {
+  dispClear(COL_BLACK);
+  drawBattery();
+
+  const int r = 104;
+  dispCircle(CX, CY + 40, r, COL_FAINT);
+  float frac = (float)secs / (float)MAX_NOTE_SECONDS;
+  if (frac > 1.0f) frac = 1.0f;
+  /* Starts at the top and goes clockwise, which is the direction everyone
+     reads a dial in. */
+  dispArc(CX, CY + 40, r, 7, -90.0f, -90.0f + 360.0f * frac,
+          frac > 0.9f ? COL_AMBER : COL_RED);
+
+  dispFillCircle(CX, CY + 40, 66, COL_RED);
+  dispTextCentered(CY + 26, mmss(secs), 3, COL_WHITE);
+  dispTextCentered(CY + 56, "TAP TO STOP", 1, COL_WHITE);
+
+  dispTextCentered(LCD_HEIGHT - 74, "recording", 2, COL_RED);
+  dispShow();
+}
+
+static void drawSaved() {
+  dispClear(COL_BLACK);
+  drawBattery();
+  dispFillCircle(CX, CY + 40, 66, COL_GREEN);
+  /* A tick, drawn as two strokes rather than carried as a glyph. */
+  for (int t = 0; t < 8; t++) {
+    dispFillCircle(CX - 26 + t * 2, CY + 40 + t * 2, 4, COL_WHITE);
+    if (t < 16) dispFillCircle(CX - 10 + t * 3, CY + 56 - t * 3, 4, COL_WHITE);
+  }
+  dispTextCentered(LCD_HEIGHT - 74, "saved", 2, COL_GREEN);
+  dispShow();
+}
+
+static void showMessage(const String& a, const String& b, uint16_t colour) {
+  dispClear(COL_BLACK);
+  dispTextCentered(CY - 30, a, 3, colour);
+  if (b.length()) dispTextCentered(CY + 20, b, 2, COL_DIM);
+  dispShow();
 }
 
 /* ---- names -------------------------------------------------------------- */
@@ -212,9 +233,6 @@ static void markSynced(const String& base) {
   if (m) { m.print("1"); m.flush(); m.close(); }
 }
 
-/* Returns true when anything went up. Quiet about there being no Wi-Fi yet:
-   that is the normal state of a device in a pocket, not a fault worth putting
-   on screen. */
 static bool trySync(bool sayWhy) {
   lastSyncTry = millis();
   if (totalCount == 0 || syncedCount >= totalCount) return false;
@@ -222,7 +240,7 @@ static bool trySync(bool sayWhy) {
   if (netGet("ssid").length() == 0) { if (sayWhy) statusLine = "no wi-fi set"; return false; }
 
   statusLine = "syncing...";
-  drawScreen();
+  drawIdle();
 
   if (!staConnect(20000)) {
     statusLine = sayWhy ? "no wi-fi" : "";
@@ -239,20 +257,15 @@ static bool trySync(bool sayWhy) {
   }
   staDisconnect();
   countNotes();
-
-  /* Whatever went wrong, in the words the server or the stack used. Silence
-     here once cost an evening of guessing. */
-  statusLine = (done == (int)todo.size()) ? "" : (err.length() ? err.substring(0, 24) : "");
+  statusLine = (done == (int)todo.size()) ? "" : (err.length() ? err.substring(0, 34) : "");
   return done > 0;
 }
 
-/* ---- USB ---------------------------------------------------------------
+/* ---- USB ----------------------------------------------------------------
    Deep sleep switches off the USB-Serial-JTAG peripheral, so a plugged-in
-   device drops off the bus and cannot be reflashed until somebody presses a
-   button. Asked once at boot, when a host is unambiguously awake: Windows
-   suspends a device no program has open, and a suspended bus sends nothing at
-   all, so asking later reads as "no USB" exactly when the answer needs to be
-   yes. */
+   device drops off the bus and cannot be reflashed until somebody wakes it.
+   Asked once at boot, while a host is unambiguously awake: Windows suspends a
+   device no program has open, and a suspended bus sends nothing at all. */
 static bool bootedOnUsb = false;
 
 static bool usbSofSeen() {
@@ -265,143 +278,132 @@ static bool usbSofSeen() {
 
 static void sleepNow() {
   bleStop();
-  /* Exactly the same screen it shows awake, so what it leaves on the glass is
-     what it wakes up to - byte for byte, not merely similar. */
-  statusLine = "";
-  drawScreen();
-  delay(300);
-  pwr.POWEER_Audio_OFF();
-  pwr.POWEER_EPD_OFF();
-  /* Either button wakes it. Only the top one does anything afterwards, but
-     waking on the button you happen to press is kinder than making people
-     learn which one is allowed to. */
+  showMessage("", "", COL_BLACK);
+  dispSleep(true);
+  touchSleep();
+  delay(50);
+  /* The touch panel's interrupt wakes it, so the screen itself is the wake
+     button and there is nothing to learn. The user button and BOOT work too. */
   esp_sleep_enable_ext1_wakeup(
-      (1ULL << BOOT_BUTTON_PIN) | (1ULL << PWR_BUTTON_PIN), ESP_EXT1_WAKEUP_ANY_LOW);
+      (1ULL << TOUCH_INT_PIN) | (1ULL << USER_BUTTON_PIN) | (1ULL << BOOT_BUTTON_PIN),
+      ESP_EXT1_WAKEUP_ANY_LOW);
   esp_deep_sleep_start();
 }
 
 /* ---- recording ---------------------------------------------------------- */
 
-/* Bluetooth is deliberately left running through a recording. Stopping and
-   restarting it around one would be worse than leaving it: bleStop only clears
-   the advertising flag, so the next bleBegin runs BLEDevice::init again,
-   builds a second server and service on top of the first, and starts another
-   bleTask. Every note would leak one. */
 static void startRecording() {
-  if (!recBegin()) { showMessage("MIC BUSY", "try again"); delay(1200); drawScreen(); return; }
+  if (!recBegin()) { showMessage("MIC BUSY", "try again", COL_AMBER); delay(1200); drawIdle(); return; }
   recording = true;
-  drawRecordingMark(false);
+  recStarted = millis();
+  drawRecording(0);
 }
 
 static void stopRecording() {
   recording = false;
   String name = timestampName();
   bool ok = recSave("/recordings/" + name);
-  drawRecordingMark(true);
-  delay(700);
-  if (!ok) {
-    showMessage("NOT SAVED", "card problem");
-    delay(1500);
+  if (ok) {
+    drawSaved();
+    delay(800);
+  } else {
+    showMessage("NOT SAVED", "card problem", COL_RED);
+    delay(1800);
   }
   countNotes();
   trySync(false);
-  drawScreen();
+  drawIdle();
 }
 
 /* ---- setup and loop ----------------------------------------------------- */
 
 void setup() {
   Serial.begin(115200);
-  delay(200);
-  analogSetAttenuation(ADC_11db);
-  pwr.VBAT_POWER_ON();
-  pwr.POWEER_EPD_ON();
-  /* The panel's rail is switched by a GPIO and needs time to come up. A panel
-     that is not ready yet holds BUSY high, which used to hang setup() with the
-     previous image still on the glass. */
-  delay(200);
+  delay(150);
 
-  i2c = I2cMasterBus::requestInstance(ESP32_I2C_SCL_PIN, ESP32_I2C_SDA_PIN, ESP32_I2C_DEV_NUM);
-  /* The clock kept running while the device was off. Ask it before anything
-     needs a timestamp, so a note made before any sync still gets a real name. */
-  if (rtcBegin()) rtcRestoreSystemTime();
-  inputBegin();
+  /* The PMU comes first: it owns the rails everything else runs on, and the
+     I2C bus it shares with the touch panel and the clock. */
+  powerBegin();
 
-  epd = new epaper_driver_display(EPD_WIDTH, EPD_HEIGHT,
-      {EPD_CS_PIN, EPD_DC_PIN, EPD_RST_PIN, EPD_BUSY_PIN, EPD_MOSI_PIN, EPD_SCK_PIN,
-       EPD_SPI_NUM, EPD_WIDTH * EPD_HEIGHT / 8});
-  epd->EPD_Init();
-  /* One retry: the rail coming up late is the likely reason a first attempt
-     fails, and by the second the extra delay has usually settled it. */
-  if (!epd->panelResponded()) {
-    pwr.POWEER_EPD_OFF();
-    delay(500);
-    pwr.POWEER_EPD_ON();
-    delay(600);
-    epd->EPD_Init();
+  if (!dispBegin()) {
+    /* Nothing can be reported on a screen that did not start, so the only
+       useful thing left is not to hang. */
+    delay(2000);
+    ESP.restart();
   }
-  uiBegin(epd);
+  dispClear(COL_BLACK);
+  dispTextCentered(CY - 10, "starting", 2, COL_DIM);
+  dispShow();
 
+  touchBegin();
+  if (rtcBegin()) rtcRestoreSystemTime();
+
+  /* One-bit SDIO, as on the old board, with different pins. DAT3 is driven
+     high rather than left floating: some cards read a floating DAT3 as a
+     request for SPI mode and then never answer. */
+  pinMode(SDMMC_DAT3_PIN, OUTPUT);
+  digitalWrite(SDMMC_DAT3_PIN, HIGH);
   SD_MMC.setPins(SDMMC_CLK_PIN, SDMMC_CMD_PIN, SDMMC_D0_PIN);
   if (!SD_MMC.begin("/sdcard", true)) {
-    showMessage("NO SD CARD", "nothing can be saved");
+    showMessage("NO SD CARD", "nothing can be saved", COL_RED);
     delay(3000);
   }
   SD_MMC.mkdir("/recordings");
 
   netBegin();
   applyTimezone();
-  pwr.POWEER_Audio_ON();
   audioReady();
 
-  /* One look for a USB host, while it is unambiguously awake. */
   for (int i = 0; i < 8 && !bootedOnUsb; i++) {
     if (usbSofSeen()) bootedOnUsb = true;
     delay(120);
   }
 
   countNotes();
-  drawScreen();
+  drawIdle();
 
-  /* Bluetooth is how the website sets Wi-Fi and the token, and there is no
-     button to turn it on with. It runs whenever the device is awake. */
+  /* Bluetooth is how the website sets Wi-Fi, and there is no control for it.
+     It runs whenever the device is awake. */
   bleBegin();
 
   trySync(true);
-  drawScreen();
+  drawIdle();
   lastActivity = millis();
 }
 
 void loop() {
-  uint16_t ev = inputPoll();
+  int tx = 0, ty = 0;
+  const bool tapped = touchTapped(&tx, &ty);
+  if (tapped || touchDown()) lastActivity = millis();
 
-  if (ev & BTN_ANY_DOWN) lastActivity = millis();
-
-  /* The whole interface. */
-  if (ev & BTN_TOP_TAP) {
-    lastActivity = millis();
+  /* The whole interface. Anywhere on the screen, because there is one thing
+     to do and hunting for a target is not part of catching a thought. */
+  if (tapped) {
     if (recording) stopRecording();
     else           startRecording();
   }
 
   if (recording) {
-    if (recSeconds() >= MAX_NOTE_SECONDS) {
+    uint32_t secs = (millis() - recStarted) / 1000;
+    if (recSeconds() >= MAX_NOTE_SECONDS || secs >= MAX_NOTE_SECONDS) {
       stopRecording();
-      showMessage("TWO MINUTES", "saved - that is the most");
+      showMessage("TWO MINUTES", "saved - that is the most", COL_AMBER);
       delay(1600);
-      drawScreen();
+      drawIdle();
+      return;
     }
+    /* Once a second is enough; the only thing moving is the clock. */
+    static uint32_t lastDrawn = 0;
+    if (secs != lastDrawn) { lastDrawn = secs; drawRecording(secs); }
     delay(20);
     return;
   }
 
-  /* Retry a failed or postponed sync now and then, so a device that comes back
-     into Wi-Fi range catches up without being touched. */
   if (millis() - lastSyncTry > SYNC_RETRY_MS && syncedCount < totalCount) {
-    if (trySync(false)) drawScreen();
+    if (trySync(false)) drawIdle();
   }
 
-  if (millis() - lastActivity > IDLE_SLEEP_MS && !inputAnyHeld() && !bootedOnUsb) sleepNow();
+  if (millis() - lastActivity > IDLE_SLEEP_MS && !touchDown() && !bootedOnUsb) sleepNow();
 
   delay(20);
 }

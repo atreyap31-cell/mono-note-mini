@@ -10,7 +10,10 @@ esp_codec_dev_handle_t record = NULL;
 
 void audio_bsp_init(void)
 {
-  set_codec_board_type("S3_ePaper_1_54");
+  /* Two chips on this board, not one: ES8311 drives the speaker and a separate
+     ES7210 reads the dual microphone array. The old board had a single ES8311
+     doing both, declared as in_out. */
+  set_codec_board_type("S3_AMOLED_2_16");
   codec_init_cfg_t codec_cfg = {};
   codec_cfg.in_mode = CODEC_I2S_MODE_STD;
   codec_cfg.out_mode = CODEC_I2S_MODE_STD;
