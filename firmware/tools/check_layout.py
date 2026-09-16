@@ -250,6 +250,20 @@ def analyse(body, base_line):
                 rects.append(Rect(CONSTS["UI_PAD"], py, 96, 44, lineno, "pager <"))
                 rects.append(Rect(W - CONSTS["UI_PAD"] - 96, py, 96, 44, lineno, "pager >"))
 
+        # A raw number where a named size belongs. Checked by splitting the
+        # call's arguments rather than by matching a comma and a digit: the
+        # first attempt flagged String(value, 1), where the 1 is decimal
+        # places, and a checker that cries wolf gets ignored.
+        for fn, sizepos in (("dispTextCentered", 2), ("dispText", 3)):
+            cm2 = re.search(r"\b" + fn + r"\((.+)\)\s*;", line)
+            if not cm2:
+                continue
+            a = split_args(cm2.group(1))
+            if len(a) > sizepos and re.fullmatch(r"[1-9]", a[sizepos].strip()):
+                unchecked.append((lineno, "RAW TEXT SIZE - use the TXT_ scale",
+                                  line[:58]))
+            break
+
         tm = re.search(r'dispTextCentered\(\s*[^,]+,\s*"([^"]*)"\s*,\s*(TXT_\w+)', line)
         if tm:
             texts.append((lineno, tm.group(1), CONSTS[tm.group(2)], W - 8, "centred"))

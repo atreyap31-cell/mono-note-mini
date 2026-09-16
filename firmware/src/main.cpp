@@ -435,12 +435,12 @@ static void screenRecord(const UiTap& t) {
     else if (syncedCount >= totalCount) { counter = "all synced";   colour = COL_GREEN; }
     else { counter = String(syncedCount) + " of " + String(totalCount) + " synced";
            colour = COL_AMBER; }
-    dispTextCentered(324, counter, 2, colour);
+    dispTextCentered(324, counter, TXT_BODY, colour);
     const int pct = powerPercent();
     if (pct >= 0 && pct < POWER_WARN_PCT && !powerCharging()) {
       dispTextCentered(350, pct < POWER_TOO_LOW_PCT ? "battery too low to record"
                                                     : "battery low - charge soon",
-                       1, pct < POWER_TOO_LOW_PCT ? COL_RED : COL_AMBER);
+                       TXT_SMALL, pct < POWER_TOO_LOW_PCT ? COL_RED : COL_AMBER);
     } else if (statusLine.length()) {
       dispTextCentered(350, statusLine, TXT_SMALL, COL_DIM);
     }
@@ -480,7 +480,7 @@ static void screenNotes(const UiTap& t) {
 
   if (show.empty()) {
     dispTextCentered(210, notes.empty() ? "nothing recorded yet" : "nothing with that tag",
-                     2, COL_DIM);
+                     TXT_BODY, COL_DIM);
     return;
   }
 
@@ -571,7 +571,7 @@ static void screenWifi(const UiTap& t) {
   drawChrome("WI-FI");
   const String ssid = netGet("ssid");
   const bool joined = WiFi.status() == WL_CONNECTED;
-  dispText(UI_PAD, 74, ssid.length() ? ("set: " + ssid) : "no network set", 1,
+  dispText(UI_PAD, 74, ssid.length() ? ("set: " + ssid) : "no network set", TXT_SMALL,
            joined ? COL_GREEN : COL_DIM);
 
   if (uiButton(t, UI_PAD, 96, 210, 58, "SCAN", COL_BLUE)) {
@@ -612,9 +612,10 @@ static void screenWifi(const UiTap& t) {
      first attempt at this started at 150 and ran into the buttons above it. */
   {
     const String api = netGet("api");
-    /* Below the scan buttons, which end at 154 - the first attempt put this at
-       128 and drew it across them. */
-    if (uiRow(t, 158, 30, "Send notes to",
+    /* Full height, not the 30-pixel strip this was. It is the setting that
+       completes sync, and squeezed in under two large buttons it read as a
+       divider rather than as something to press - it was missed entirely. */
+    if (uiRow(t, 160, 44, "Send notes to",
               api.length() ? api : String("not set"),
               api.length() ? COL_GREEN : COL_AMBER)) {
       entryIsServer = true;
@@ -626,7 +627,7 @@ static void screenWifi(const UiTap& t) {
 
   /* Three networks between the server row (ending at 188) and the pager (at
      344), rather than four squeezed into the same band. */
-  const int top = 196, rowH = 40;
+  const int top = 212, rowH = 38;
   for (int i = 0; i < wifiPager.perPage; i++) {
     const int idx = wifiPager.first() + i;
     if (idx >= (int)wifiNames.size()) break;
@@ -1199,7 +1200,7 @@ static void screenBattery(const UiTap& t) {
   else if (chg)    state = "charging";
   else if (usb)    state = "on USB, charged";
   else             state = "on battery";
-  dispTextCentered(cy + r + 14, state, 2, chg ? COL_GREEN : COL_DIM);
+  dispTextCentered(cy + r + 14, state, TXT_BODY, chg ? COL_GREEN : COL_DIM);
 
   const int ly = 300;
   dispText(UI_PAD, ly, "battery", TXT_SMALL, COL_DIM);
@@ -1208,7 +1209,7 @@ static void screenBattery(const UiTap& t) {
   dispText(UI_PAD + 150, ly + 20, String(powerSystemMillivolts()) + " mV", TXT_SMALL, COL_WHITE);
   dispText(UI_PAD, ly + 40, "usb", TXT_SMALL, COL_DIM);
   dispText(UI_PAD + 150, ly + 40, usb ? (String(powerUsbMillivolts()) + " mV") : String("not connected"),
-           1, usb ? COL_WHITE : COL_DIM);
+           TXT_SMALL, usb ? COL_WHITE : COL_DIM);
   dispText(UI_PAD, ly + 60, "regulator", TXT_SMALL, COL_DIM);
   dispText(UI_PAD + 150, ly + 60, String(powerTemperatureC(), 1) + " C", TXT_SMALL, COL_WHITE);
 
@@ -1309,8 +1310,12 @@ static void bootReport() {
                 powerCharging() ? " (charging)" : "", powerMillivolts());
   Serial.printf("wi-fi      %s\n",
                 netGet("ssid").length() ? netGet("ssid").c_str() : "not configured");
-  Serial.printf("server     %s\n",
-                syncConfigured() ? "set" : "not set");
+  /* The value, not a verdict. "never set" and "set to something wrong" are
+     different problems and looked identical from out here. */
+  {
+    const String api = netGet("api");
+    Serial.printf("server     %s\n", api.length() ? api.c_str() : "(empty)");
+  }
   Serial.printf("notes      %d, %d already sent\n", totalCount, syncedCount);
   Serial.println("----------------------");
 }
