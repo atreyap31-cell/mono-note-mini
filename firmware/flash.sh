@@ -76,6 +76,10 @@ if [ -n "$BOOTPORT" ]; then
   if ./build.sh --target upload --upload-port "$BOOTPORT"; then
     echo
     echo "flashed."
+    echo
+    echo "Unplug and plug it back in. Getting to download mode this way leaves"
+    echo "the chip latched there, and the reset at the end of the upload does"
+    echo "not clear it - the firmware will not start until the power does."
     exit 0
   fi
 fi

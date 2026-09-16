@@ -41,7 +41,7 @@ CONSTS = {
     # set, and lists are the controls most likely to run off the bottom.
     "notePager.perPage": 4,
     "taskPager.perPage": 5,
-    "wifiPager.perPage": 4,
+    "wifiPager.perPage": 3,
 }
 
 SRC = pathlib.Path(__file__).resolve().parent.parent / "src" / "main.cpp"

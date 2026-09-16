@@ -178,6 +178,7 @@ static UiPager taskPager;
 static std::vector<String> wifiNames;
 static UiPager wifiPager;
 static String  wifiPick, wifiPass;
+static bool    entryIsServer = false;   /* the keyboard is shared */
 static String  wifiNote;
 static bool    kbShift = false, kbSyms = false;
 
@@ -592,7 +593,7 @@ static void screenWifi(const UiTap& t) {
       i = e;
     }
     wifiPager.total = wifiNames.size();
-    wifiPager.perPage = 4;
+    wifiPager.perPage = 3;
     wifiPager.page = 0;
     wifiNote = wifiNames.empty() ? "nothing in range" : "";
   }
@@ -609,13 +610,30 @@ static void screenWifi(const UiTap& t) {
   /* The space between the scan buttons (which end at 154) and the pager (at
      344) is 190 pixels. Four rows on a 46 pitch is exactly what fits; the
      first attempt at this started at 150 and ran into the buttons above it. */
-  const int top = 158, rowH = 40;
+  {
+    const String api = netGet("api");
+    /* Below the scan buttons, which end at 154 - the first attempt put this at
+       128 and drew it across them. */
+    if (uiRow(t, 158, 30, "Send notes to",
+              api.length() ? api : String("not set"),
+              api.length() ? COL_GREEN : COL_AMBER)) {
+      entryIsServer = true;
+      wifiPass = netGet("api");
+      kbShift = false; kbSyms = false;
+      screen = SCR_WIFI_PASS;
+    }
+  }
+
+  /* Three networks between the server row (ending at 188) and the pager (at
+     344), rather than four squeezed into the same band. */
+  const int top = 196, rowH = 40;
   for (int i = 0; i < wifiPager.perPage; i++) {
     const int idx = wifiPager.first() + i;
     if (idx >= (int)wifiNames.size()) break;
     if (uiRow(t, top + i * (rowH + 6), rowH, wifiNames[idx], "", COL_DIM)) {
       wifiPick = wifiNames[idx];
       wifiPass = "";
+      entryIsServer = false;
       kbShift = false; kbSyms = false;
       screen = SCR_WIFI_PASS;
     }
@@ -626,8 +644,10 @@ static void screenWifi(const UiTap& t) {
 
 static void screenWifiPass(const UiTap& t) {
   dispClear(COL_BLACK);
-  uiHeader(wifiPick.length() > 18 ? wifiPick.substring(0, 18) : wifiPick);
-  uiField(UI_PAD, 72, LCD_WIDTH - UI_PAD * 2, wifiPass, "wi-fi password", false);
+  uiHeader(entryIsServer ? String("SEND NOTES TO")
+                         : (wifiPick.length() > 18 ? wifiPick.substring(0, 18) : wifiPick));
+  uiField(UI_PAD, 72, LCD_WIDTH - UI_PAD * 2, wifiPass,
+          entryIsServer ? "http://10.0.0.5:8000" : "wi-fi password", false);
   if (wifiNote.length()) dispTextCentered(126, wifiNote, TXT_SMALL, COL_AMBER);
 
   char ch = 0;
@@ -638,14 +658,26 @@ static void screenWifiPass(const UiTap& t) {
   } else if (k == KEY_BACKSPACE && wifiPass.length()) {
     wifiPass.remove(wifiPass.length() - 1);
   } else if (k == KEY_ENTER) {
-    netSet("ssid", wifiPick);
-    netSet("pass", wifiPass);
-    wifiNote = "joining...";
-    dispTextCentered(126, wifiNote, TXT_SMALL, COL_AMBER);
-    dispShow();
-    const bool ok = staConnect(20000);
-    wifiNote = ok ? "joined" : "wrong password, or out of range";
-    if (ok) { screen = SCR_WIFI; }
+    if (entryIsServer) {
+      String a = wifiPass;
+      a.trim();
+      /* Typing "http://" on a touch keyboard is eight presses of the fiddliest
+         keys on it, so it is added when it is missing rather than demanded. */
+      if (a.length() && !a.startsWith("http://") && !a.startsWith("https://"))
+        a = "http://" + a;
+      netSet("api", a);
+      wifiNote = a.length() ? "saved" : "cleared";
+      screen = SCR_WIFI;
+    } else {
+      netSet("ssid", wifiPick);
+      netSet("pass", wifiPass);
+      wifiNote = "joining...";
+      dispTextCentered(126, wifiNote, TXT_SMALL, COL_AMBER);
+      dispShow();
+      const bool ok = staConnect(20000);
+      wifiNote = ok ? "joined" : "wrong password, or out of range";
+      if (ok) { screen = SCR_WIFI; }
+    }
   }
 
   if (uiButton(t, UI_PAD, LCD_HEIGHT - 44, 120, 40, "cancel", COL_DIM, false)) {
@@ -1356,6 +1388,16 @@ void loop() {
   if (tap.happened || touchDown()) { lastActivity = millis(); setDim(false); }
 
   playPoll();
+
+  /* The report is printed at boot, but nothing is listening then - a CDC port
+     only exists once the firmware is running, and by the time anything opens
+     it the report has already been dropped. Sending any character asks for
+     another, which makes it a diagnostic that can be used rather than one that
+     has to be caught. */
+  if (Serial.available()) {
+    while (Serial.available()) Serial.read();
+    bootReport();
+  }
 
   /* Recording is modal: the tab bar is not drawn and a tap anywhere stops it,
      because fumbling for a small target is not part of catching a thought. */
