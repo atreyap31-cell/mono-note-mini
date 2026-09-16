@@ -36,9 +36,13 @@ for attempt in 1 2 3 4 5; do
     echo "compiler ICE on attempt $attempt (not your code), retrying..." >&2
     continue
   fi
-  if grep -q "error:" "$LOG"; then
+  # A real compile error is "file.cpp:12:34: error: ...". Matching the bare
+  # word caught "Fatal Python error:" - the interpreter crashing, which is one
+  # of the glitches this is meant to retry - and abandoned the retries every
+  # time it happened.
+  if grep -qE "^[^ ]+:[0-9]+:[0-9]+: (error|fatal error):" "$LOG"; then
     echo "--- compile errors (attempt $attempt) ---"
-    grep -E "error:|Error [0-9]" "$LOG" | head -20
+    grep -E ":[0-9]+:[0-9]+: (error|fatal error):|Error [0-9]" "$LOG" | head -20
     exit 1
   fi
   echo "toolchain glitched on attempt $attempt, retrying..." >&2

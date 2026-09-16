@@ -1,55 +1,77 @@
 #!/usr/bin/env bash
-# Build and flash the Mono Note Mini from Linux.
+# Build and flash the Mono Note Mini.
 #
-#   ./firmware/flash.sh          build, upload, then open the serial monitor
-#   ./firmware/flash.sh --build  build only
-#   ./firmware/flash.sh --mon    monitor only, without flashing
+#   ./flash.sh            build and upload
+#   ./flash.sh --build    build only
 #
-# Run ./setup-linux.sh first - it installs PlatformIO and fixes the serial
-# port permissions that otherwise make a working board look absent.
+# Use this rather than calling esptool by hand. Two things about this board
+# make a hand-written command a good way to brick it until you find a cable:
+#
+# THE FLASH MODE IS dio, NOT qio
+#   platformio.ini says qio and the board definition overrides it. Writing qio
+#   into the bootloader header produces a watchdog boot loop that prints
+#   "ets_loader.c 79" forever and never reaches the app. It is completely
+#   recoverable - the ROM bootloader still answers - but it looks like a dead
+#   device, and it is exactly what happened here once.
+#
+# THE PORT CHANGES DEPENDING ON WHAT IS RUNNING
+#   The firmware uses native USB so the card can be shown as a drive, which
+#   means the port it appears on is a software CDC port that only exists while
+#   the firmware runs. In download mode the ROM presents its own USB-Serial
+#   device instead, on a different port number. This script looks for whichever
+#   is there.
 
-set -euo pipefail
+set -uo pipefail
+cd "$(dirname "$0")"
+PIO="${PIO:-T:/pio-venv/Scripts/platformio.exe}"
 
-BOLD=$'\e[1m'; DIM=$'\e[2m'; RED=$'\e[31m'; OFF=$'\e[0m'
-say() { echo "${BOLD}$*${OFF}"; }
-bad() { echo "${RED}$*${OFF}"; }
-
-VENV="$HOME/.mono-note-mini-pio"
-PIO="$VENV/bin/pio"
-cd "$(dirname "${BASH_SOURCE[0]}")"
-
-if [ ! -x "$PIO" ]; then
-  bad "PlatformIO is not installed. Run ./setup-linux.sh from the repo root."
-  exit 1
+if [ "${1:-}" = "--build" ]; then
+  exec ./build.sh
 fi
 
-case "${1:-}" in
-  --build) say "Building"; exec "$PIO" run ;;
-  --mon)   say "Monitor - Ctrl+A then K to quit"; exec "$PIO" device monitor ;;
-esac
+./build.sh || exit 1
 
-# A board in its ROM bootloader flashes perfectly and runs nothing, so say what
-# was actually seen rather than letting a silent success imply the code is live.
-say "Looking for the board"
-PORT="$("$PIO" device list --serial 2>/dev/null | grep -o '/dev/ttyACM[0-9]*' | head -1 || true)"
+find_port() {
+  "$PIO" device list --serial 2>/dev/null \
+    | grep -B2 "VID:PID=303A" \
+    | grep -oE "^COM[0-9]+" \
+    | head -1
+}
+
+PORT="$(find_port)"
 if [ -z "$PORT" ]; then
-  bad "No /dev/ttyACM* found."
-  echo "${DIM}  - is the USB-C cable a data cable rather than charge-only?${OFF}"
-  echo "${DIM}  - groups | grep dialout    (log out and back in if it is missing)${OFF}"
-  echo "${DIM}  - if the port appears then vanishes, brltty is taking it:${OFF}"
-  echo "${DIM}      sudo apt-get remove brltty${OFF}"
+  echo "No board found. It is asleep, unplugged, or the cable is charge-only." >&2
+  echo "Touch the screen to wake it, then run this again." >&2
   exit 1
 fi
-echo "${DIM}  found $PORT${OFF}"
+echo "found the board on $PORT"
 
-say "Building and uploading"
-"$PIO" run --target upload
+# build.sh passes arguments through to pio run and retries the toolchain's own
+# intermittent failures, so the upload gets the same protection as the build.
+if ./build.sh --target upload --upload-port "$PORT"; then
+  echo
+  echo "flashed."
+  exit 0
+fi
 
-echo
-say "Flashed."
-echo "${DIM}A successful flash does not prove the firmware runs. If the screen never${OFF}"
-echo "${DIM}changes, GPIO0 is being held low and the chip is sitting in its ROM${OFF}"
-echo "${DIM}bootloader - check the BOOT button is not stuck or pressed by the case.${OFF}"
-echo
-say "Monitor - Ctrl+A then K to quit"
-exec "$PIO" device monitor
+# esptool's auto-reset toggles DTR and RTS on a CDC port the firmware itself
+# provides, and the firmware is not listening for that - so it never reaches
+# download mode. Opening that port at 1200 baud does reboot it, after which the
+# ROM appears on a different port.
+echo "auto-reset did not take; asking it to reboot into download mode..."
+BOOTPORT="$("${PIO%platformio.exe}python.exe" tools/bootloader.py 2>/dev/null)"
+if [ -n "$BOOTPORT" ]; then
+  echo "download mode on $BOOTPORT"
+  if ./build.sh --target upload --upload-port "$BOOTPORT"; then
+    echo
+    echo "flashed."
+    exit 0
+  fi
+fi
+
+echo >&2
+echo "Upload failed. In order, the things that fix it:" >&2
+echo "  1. run this again - the port may have changed as it reset" >&2
+echo "  2. hold BOOT while plugging the cable in, then run this again" >&2
+echo "  3. check the cable carries data rather than only power" >&2
+exit 1
