@@ -7,6 +7,14 @@
 
 void netBegin();
 void applyTimezone();   /* local time for note names, not UTC */
+
+/* Offset from UTC in minutes, and whether one has ever been chosen. There was
+   no way to set this on the device before - it arrived over Bluetooth from a
+   browser that knew the answer - so a device set up entirely on its own ran on
+   UTC and said nothing about it. */
+int  netTimezoneMinutes();
+bool netTimezoneSet();
+void netSetTimezoneMinutes(int minutes);
 String netGet(const char* key, const String& def = "");
 void netSet(const char* key, const String& value);
 uint64_t netGetU64(const char* key, uint64_t def);

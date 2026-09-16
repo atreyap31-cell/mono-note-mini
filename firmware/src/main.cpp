@@ -44,6 +44,12 @@
 #include "logo_mn.h"
 #include "soc/usb_serial_jtag_struct.h"
 
+/* How long the screen stays on with nothing happening. Chosen from a setting
+   rather than fixed: on a desk while charging, sleeping after a minute is just
+   obstructive, and in a pocket a minute is already too long. */
+static const uint32_t SLEEP_CHOICES[4] = { 30000UL, 60000UL, 180000UL, 600000UL };
+static const char* SLEEP_LABELS[4]     = { "30 sec", "1 min", "3 min", "10 min" };
+
 #define IDLE_SLEEP_MS   60000UL
 #define SYNC_RETRY_MS  300000UL
 #define MAX_NOTE_SECONDS 119
@@ -52,7 +58,7 @@
 enum Screen {
   SCR_LOCK, SCR_REC, SCR_NOTES, SCR_NOTE, SCR_TASKS,
   SCR_WIFI, SCR_WIFI_PASS, SCR_MORE, SCR_PASSCODE,
-  SCR_STORAGE, SCR_FACTORY, SCR_INTRO, SCR_BATTERY
+  SCR_STORAGE, SCR_FACTORY, SCR_INTRO, SCR_BATTERY, SCR_TIME, SCR_DISPLAY
 };
 
 static const char* TABS[] = { "NOTES", "RECORD", "TASKS", "WI-FI", "MORE" };
@@ -65,6 +71,45 @@ static int     activeTab = 1;
 static uint32_t lastActivity = 0;
 static uint32_t lastSyncTry = 0;
 static bool     bootedOnUsb = false;
+
+/* display and quality-of-life settings, all held in NVS */
+static uint8_t  cfgBright = 3;     /* 0-4 */
+static uint8_t  cfgSleep = 1;      /* index into SLEEP_CHOICES */
+static uint8_t  cfgSun = 0;        /* sunlight readability, 0-3 */
+static bool     cfgStayOnUsb = true;
+static bool     cfgAutoSync = true;
+
+static uint8_t brightnessValue(uint8_t step) {
+  /* Not linear. The panel is bright enough that the useful range is bunched at
+     the bottom, and evenly spaced steps would give four settings that all look
+     the same and one that is dim. */
+  static const uint8_t LEVELS[5] = { 25, 60, 120, 200, 255 };
+  return LEVELS[step > 4 ? 4 : step];
+}
+
+static void applyDisplaySettings() {
+  dispBrightness(brightnessValue(cfgBright));
+  dispSunlight(cfgSun);
+}
+
+static void loadSettings() {
+  cfgBright    = (uint8_t)netGetU32("uiBright", 3);
+  cfgSleep     = (uint8_t)netGetU32("uiSleep", 1);
+  cfgSun       = (uint8_t)netGetU32("uiSun", 0);
+  cfgStayOnUsb = netGetU32("uiUsbAwake", 1) != 0;
+  cfgAutoSync  = netGetU32("uiAutoSync", 1) != 0;
+  if (cfgBright > 4) cfgBright = 3;
+  if (cfgSleep > 3)  cfgSleep = 1;
+  if (cfgSun > 3)    cfgSun = 0;
+}
+
+static void saveSettings() {
+  netSetU32("uiBright", cfgBright);
+  netSetU32("uiSleep", cfgSleep);
+  netSetU32("uiSun", cfgSun);
+  netSetU32("uiUsbAwake", cfgStayOnUsb ? 1 : 0);
+  netSetU32("uiAutoSync", cfgAutoSync ? 1 : 0);
+}
 
 /* recording */
 static bool     recording = false;
@@ -270,12 +315,41 @@ static String timestampName() {
   return "rec_noclock_" + String(millis() / 1000) + ".wav";
 }
 
+/* An empty string when the time was unknown was worse than saying so: a blank
+   corner reads as a layout fault, and it is the only warning that timestamps
+   on new notes are about to be meaningless. */
+static bool clockKnown() { return time(nullptr) >= 1700000000; }
+
 static String clockNow() {
+  if (!clockKnown()) return "--:--";
   struct tm t;
-  if (!getLocalTime(&t, 100)) return "";
-  char buf[8];
+  if (!getLocalTime(&t, 100)) return "--:--";
+  char buf[16];
   snprintf(buf, sizeof(buf), "%02d:%02d", t.tm_hour, t.tm_min);
   return String(buf);
+}
+
+static String dateNow() {
+  if (!clockKnown()) return "clock not set";
+  struct tm t;
+  if (!getLocalTime(&t, 100)) return "clock not set";
+  static const char* MON[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                 "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+  char buf[24];
+  snprintf(buf, sizeof(buf), "%d %s %d", t.tm_mday, MON[t.tm_mon], t.tm_year + 1900);
+  return String(buf);
+}
+
+static String tzLabel() {
+  if (!netTimezoneSet()) return "not set";
+  const int mins = netTimezoneMinutes();
+  String l = "UTC";
+  const int hrs = mins / 60;
+  if (hrs > 0) l += "+" + String(hrs);
+  else if (hrs < 0) l += String(hrs);
+  else l += "+0";
+  if (mins % 60) l += ":" + String(abs(mins % 60));
+  return l;
 }
 
 /* ---- screens ------------------------------------------------------------ */
@@ -308,7 +382,8 @@ static void screenRecord(const UiTap& t) {
     dispTextCentered(cy + 22, "TAP TO STOP", TXT_SMALL, COL_WHITE);
     dispTextCentered(330, "recording", TXT_BODY, COL_RED);
   } else {
-    dispBitmap1(CX - LOGO_W / 2, 92, LOGO_W, LOGO_H, LOGO_MN, COL_WHITE);
+    dispBitmap1(CX - LOGO_W / 2, 84, LOGO_W, LOGO_H, LOGO_MN, COL_WHITE);
+    dispTextCentered(150, dateNow(), TXT_SMALL, clockKnown() ? COL_DIM : COL_AMBER);
     dispFillCircle(CX, 232, 72, COL_BLUE);
     dispTextCentered(220, "TAP TO", TXT_BODY, COL_WHITE);
     dispTextCentered(242, "RECORD", TXT_BODY, COL_WHITE);
@@ -534,49 +609,70 @@ static void screenMore(const UiTap& t) {
   drawChrome("MORE");
   const bool ble = bleAdvertising();
 
-  if (uiRow(t, 80, 58, ble ? "Bluetooth: on" : "Bluetooth: off",
+  /* Seven rows of 44, pitched 48 apart, filling exactly the space between the
+     header and the tab bar. The previous layout put a full-width row and two
+     buttons at the same y - they were drawn on top of each other, and since
+     the row is hit-tested first, tapping BATTERY locked the device instead. */
+  const int H = 38, P = 42;
+  int y = UI_HEADER_H + 2;
+
+  if (uiRow(t, y, H, ble ? "Bluetooth: on" : "Bluetooth: off",
             ble ? bleStatus() : "tap to turn on", ble ? COL_GREEN : COL_DIM)) {
     if (ble) bleStop(); else bleBegin();
   }
-  if (uiRow(t, 146, 58, "Sync all notes",
-            (syncedCount >= totalCount && totalCount) ? "all sent"
+  y += P;
+  if (uiRow(t, y, H, "Sync all notes",
+            statusLine.length() ? statusLine
+              : (totalCount && syncedCount >= totalCount) ? String("all sent")
               : String(totalCount - syncedCount) + " waiting", COL_AMBER)) {
-    /* Joining a network and uploading blocks for up to half a minute, and the
-       whole interface is frozen while it does. Say so before starting, or the
-       tap looks like it did nothing at all. */
+    /* Joining a network and uploading blocks for up to half a minute with the
+       whole interface frozen. Say so first, or the tap looks like it missed. */
     statusLine = "working...";
-    dispTextCentered(352, statusLine, TXT_SMALL, COL_AMBER);
+    dispTextCentered(LCD_HEIGHT / 2, "syncing...", TXT_TITLE, COL_AMBER);
     dispShow();
     syncAll(true);
   }
-  if (uiRow(t, 212, 58, "Change passcode", "", COL_DIM)) {
+  y += P;
+  if (uiRow(t, y, H, "Battery",
+            powerPercent() < 0 ? String("--") : (String(powerPercent()) + "%"),
+            powerCharging() ? COL_GREEN : COL_DIM)) {
+    screen = SCR_BATTERY;
+  }
+  y += P;
+  if (uiRow(t, y, H, "Time and date", tzLabel(),
+            clockKnown() ? COL_DIM : COL_AMBER)) {
+    statusLine = "";
+    screen = SCR_TIME;
+  }
+  y += P;
+  if (uiRow(t, y, H, "Change passcode", "", COL_DIM)) {
     codeForChange = true;
     codeStage = 0;
     codeEntry = ""; codeFirst = "";
     codeNote = "enter your current passcode";
     screen = SCR_PASSCODE;
   }
-  if (uiRow(t, 278, 58, "Storage",
+  y += P;
+  if (uiRow(t, y, H, "Storage and reset",
             String((uint32_t)(SD_MMC.usedBytes() / (1024ULL * 1024ULL))) + " MB", COL_DIM)) {
     freeStage = 0;
     screen = SCR_STORAGE;
   }
-  if (uiRow(t, 344, 58, "Lock now", "", COL_DIM)) {
+  y += P;
+  if (uiRow(t, y, H, "Display and behaviour",
+            SLEEP_LABELS[cfgSleep], COL_DIM)) {
+    screen = SCR_DISPLAY;
+  }
+  y += P;
+  if (uiRow(t, y, H, "Lock now", "", COL_DIM)) {
     lockRelock();
     codeEntry = ""; codeNote = "";
     screen = SCR_LOCK;
   }
 
-  if (uiButton(t, LCD_WIDTH - UI_PAD - 140, 344, 140, 58, "RESET", COL_RED, false)) {
-    factoryStage = 0;
-    screen = SCR_FACTORY;
-  }
-  if (uiButton(t, UI_PAD, 344, 140, 58, "BATTERY", COL_BLUE, false)) {
-    screen = SCR_BATTERY;
-  }
-  if (statusLine.length())
-    dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 42, statusLine, TXT_SMALL, COL_AMBER);
-  dispText(UI_PAD, LCD_HEIGHT - UI_TABBAR_H - 24, syncDeviceId(), TXT_SMALL, COL_DIM);
+  /* No separate status line here any more: eight rows fill the space exactly,
+     and a line drawn under them landed on top of the last one. Sync reports
+     itself in its own row instead, which is where somebody is already looking. */
 }
 
 /* The passcode screen does three jobs: unlocking, choosing one on first use,
@@ -709,6 +805,11 @@ static void screenStorage(const UiTap& t) {
     freeStage = 0;
     screen = SCR_MORE;
   }
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 180, LCD_HEIGHT - UI_TABBAR_H - 74, 180, 58,
+               "FACTORY RESET", COL_RED, false)) {
+    factoryStage = 0;
+    screen = SCR_FACTORY;
+  }
 }
 
 static void screenFactory(const UiTap& t) {
@@ -774,6 +875,125 @@ static void screenIntro(const UiTap& t) {
   }
   if (uiButton(t, LCD_WIDTH - UI_PAD - 90, LCD_HEIGHT - 56, 90, 44, "skip", COL_DIM, false))
     screen = SCR_REC;
+}
+
+/* Display and the handful of behaviours worth being able to change.
+ *
+ * Everything here is a preference rather than a feature: the device works with
+ * all of it left alone. They exist because the defaults cannot be right for
+ * both a desk and a pocket - a screen timeout that suits one is wrong for the
+ * other, and brightness that reads indoors is invisible outside.
+ */
+static void screenDisplay(const UiTap& t) {
+  drawChrome("DISPLAY");
+  const int H = 44, P = 48;
+  int y = UI_HEADER_H + 4;
+
+  /* Brightness, as five blocks rather than a slider: a slider on a touch panel
+     wants dragging, and a drag that starts on a control is hard to tell from a
+     tap that missed. */
+  dispText(UI_PAD, y + 12, "brightness", TXT_SMALL, COL_DIM);
+  const int bw = 56;
+  for (int i = 0; i < 5; i++) {
+    const int bx = LCD_WIDTH - UI_PAD - (5 - i) * (bw + 6) + 6;
+    if (uiButton(t, bx, y, bw, H, String(i + 1),
+                 i <= cfgBright ? COL_BLUE : COL_DIM, i <= cfgBright)) {
+      cfgBright = i;
+      applyDisplaySettings();
+      saveSettings();
+    }
+  }
+  y += P;
+
+  if (uiRow(t, y, H, "Screen off after", SLEEP_LABELS[cfgSleep], COL_DIM)) {
+    cfgSleep = (uint8_t)((cfgSleep + 1) % 4);
+    saveSettings();
+  }
+  y += P;
+
+  static const char* SUN[4] = { "off", "low", "medium", "high" };
+  if (uiRow(t, y, H, "Sunlight mode", SUN[cfgSun], cfgSun ? COL_AMBER : COL_DIM)) {
+    cfgSun = (uint8_t)((cfgSun + 1) % 4);
+    applyDisplaySettings();
+    saveSettings();
+  }
+  y += P;
+  dispText(UI_PAD, y, "boosts contrast outdoors, costs battery", TXT_SMALL, COL_DIM);
+  y += 24;
+
+  if (uiRow(t, y, H, "Stay awake on USB", cfgStayOnUsb ? "yes" : "no",
+            cfgStayOnUsb ? COL_GREEN : COL_DIM)) {
+    cfgStayOnUsb = !cfgStayOnUsb;
+    saveSettings();
+  }
+  y += P;
+
+  if (uiRow(t, y, H, "Sync by itself", cfgAutoSync ? "yes" : "no",
+            cfgAutoSync ? COL_GREEN : COL_DIM)) {
+    cfgAutoSync = !cfgAutoSync;
+    saveSettings();
+  }
+
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, LCD_HEIGHT - UI_TABBAR_H - 66, 150, 56,
+               "< BACK", COL_DIM, false)) {
+    screen = SCR_MORE;
+  }
+}
+
+/* Time and date.
+ *
+ * Four separate things had to be right for the clock to be, and none of them
+ * were: the RTC was never read because the bus it wanted was never created,
+ * NTP was asked and then hung up on, nothing wrote the answer back to the
+ * chip, and the zone could only be set from a browser over Bluetooth. This
+ * screen is where the last of those is fixed and where the others can be
+ * checked by eye.
+ */
+static void screenTime(const UiTap& t) {
+  drawChrome("TIME");
+
+  dispTextCentered(96, clockNow(), TXT_HUGE, clockKnown() ? COL_WHITE : COL_DIM);
+  dispTextCentered(168, dateNow(), TXT_BODY, clockKnown() ? COL_DIM : COL_AMBER);
+
+  dispText(UI_PAD, 216, "time zone", TXT_SMALL, COL_DIM);
+  dispTextCentered(244, tzLabel(), TXT_TITLE,
+                   netTimezoneSet() ? COL_WHITE : COL_AMBER);
+
+  const int mins = netTimezoneMinutes();
+  if (uiButton(t, UI_PAD, 236, 90, 56, "-", COL_BLUE, false))
+    netSetTimezoneMinutes(mins - 60 < -720 ? -720 : mins - 60);
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 90, 236, 90, 56, "+", COL_BLUE, false))
+    netSetTimezoneMinutes(mins + 60 > 840 ? 840 : mins + 60);
+
+  /* Whole hours only. Offsets of 30 and 45 minutes exist, and can still be set
+     exactly from the website over Bluetooth; handling them here would mean
+     three controls instead of two arrows for a case most people never meet. */
+  dispTextCentered(300, "whole hours - the website can set any offset",
+                   TXT_SMALL, COL_DIM);
+
+  if (uiButton(t, UI_PAD, 330, LCD_WIDTH - UI_PAD * 2, 60,
+               "SET FROM THE INTERNET", COL_GREEN)) {
+    if (netGet("ssid").length() == 0) {
+      statusLine = "set up wi-fi first";
+    } else {
+      dispTextCentered(400, "connecting...", TXT_SMALL, COL_AMBER);
+      dispShow();
+      if (staConnect(20000)) {
+        staDisconnect();
+        statusLine = clockKnown() ? "clock set" : "no answer from the time server";
+      } else {
+        statusLine = "could not join the network";
+      }
+    }
+  }
+  if (statusLine.length())
+    dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 40, statusLine, TXT_SMALL, COL_AMBER);
+
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, LCD_HEIGHT - UI_TABBAR_H - 74, 150, 58,
+               "< BACK", COL_DIM, false)) {
+    statusLine = "";
+    screen = SCR_MORE;
+  }
 }
 
 /* Everything the PMU knows about power, on one screen.
@@ -919,8 +1139,20 @@ void setup() {
     delay(120);
   }
 
+  loadSettings();
+  applyDisplaySettings();
   loadNotes();
   loadTasks();
+
+  /* If the RTC had nothing and a network is already known, the clock is worth
+     a few seconds at boot: every note made before it is set carries a name
+     that means nothing and sorts wrongly. */
+  if (!clockKnown() && netGet("ssid").length()) {
+    dispClear(COL_BLACK);
+    dispTextCentered(220, "setting the clock", TXT_BODY, COL_DIM);
+    dispShow();
+    if (staConnect(15000)) staDisconnect();
+  }
 
   /* First use goes straight to choosing a passcode; afterwards, to unlocking.
      There is no way past either, which is the point of having one. */
@@ -963,7 +1195,8 @@ void loop() {
     screenPasscode(tap);
     dispShow();
     /* Locked means locked: no tabs, no sleep shortcut past it. */
-    if (millis() - lastActivity > IDLE_SLEEP_MS && !bootedOnUsb) sleepNow();
+    if (millis() - lastActivity > SLEEP_CHOICES[cfgSleep]
+      && !(bootedOnUsb && cfgStayOnUsb)) sleepNow();
     delay(20);
     return;
   }
@@ -979,6 +1212,8 @@ void loop() {
     case SCR_STORAGE:   screenStorage(tap); break;
     case SCR_FACTORY:   screenFactory(tap); break;
     case SCR_BATTERY:   screenBattery(tap); break;
+    case SCR_TIME:      screenTime(tap);    break;
+    case SCR_DISPLAY:   screenDisplay(tap); break;
     default:            screenRecord(tap);   break;
   }
 
@@ -991,7 +1226,8 @@ void loop() {
   }
 
   if (screen != SCR_WIFI_PASS && screen != SCR_STORAGE
-      && screen != SCR_FACTORY && screen != SCR_BATTERY) {
+      && screen != SCR_FACTORY && screen != SCR_BATTERY && screen != SCR_TIME
+      && screen != SCR_DISPLAY) {
     const int hit = uiTabBar(tap, activeTab, TABS, 5);
     if (hit >= 0) {
       activeTab = hit;
@@ -1009,13 +1245,13 @@ void loop() {
 
   dispShow();
 
-  if (millis() - lastSyncTry > SYNC_RETRY_MS && syncedCount < totalCount
-      && !recording && !playActive()) {
+  if (cfgAutoSync && millis() - lastSyncTry > SYNC_RETRY_MS
+      && syncedCount < totalCount && !recording && !playActive()) {
     syncAll(false);
   }
 
-  if (millis() - lastActivity > IDLE_SLEEP_MS && !touchDown()
-      && !playActive() && !bootedOnUsb) sleepNow();
+  if (millis() - lastActivity > SLEEP_CHOICES[cfgSleep] && !touchDown()
+      && !playActive() && !(bootedOnUsb && cfgStayOnUsb)) sleepNow();
 
   delay(20);
 }

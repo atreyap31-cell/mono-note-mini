@@ -41,6 +41,12 @@ bool dispBegin();
 void dispBrightness(uint8_t level);     /* 0-255 */
 void dispSleep(bool off);
 
+/* Sunlight readability. The CO5300 has a contrast-enhancement mode with four
+   settings, which the driver knows about and nothing was using. It costs
+   power, so it is off by default and worth turning on outdoors rather than
+   leaving on. 0 off, 1 low, 2 medium, 3 high. */
+void dispSunlight(uint8_t level);
+
 /* One frame: clear, draw, show. Nothing reaches the glass until dispShow. */
 void dispClear(uint16_t colour = COL_BLACK);
 void dispShow();

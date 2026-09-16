@@ -14,6 +14,21 @@ static Preferences prefs;
 /* POSIX TZ strings run the opposite way round to everyone else: a zone two
    hours ahead of UTC is written "UTC-2". JS getTimezoneOffset already returns
    minutes behind UTC, so its sign is the one POSIX wants. */
+int netTimezoneMinutes() {
+  const uint32_t stored = netGetU32("tzmin", 0);
+  return stored ? (int)stored - 1000 : 0;
+}
+
+bool netTimezoneSet() { return netGetU32("tzmin", 0) != 0; }
+
+void netSetTimezoneMinutes(int minutes) {
+  if (minutes < -720 || minutes > 840) return;
+  /* Offset when stored, so zero still means "never chosen" - UTC is itself a
+     legitimate answer and has to be distinguishable from silence. */
+  netSetU32("tzmin", (uint32_t)(minutes + 1000));
+  applyTimezone();
+}
+
 void applyTimezone() {
   uint32_t stored = netGetU32("tzmin", 0);
   if (!stored) return;                       /* never set - stay on UTC */
@@ -52,7 +67,23 @@ bool staConnect(uint32_t timeoutMs) {
   uint32_t t0 = millis();
   while (WiFi.status() != WL_CONNECTED && millis() - t0 < timeoutMs) delay(100);
   if (WiFi.status() == WL_CONNECTED) {
-    configTime(0, 0, "pool.ntp.org");
+    /* configTime only starts the request; the answer lands some seconds later.
+       The caller disconnects as soon as its upload finishes, which was usually
+       before the reply arrived - the clock was being asked and then hung up on.
+       Wait, but only while the time is still unknown: once it is set there is
+       nothing to wait for.
+
+       UTC deliberately. The zone is applied when the time is displayed, so
+       changing zones never moves a timestamp that is already stored. */
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    if (time(nullptr) < 1700000000) {
+      const uint32_t until = millis() + 6000;
+      while (time(nullptr) < 1700000000 && millis() < until) delay(100);
+    }
+    /* And write it down. The RTC runs on its own backup across a power cut, so
+       this is what makes the device know the time the moment it boots rather
+       than only after it next reaches a network. */
+    if (time(nullptr) >= 1700000000) rtcSaveSystemTime();
     return true;
   }
   WiFi.disconnect();

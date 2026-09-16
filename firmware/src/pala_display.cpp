@@ -54,7 +54,21 @@ void dispSleep(bool off) {
   /* Brightness to zero as well as the panel's own sleep: on this controller a
      display-off still leaves a faint glow on some units. */
   if (off) { dispBrightness(0); panel->displayOff(); }
-  else     { panel->displayOn(); dispBrightness(200); }
+  /* Waking does not pick a brightness: the caller has a stored setting and
+     restoring 200 here would quietly override it every time. */
+  else     { panel->displayOn(); }
+}
+
+/* Write CE - the panel's own contrast enhancement. The values are the ones in
+   the driver's init table, which lists them commented out: 0x00 off, then 05,
+   06 and 07 for low, medium and high. */
+void dispSunlight(uint8_t level) {
+  if (!bus) return;
+  static const uint8_t CE[4] = { 0x00, 0x05, 0x06, 0x07 };
+  if (level > 3) level = 3;
+  bus->beginWrite();
+  bus->writeC8D8(0x58 /* CO5300_W_WCE */, CE[level]);
+  bus->endWrite();
 }
 
 void dispClear(uint16_t colour) { if (canvas) canvas->fillScreen(colour); }
