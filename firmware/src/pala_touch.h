@@ -22,6 +22,11 @@ bool touchTapped(int* x, int* y);
 /* True while a finger is down - used to hold off the idle timeout. */
 bool touchDown();
 
+/* Where the finger is, while it is down. A tap is reported on release, which
+   is right for buttons but useless for anything dragged: a slider has to
+   follow the finger, not learn where it finished. */
+bool touchPosition(int* x, int* y);
+
 /* Last moment anything was touched, for the sleep timer. */
 uint32_t touchLastActivity();
 

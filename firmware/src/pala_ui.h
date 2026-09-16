@@ -43,6 +43,13 @@ void uiHeader(const String& title, const String& right = "");
 /* The tab bar along the bottom. Returns the index tapped, or -1. */
 int  uiTabBar(const UiTap& t, int active, const char* const* labels, int count);
 
+/* A slider that follows the finger. Returns true when the value changed this
+   frame, with the new value in `value`. Unlike every other control here it
+   acts while held rather than on release - that is the whole point of a
+   slider, and it means brightness can be judged by looking at the screen as
+   it changes rather than by guessing and checking. */
+bool uiSlider(int x, int y, int w, int h, int lo, int hi, int* value);
+
 /* A pill showing battery state, drawn top-right of a header. */
 void uiBatteryPill(int x, int y, int pct, bool charging);
 

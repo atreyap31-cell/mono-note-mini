@@ -21,11 +21,25 @@ import serial
 import serial.tools.list_ports
 
 
+def openable(dev):
+    """Windows keeps listing ports after the device behind them has gone, and
+    a stale one reports "a device attached to the system is not functioning"
+    when touched. Repeated USB mode switching produces these constantly here,
+    and picking one is indistinguishable from the board being broken."""
+    try:
+        serial.Serial(dev).close()
+        return True
+    except Exception:
+        return False
+
+
 def ports():
     out = []
     for p in serial.tools.list_ports.comports():
         hwid = (p.hwid or "").upper()
         if "303A" not in hwid:
+            continue
+        if not openable(p.device):
             continue
         # The ROM prints the MAC with colons; the firmware's CDC port does not.
         rom = ":" in (p.serial_number or "")

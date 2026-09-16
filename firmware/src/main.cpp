@@ -75,38 +75,75 @@ static uint32_t lastSyncTry = 0;
 static bool     bootedOnUsb = false;
 
 /* display and quality-of-life settings, all held in NVS */
-static uint8_t  cfgBright = 3;     /* 0-4 */
+static uint8_t  cfgBright = 70;    /* per cent, 5-100 */
 static uint8_t  cfgSleep = 1;      /* index into SLEEP_CHOICES */
 static uint8_t  cfgSun = 0;        /* sunlight readability, 0-3 */
 static bool     cfgStayOnUsb = true;
 static bool     cfgAutoSync = true;
 
-static uint8_t brightnessValue(uint8_t step) {
-  /* Not linear. The panel is bright enough that the useful range is bunched at
-     the bottom, and evenly spaced steps would give four settings that all look
-     the same and one that is dim. */
-  static const uint8_t LEVELS[5] = { 25, 60, 120, 200, 255 };
-  return LEVELS[step > 4 ? 4 : step];
+/* Per cent to what the panel wants, on a curve rather than a straight line.
+   Perceived brightness is roughly the square of the drive level, so a linear
+   slider spends most of its travel in a range that all looks the same and
+   crosses the useful low end in the first few pixels. */
+static uint8_t brightnessValue(uint8_t pct) {
+  if (pct < 5) pct = 5;
+  if (pct > 100) pct = 100;
+  const uint32_t v = (uint32_t)pct * pct * 255u / 10000u;
+  return (uint8_t)(v < 4 ? 4 : v);
+}
+
+/* Dimmed to a quarter before sleeping. The screen is most of the power draw
+   while it is on, and the last stretch before a timeout is almost always time
+   nobody is looking - dimming it is free, and it warns that sleep is coming. */
+static bool     dimmed = false;
+static uint8_t  cfgSaver = 0;      /* battery saver, 0 off 1 on */
+
+static void setDim(bool on) {
+  if (on == dimmed) return;
+  dimmed = on;
+  dispBrightness(on ? brightnessValue(cfgBright / 4 + 5)
+                    : brightnessValue(cfgBright));
 }
 
 static void applyDisplaySettings() {
+  dimmed = false;
   dispBrightness(brightnessValue(cfgBright));
   dispSunlight(cfgSun);
 }
 
+/* Battery saver, as one switch rather than five. The parts that cost power on
+   this device are the screen, the radios and the clock speed, and a person who
+   wants longer life wants all of them turned down at once - not a settings
+   page to work through. */
+static void applySaver() {
+  if (cfgSaver) {
+    if (cfgBright > 40) { cfgBright = 40; }
+    cfgSun = 0;
+    cfgSleep = 0;                 /* 30 seconds */
+    cfgAutoSync = false;
+    if (bleAdvertising()) bleStop();
+    setCpuFrequencyMhz(80);       /* from 240 - the UI is not CPU-bound */
+  } else {
+    setCpuFrequencyMhz(240);
+  }
+  applyDisplaySettings();
+}
+
 static void loadSettings() {
-  cfgBright    = (uint8_t)netGetU32("uiBright", 3);
+  cfgBright    = (uint8_t)netGetU32("uiBright", 70);
+  cfgSaver     = (uint8_t)netGetU32("uiSaver", 0);
   cfgSleep     = (uint8_t)netGetU32("uiSleep", 1);
   cfgSun       = (uint8_t)netGetU32("uiSun", 0);
   cfgStayOnUsb = netGetU32("uiUsbAwake", 1) != 0;
   cfgAutoSync  = netGetU32("uiAutoSync", 1) != 0;
-  if (cfgBright > 4) cfgBright = 3;
+  if (cfgBright < 5 || cfgBright > 100) cfgBright = 70;
   if (cfgSleep > 3)  cfgSleep = 1;
   if (cfgSun > 3)    cfgSun = 0;
 }
 
 static void saveSettings() {
   netSetU32("uiBright", cfgBright);
+  netSetU32("uiSaver", cfgSaver);
   netSetU32("uiSleep", cfgSleep);
   netSetU32("uiSun", cfgSun);
   netSetU32("uiUsbAwake", cfgStayOnUsb ? 1 : 0);
@@ -962,29 +999,43 @@ static void screenUsbDrive(const UiTap& t) {
  */
 static void screenDisplay(const UiTap& t) {
   drawChrome("DISPLAY");
-  const int H = 44, P = 48;
-  int y = UI_HEADER_H + 4;
+  const int H = 44, P = 50;
+  int y = UI_HEADER_H + 6;
 
-  /* Brightness, as five blocks rather than a slider: a slider on a touch panel
-     wants dragging, and a drag that starts on a control is hard to tell from a
-     tap that missed.
-
-     check_layout cannot evaluate bx, so this row is the one thing it reports
-     as unchecked. Worked out by hand: bx = 470 - (5 - i) * 62 gives 160, 222,
-     284, 346 and 408, and the last block ends at 464 against a 480 panel. The
-     row below starts at y+48, clear of these at y+44. */
-  dispText(UI_PAD, y + 12, "brightness", TXT_SMALL, COL_DIM);
-  const int bw = 56;
-  for (int i = 0; i < 5; i++) {
-    const int bx = LCD_WIDTH - UI_PAD - (5 - i) * (bw + 6) + 6;
-    if (uiButton(t, bx, y, bw, H, String(i + 1),
-                 i <= cfgBright ? COL_BLUE : COL_DIM, i <= cfgBright)) {
-      cfgBright = i;
-      applyDisplaySettings();
-      saveSettings();
+  dispText(UI_PAD, y, "brightness", TXT_SMALL, COL_DIM);
+  {
+    const String pct = String(cfgBright) + "%";
+    dispText(LCD_WIDTH - UI_PAD - dispTextWidth(pct, TXT_SMALL), y, pct,
+             TXT_SMALL, COL_WHITE);
+  }
+  {
+    int v = cfgBright;
+    if (uiSlider(UI_PAD, y + 20, LCD_WIDTH - UI_PAD * 2, 40, 5, 100, &v)) {
+      cfgBright = (uint8_t)v;
+      dimmed = false;
+      /* Applied while the finger is still down, so the panel is judged by
+         looking at it rather than by letting go and hoping. Saved on release
+         instead of every frame - NVS has a finite number of writes and a drag
+         across the slider is a hundred of them. */
+      dispBrightness(brightnessValue(cfgBright));
+    } else if (!touchDown()) {
+      static uint8_t lastSaved = 0;
+      if (lastSaved != cfgBright) { lastSaved = cfgBright; saveSettings(); }
     }
   }
+  y += 72;
+
+  if (uiRow(t, y, H, "Battery saver", cfgSaver ? "on" : "off",
+            cfgSaver ? COL_GREEN : COL_DIM)) {
+    cfgSaver = cfgSaver ? 0 : 1;
+    applySaver();
+    saveSettings();
+  }
   y += P;
+  dispText(UI_PAD, y - 6, cfgSaver ? "dim, 30s screen, no auto-sync, 80MHz"
+                                   : "dims the screen and slows the chip",
+           TXT_SMALL, COL_DIM);
+  y += 18;
 
   if (uiRow(t, y, H, "Screen off after", SLEEP_LABELS[cfgSleep], COL_DIM)) {
     cfgSleep = (uint8_t)((cfgSleep + 1) % 4);
@@ -999,8 +1050,6 @@ static void screenDisplay(const UiTap& t) {
     saveSettings();
   }
   y += P;
-  dispText(UI_PAD, y, "boosts contrast outdoors", TXT_SMALL, COL_DIM);
-  y += 24;
 
   if (uiRow(t, y, H, "Stay awake on USB", cfgStayOnUsb ? "yes" : "no",
             cfgStayOnUsb ? COL_GREEN : COL_DIM)) {
@@ -1015,7 +1064,7 @@ static void screenDisplay(const UiTap& t) {
     saveSettings();
   }
 
-  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, LCD_HEIGHT - UI_TABBAR_H - 66, 150, 56,
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, 414, 150, 56,
                "< BACK", COL_DIM, false)) {
     screen = SCR_MORE;
   }
@@ -1190,6 +1239,50 @@ static void stopRecording() {
 
 /* ---- setup and loop ----------------------------------------------------- */
 
+/* A line per subsystem, over USB, so the state of the device can be read
+   instead of guessed at from the outside.
+ *
+ * The transmit timeout is set to zero first, and that is not a detail. A write
+ * to a console with no reader blocks until somebody drains it, and on the old
+ * board that froze every button on the device for an evening. At zero the
+ * bytes are dropped instead, so this is safe to call whether or not anything
+ * is listening. */
+static void bootReport() {
+  Serial.setTxTimeoutMs(0);
+  Serial.println();
+  Serial.println("--- mono note mini ---");
+
+  Serial.printf("psram      %u KB free of %u KB\n",
+                (unsigned)(ESP.getFreePsram() / 1024),
+                (unsigned)(ESP.getPsramSize() / 1024));
+
+  const uint8_t ct = SD_MMC.cardType();
+  const char* kind = ct == CARD_NONE ? "none" : ct == CARD_MMC ? "MMC"
+                   : ct == CARD_SD ? "SDSC" : ct == CARD_SDHC ? "SDHC" : "unknown";
+  if (ct == CARD_NONE) {
+    Serial.println("sd card    NOT MOUNTED");
+    Serial.printf("           tried 1-bit SDIO on clk=%d cmd=%d d0=%d, dat3 held high\n",
+                  (int)SDMMC_CLK_PIN, (int)SDMMC_CMD_PIN, (int)SDMMC_D0_PIN);
+  } else {
+    Serial.printf("sd card    %s, %u MB total, %u MB used\n", kind,
+                  (unsigned)(SD_MMC.totalBytes() / (1024ULL * 1024ULL)),
+                  (unsigned)(SD_MMC.usedBytes() / (1024ULL * 1024ULL)));
+    Serial.printf("           /recordings %s\n",
+                  SD_MMC.exists("/recordings") ? "present" : "MISSING");
+  }
+
+  Serial.printf("clock chip %s\n", rtcChipFound() ? "found at 0x51" : "NOT FOUND");
+  Serial.printf("time       %s\n", clockKnown() ? "set" : "not set");
+  Serial.printf("battery    %d%%%s, %d mV\n", powerPercent(),
+                powerCharging() ? " (charging)" : "", powerMillivolts());
+  Serial.printf("wi-fi      %s\n",
+                netGet("ssid").length() ? netGet("ssid").c_str() : "not configured");
+  Serial.printf("server     %s\n",
+                syncConfigured() ? "set" : "not set");
+  Serial.printf("notes      %d, %d already sent\n", totalCount, syncedCount);
+  Serial.println("----------------------");
+}
+
 void setup() {
   Serial.begin(115200);
   delay(150);
@@ -1226,9 +1319,10 @@ void setup() {
   }
 
   loadSettings();
-  applyDisplaySettings();
+  applySaver();          /* which applies the display settings too */
   loadNotes();
   loadTasks();
+  bootReport();
 
   /* If the RTC had nothing and a network is already known, the clock is worth
      a few seconds at boot: every note made before it is set carries a name
@@ -1259,7 +1353,7 @@ void setup() {
 void loop() {
   UiTap tap{ false, 0, 0 };
   tap.happened = touchTapped(&tap.x, &tap.y);
-  if (tap.happened || touchDown()) lastActivity = millis();
+  if (tap.happened || touchDown()) { lastActivity = millis(); setDim(false); }
 
   playPoll();
 
@@ -1337,7 +1431,13 @@ void loop() {
     syncAll(false);
   }
 
-  if (millis() - lastActivity > SLEEP_CHOICES[cfgSleep] && !touchDown()
+  /* Dim for the last quarter of the timeout. Cheap, and it says sleep is
+     coming rather than the screen simply vanishing mid-thought. */
+  const uint32_t idle = millis() - lastActivity;
+  const uint32_t limit = SLEEP_CHOICES[cfgSleep];
+  setDim(idle > limit - limit / 4 && !playActive());
+
+  if (idle > limit && !touchDown()
       && !playActive() && !usbDriveActive()
       && !(bootedOnUsb && cfgStayOnUsb)) sleepNow();
 

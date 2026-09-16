@@ -34,32 +34,43 @@ fi
 find_port() {
   "$PIO" device list --serial 2>/dev/null \
     | grep -B2 "VID:PID=303A" \
-    | grep -oE "^COM[0-9]+" \
-    | head -1
+    | grep -oE "^COM[0-9]+"
 }
 
-PORT="$(find_port)"
-if [ -z "$PORT" ]; then
+# Every port the board might be on, not just the first. Windows keeps listing
+# ports after the device behind them has gone, and after all the USB mode
+# switching this board does there is usually at least one such ghost - picking
+# it and stopping is indistinguishable from the board being broken.
+PORTS="$(find_port)"
+if [ -z "$PORTS" ]; then
   echo "No board found. It is asleep, unplugged, or the cable is charge-only." >&2
   echo "Touch the screen to wake it, then run this again." >&2
   exit 1
 fi
-echo "found the board on $PORT"
 
-# build.sh passes arguments through to pio run and retries the toolchain's own
-# intermittent failures, so the upload gets the same protection as the build.
-if ./build.sh --target upload --upload-port "$PORT"; then
-  echo
-  echo "flashed."
-  exit 0
-fi
+for PORT in $PORTS; do
+  echo "trying $PORT"
+  if ./build.sh --target upload --upload-port "$PORT"; then
+    echo
+    echo "flashed."
+    exit 0
+  fi
+done
 
 # esptool's auto-reset toggles DTR and RTS on a CDC port the firmware itself
 # provides, and the firmware is not listening for that - so it never reaches
 # download mode. Opening that port at 1200 baud does reboot it, after which the
 # ROM appears on a different port.
 echo "auto-reset did not take; asking it to reboot into download mode..."
-BOOTPORT="$("${PIO%platformio.exe}python.exe" tools/bootloader.py 2>/dev/null)"
+# Tried more than once. The board is re-enumerating while this runs, and asking
+# during the gap between the firmware's port disappearing and the ROM's
+# appearing returns nothing at all.
+BOOTPORT=""
+for attempt in 1 2 3; do
+  BOOTPORT="$("${PIO%platformio.exe}python.exe" tools/bootloader.py 2>/dev/null)"
+  [ -n "$BOOTPORT" ] && break
+  sleep 2
+done
 if [ -n "$BOOTPORT" ]; then
   echo "download mode on $BOOTPORT"
   if ./build.sh --target upload --upload-port "$BOOTPORT"; then

@@ -1,5 +1,6 @@
 #include "pala_ui.h"
 #include "user_config.h"
+#include "pala_touch.h"
 
 bool uiHit(const UiTap& t, int x, int y, int w, int h) {
   return t.happened && t.x >= x && t.x < x + w && t.y >= y && t.y < y + h;
@@ -75,6 +76,36 @@ int uiTabBar(const UiTap& t, int active, const char* const* labels, int count) {
     if (uiHit(t, x, y, w, UI_TABBAR_H)) hit = i;
   }
   return hit;
+}
+
+bool uiSlider(int x, int y, int w, int h, int lo, int hi, int* value) {
+  const int track = h / 3;
+  dispRoundRect(x, y + (h - track) / 2, w, track, track / 2, COL_FAINT, true);
+
+  int v = *value;
+  if (v < lo) v = lo;
+  if (v > hi) v = hi;
+  const int span = (hi - lo) ? (hi - lo) : 1;
+  int knobX = x + (w - h) * (v - lo) / span;
+
+  bool changed = false;
+  int tx = 0, ty = 0;
+  /* A generous vertical band: a finger that drifts off a 24-pixel track while
+     dragging should not drop the slider. */
+  if (touchPosition(&tx, &ty) && ty >= y - 20 && ty < y + h + 20
+      && tx >= x - h && tx <= x + w + h) {
+    int nv = lo + (tx - x - h / 2) * span / (w - h ? w - h : 1);
+    if (nv < lo) nv = lo;
+    if (nv > hi) nv = hi;
+    if (nv != *value) { *value = nv; changed = true; }
+    v = nv;
+    knobX = x + (w - h) * (v - lo) / span;
+  }
+
+  dispRoundRect(x, y + (h - track) / 2, knobX - x + h / 2, track, track / 2,
+                COL_BLUE, true);
+  dispFillCircle(knobX + h / 2, y + h / 2, h / 2, COL_WHITE);
+  return changed;
 }
 
 void uiBatteryPill(int x, int y, int pct, bool charging) {

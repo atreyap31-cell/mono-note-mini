@@ -61,5 +61,12 @@ bool touchTapped(int* x, int* y) {
 }
 
 bool     touchDown()          { return wasDown; }
+
+bool touchPosition(int* x, int* y) {
+  if (!wasDown) return false;
+  if (x) *x = lastX;
+  if (y) *y = lastY;
+  return true;
+}
 uint32_t touchLastActivity()  { return lastActive; }
 void     touchSleep()         { if (ready) touch.sleep(); }
