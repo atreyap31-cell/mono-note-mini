@@ -51,7 +51,8 @@
 
 enum Screen {
   SCR_LOCK, SCR_REC, SCR_NOTES, SCR_NOTE, SCR_TASKS,
-  SCR_WIFI, SCR_WIFI_PASS, SCR_MORE, SCR_PASSCODE
+  SCR_WIFI, SCR_WIFI_PASS, SCR_MORE, SCR_PASSCODE,
+  SCR_STORAGE, SCR_FACTORY, SCR_INTRO
 };
 
 static const char* TABS[] = { "NOTES", "RECORD", "TASKS", "WI-FI", "MORE" };
@@ -69,8 +70,17 @@ static bool     bootedOnUsb = false;
 static bool     recording = false;
 static uint32_t recStarted = 0;
 
-/* notes */
-static std::vector<String> noteBases;
+/* notes
+   Read once into memory, not while drawing. Every visible row used to do an
+   exists() and a file open for its tag on every frame, which at fifty frames a
+   second is hundreds of card operations to render a list that had not changed. */
+struct Note {
+  String base;
+  String tag;
+  bool   synced;
+};
+static std::vector<Note> notes;
+static String noteFilter;           /* "" means show everything */
 static UiPager notePager;
 static String  openNote;
 static int     syncedCount = 0, totalCount = 0;
@@ -94,6 +104,11 @@ static int     codeStage = 0;        /* 0 enter, 1 choose new, 2 confirm new */
 static bool    codeForChange = false;
 static uint32_t codeBlockedUntil = 0;
 
+/* confirmation counters - both of these throw things away, so both ask twice */
+static int freeStage = 0;
+static int factoryStage = 0;
+static int introPage = 0;
+
 /* ---- notes on the card -------------------------------------------------- */
 
 static bool isWav(const String& n) { return n.endsWith(".wav"); }
@@ -107,8 +122,10 @@ static String baseOf(const String& name) {
   return n;
 }
 
+static String tagOf(const String& base);   /* defined below, used by loadNotes */
+
 static void loadNotes() {
-  noteBases.clear();
+  notes.clear();
   totalCount = 0;
   syncedCount = 0;
   File dir = SD_MMC.open("/recordings");
@@ -118,22 +135,32 @@ static void loadNotes() {
     String n = f.name();
     f.close();
     if (!isWav(n)) continue;
-    String b = baseOf(n);
-    noteBases.push_back(b);
+    Note note;
+    note.base = baseOf(n);
+    note.tag = tagOf(note.base);
+    note.synced = SD_MMC.exists("/recordings/" + note.base + ".synced");
+    notes.push_back(note);
     totalCount++;
-    if (SD_MMC.exists("/recordings/" + b + ".synced")) syncedCount++;
+    if (note.synced) syncedCount++;
   }
   dir.close();
   /* Newest first. The names are timestamps, so sorting them as text sorts them
      by time - which is only true because they are zero-padded and start with
      the year. */
-  for (size_t i = 0; i + 1 < noteBases.size(); i++)
-    for (size_t j = 0; j + 1 < noteBases.size() - i; j++)
-      if (noteBases[j] < noteBases[j + 1]) {
-        String t = noteBases[j]; noteBases[j] = noteBases[j + 1]; noteBases[j + 1] = t;
+  for (size_t i = 0; i + 1 < notes.size(); i++)
+    for (size_t j = 0; j + 1 < notes.size() - i; j++)
+      if (notes[j].base < notes[j + 1].base) {
+        Note t = notes[j]; notes[j] = notes[j + 1]; notes[j + 1] = t;
       }
-  notePager.total = noteBases.size();
   notePager.perPage = 5;
+  notePager.page = 0;
+}
+
+/* Which notes the Notes tab is currently showing. */
+static void filtered(std::vector<int>& out) {
+  out.clear();
+  for (size_t i = 0; i < notes.size(); i++)
+    if (!noteFilter.length() || notes[i].tag == noteFilter) out.push_back(i);
 }
 
 static String tagOf(const String& base) {
@@ -216,9 +243,9 @@ static bool syncAll(bool sayWhy) {
 
   int done = 0;
   String err;
-  for (size_t i = 0; i < noteBases.size(); i++) {
-    const String& b = noteBases[i];
-    if (SD_MMC.exists("/recordings/" + b + ".synced")) continue;
+  for (size_t i = 0; i < notes.size(); i++) {
+    const String b = notes[i].base;
+    if (notes[i].synced) continue;
     statusLine = "sending " + String(done + 1) + "...";
     if (syncUploadNote(b, err)) { markSynced(b); done++; }
     else break;                       /* the next will fail the same way */
@@ -299,26 +326,55 @@ static void screenRecord(const UiTap& t) {
 
 static void screenNotes(const UiTap& t) {
   drawChrome("NOTES");
-  if (noteBases.empty()) {
-    dispTextCentered(200, "nothing recorded yet", 2, COL_DIM);
+
+  /* Filter chips. The old device had a whole screen for choosing a tag before
+     it would show you a list; here they sit above the list and switching is one
+     tap with the notes still in front of you. */
+  const int chipW = (LCD_WIDTH - UI_PAD * 2 - 5 * 4) / 6;
+  const char* chips[6] = { "all", TAGS[0], TAGS[1], TAGS[2], TAGS[3], "none" };
+  for (int i = 0; i < 6; i++) {
+    const String want = (i == 0) ? String("") : (i == 5 ? String("~none") : String(chips[i]));
+    const bool on = (i == 0) ? (noteFilter.length() == 0)
+                  : (i == 5) ? (noteFilter == "~none")
+                             : (noteFilter == chips[i]);
+    if (uiButton(t, UI_PAD + i * (chipW + 4), UI_HEADER_H + 6, chipW, 40,
+                 chips[i], on ? COL_BLUE : COL_DIM, on)) {
+      noteFilter = want;
+      notePager.page = 0;
+    }
+  }
+
+  std::vector<int> show;
+  show.clear();
+  for (size_t i = 0; i < notes.size(); i++) {
+    const bool untagged = notes[i].tag.length() == 0;
+    if (noteFilter.length() == 0) show.push_back(i);
+    else if (noteFilter == "~none") { if (untagged) show.push_back(i); }
+    else if (notes[i].tag == noteFilter) show.push_back(i);
+  }
+  notePager.total = show.size();
+  if (notePager.page >= notePager.pages()) notePager.page = notePager.pages() - 1;
+
+  if (show.empty()) {
+    dispTextCentered(210, notes.empty() ? "nothing recorded yet" : "nothing with that tag",
+                     2, COL_DIM);
     return;
   }
-  const int top = UI_HEADER_H + 10, rowH = 54;
+
+  const int top = UI_HEADER_H + 54, rowH = 52;
   for (int i = 0; i < notePager.perPage; i++) {
-    const int idx = notePager.first() + i;
-    if (idx >= (int)noteBases.size()) break;
-    const String& b = noteBases[idx];
-    const bool up = SD_MMC.exists("/recordings/" + b + ".synced");
-    String right = tagOf(b);
-    if (right.length()) right = "#" + right;
-    right += up ? "  up" : "  --";
-    if (uiRow(t, top + i * (rowH + 6), rowH, prettyName(b), right,
-              up ? COL_GREEN : COL_AMBER)) {
-      openNote = b;
+    const int k = notePager.first() + i;
+    if (k >= (int)show.size()) break;
+    const Note& n = notes[show[k]];
+    String right = n.tag.length() ? ("#" + n.tag) : String("");
+    right += n.synced ? "  up" : "  --";
+    if (uiRow(t, top + i * (rowH + 6), rowH, prettyName(n.base), right,
+              n.synced ? COL_GREEN : COL_AMBER)) {
+      openNote = n.base;
       screen = SCR_NOTE;
     }
   }
-  uiPagerBar(t, notePager, LCD_HEIGHT - UI_TABBAR_H - 56);
+  uiPagerBar(t, notePager, LCD_HEIGHT - UI_TABBAR_H - 54);
 }
 
 static void screenNote(const UiTap& t) {
@@ -346,6 +402,11 @@ static void screenNote(const UiTap& t) {
     if (uiButton(t, UI_PAD + i * (bw + 6), 196, bw, 52, TAGS[i],
                  on ? COL_BLUE : COL_DIM, on)) {
       setTag(openNote, TAGS[i]);
+      /* The list reads from the cache, so it has to be told as well - otherwise
+         the tag is on the card and the list goes on showing the old one. */
+      for (size_t k = 0; k < notes.size(); k++)
+        if (notes[k].base == openNote)
+          notes[k].tag = (String(TAGS[i]) == "none") ? String("") : String(TAGS[i]);
     }
   }
 
@@ -488,19 +549,25 @@ static void screenMore(const UiTap& t) {
     codeNote = "enter your current passcode";
     screen = SCR_PASSCODE;
   }
-  if (uiRow(t, 278, 58, "Lock now", "", COL_DIM)) {
+  if (uiRow(t, 278, 58, "Storage",
+            String((uint32_t)(SD_MMC.usedBytes() / (1024ULL * 1024ULL))) + " MB", COL_DIM)) {
+    freeStage = 0;
+    screen = SCR_STORAGE;
+  }
+  if (uiRow(t, 344, 58, "Lock now", "", COL_DIM)) {
     lockRelock();
     codeEntry = ""; codeNote = "";
     screen = SCR_LOCK;
   }
 
-  const uint64_t used = SD_MMC.usedBytes() / (1024ULL * 1024ULL);
-  const uint64_t all  = SD_MMC.totalBytes() / (1024ULL * 1024ULL);
-  if (statusLine.length()) dispTextCentered(330, statusLine, 1, COL_AMBER);
-  dispText(UI_PAD, 352, "card " + String((uint32_t)used) + " / " + String((uint32_t)all) + " MB",
-           1, COL_DIM);
-  dispText(UI_PAD, 368, "device " + syncDeviceId(), 1, COL_DIM);
-  dispText(UI_PAD, 384, "battery " + String(powerMillivolts()) + " mV", 1, COL_DIM);
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 140, 344, 140, 58, "RESET", COL_RED, false)) {
+    factoryStage = 0;
+    screen = SCR_FACTORY;
+  }
+  if (statusLine.length())
+    dispTextCentered(LCD_HEIGHT - UI_TABBAR_H - 42, statusLine, 1, COL_AMBER);
+  dispText(UI_PAD, LCD_HEIGHT - UI_TABBAR_H - 24,
+           syncDeviceId() + "   " + String(powerMillivolts()) + " mV", 1, COL_DIM);
 }
 
 /* The passcode screen does three jobs: unlocking, choosing one on first use,
@@ -559,7 +626,8 @@ static void screenPasscode(const UiTap& t) {
                                     codeNote = "they did not match"; return; }
       lockSet(codeEntry);
       codeEntry = ""; codeNote = ""; codeStage = 0;
-      screen = SCR_REC;
+      introPage = 0;
+      screen = SCR_INTRO;
       return;
     }
 
@@ -594,6 +662,109 @@ static void screenPasscode(const UiTap& t) {
       codeBlockedUntil = millis() + lockPenaltyMs();
     }
   }
+}
+
+static void screenStorage(const UiTap& t) {
+  drawChrome("STORAGE");
+
+  const uint64_t used = SD_MMC.usedBytes() / (1024ULL * 1024ULL);
+  const uint64_t all  = SD_MMC.totalBytes() / (1024ULL * 1024ULL);
+  dispText(UI_PAD, 84, "card " + String((uint32_t)used) + " of " +
+           String((uint32_t)all) + " MB used", 2, COL_WHITE);
+
+  int upCount = 0;
+  for (size_t i = 0; i < notes.size(); i++) if (notes[i].synced) upCount++;
+  dispText(UI_PAD, 120, String(upCount) + " notes are on the server", 1, COL_DIM);
+  dispText(UI_PAD, 138, String((int)notes.size() - upCount) + " are not, and stay", 1, COL_DIM);
+
+  /* Only notes that reached the server can be removed here. Deleting one that
+     has not been uploaded would be destroying the only copy, which is not
+     something a "free up space" button should ever do. */
+  const uint16_t colour = freeStage ? COL_RED : COL_AMBER;
+  const String label = freeStage ? "REALLY DELETE THEM" : "DELETE SYNCED NOTES";
+  if (uiButton(t, UI_PAD, 176, LCD_WIDTH - UI_PAD * 2, 66, label, colour, freeStage > 0)) {
+    if (!freeStage && upCount > 0) {
+      freeStage = 1;
+    } else if (freeStage) {
+      for (size_t i = 0; i < notes.size(); i++)
+        if (notes[i].synced) deleteNote(notes[i].base);
+      loadNotes();
+      freeStage = 0;
+      statusLine = "deleted";
+    }
+  }
+  if (freeStage) dispTextCentered(252, "the audio goes from the card", 1, COL_RED);
+  else           dispTextCentered(252, "only notes already uploaded", 1, COL_DIM);
+
+  if (uiButton(t, UI_PAD, LCD_HEIGHT - UI_TABBAR_H - 74, 180, 58, "< BACK", COL_DIM, false)) {
+    freeStage = 0;
+    screen = SCR_MORE;
+  }
+}
+
+static void screenFactory(const UiTap& t) {
+  drawChrome("RESET");
+  dispText(UI_PAD, 84, "This forgets:", 2, COL_WHITE);
+  dispText(UI_PAD, 118, "the passcode", 1, COL_DIM);
+  dispText(UI_PAD, 136, "the wi-fi network and password", 1, COL_DIM);
+  dispText(UI_PAD, 154, "the server address", 1, COL_DIM);
+  dispText(UI_PAD, 180, "Your notes on the card are kept.", 1, COL_GREEN);
+
+  const String label = factoryStage == 0 ? "ERASE SETTINGS"
+                     : factoryStage == 1 ? "ARE YOU SURE"
+                                         : "ERASE, AND RESTART";
+  if (uiButton(t, UI_PAD, 212, LCD_WIDTH - UI_PAD * 2, 66, label,
+               factoryStage ? COL_RED : COL_AMBER, factoryStage > 1)) {
+    if (factoryStage < 2) factoryStage++;
+    else {
+      netClearAll();
+      lockClear();
+      dispClear(COL_BLACK);
+      dispTextCentered(220, "erased", 3, COL_WHITE);
+      dispShow();
+      delay(1200);
+      ESP.restart();
+    }
+  }
+
+  if (uiButton(t, UI_PAD, LCD_HEIGHT - UI_TABBAR_H - 74, 180, 58, "< BACK", COL_DIM, false)) {
+    factoryStage = 0;
+    screen = SCR_MORE;
+  }
+}
+
+/* Shown once, after a passcode is chosen. Three cards, and every one of them
+   can be walked out of. The tour on the old device ran automatically, demanded
+   one specific button and had no exit, so a device whose button was not the one
+   it wanted could not be used at all. */
+static void screenIntro(const UiTap& t) {
+  dispClear(COL_BLACK);
+  const char* title[3] = { "TAP TO RECORD", "FIVE TABS", "WI-FI" };
+  const char* line1[3] = { "The big circle on the",
+                           "Notes, Record, Tasks,",
+                           "Open the Wi-Fi tab and" };
+  const char* line2[3] = { "Record tab starts it,",
+                           "Wi-Fi and More, along",
+                           "type your password in." };
+  const char* line3[3] = { "and stops it.",
+                           "the bottom. That is all.",
+                           "Notes upload themselves." };
+
+  dispTextCentered(120, title[introPage], 3, COL_BLUE);
+  dispTextCentered(190, line1[introPage], 2, COL_WHITE);
+  dispTextCentered(218, line2[introPage], 2, COL_WHITE);
+  dispTextCentered(246, line3[introPage], 2, COL_WHITE);
+
+  for (int i = 0; i < 3; i++)
+    dispFillCircle(CX - 24 + i * 24, 300, 6, i == introPage ? COL_WHITE : COL_FAINT);
+
+  if (uiButton(t, CX - 110, 340, 220, 64,
+               introPage < 2 ? "NEXT" : "START", COL_BLUE)) {
+    if (introPage < 2) introPage++;
+    else screen = SCR_REC;
+  }
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 90, LCD_HEIGHT - 56, 90, 44, "skip", COL_DIM, false))
+    screen = SCR_REC;
 }
 
 /* ---- USB, sleep --------------------------------------------------------- */
@@ -729,11 +900,20 @@ void loop() {
     case SCR_WIFI:      screenWifi(tap);     break;
     case SCR_WIFI_PASS: screenWifiPass(tap); break;
     case SCR_MORE:      screenMore(tap);     break;
+    case SCR_STORAGE:   screenStorage(tap); break;
+    case SCR_FACTORY:   screenFactory(tap); break;
     default:            screenRecord(tap);   break;
   }
 
   /* The keyboard fills the screen, so the tab bar would be under a finger. */
-  if (screen != SCR_WIFI_PASS) {
+  if (screen == SCR_INTRO) {
+    screenIntro(tap);
+    dispShow();
+    delay(20);
+    return;
+  }
+
+  if (screen != SCR_WIFI_PASS && screen != SCR_STORAGE && screen != SCR_FACTORY) {
     const int hit = uiTabBar(tap, activeTab, TABS, 5);
     if (hit >= 0) {
       activeTab = hit;
