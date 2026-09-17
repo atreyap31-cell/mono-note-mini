@@ -98,6 +98,24 @@ static uint8_t brightnessValue(uint8_t pct) {
 static bool     dimmed = false;
 static uint8_t  cfgSaver = 0;      /* battery saver, 0 off 1 on */
 
+/* The screen off, without the device going with it.
+ *
+ * Sleeping means deep sleep, which cuts USB - and while the cable is in, that
+ * is the wrong trade: the port vanishes, the host loses the drive, and nothing
+ * can be flashed until somebody unplugs it. So on USB the panel goes dark and
+ * the device stays up; on battery it still sleeps properly, because keeping
+ * the chip awake for nothing is where the battery goes.
+ *
+ * The first touch afterwards only wakes the screen. Acting on it as well would
+ * mean a tap to see the time could start a recording. */
+static bool screenIsOff = false;
+
+static void screenOff(bool off) {
+  if (off == screenIsOff) return;
+  screenIsOff = off;
+  dispSleep(off);
+}
+
 static void setDim(bool on) {
   if (on == dimmed) return;
   dimmed = on;
@@ -192,6 +210,7 @@ static uint32_t codeBlockedUntil = 0;
 /* confirmation counters - both of these throw things away, so both ask twice */
 static int freeStage = 0;
 static int factoryStage = 0;
+static int offStage = 0;
 static int introPage = 0;
 
 /* ---- notes on the card -------------------------------------------------- */
@@ -1213,8 +1232,37 @@ static void screenBattery(const UiTap& t) {
   dispText(UI_PAD, ly + 60, "regulator", TXT_SMALL, COL_DIM);
   dispText(UI_PAD + 150, ly + 60, String(powerTemperatureC(), 1) + " C", TXT_SMALL, COL_WHITE);
 
-  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, LCD_HEIGHT - UI_TABBAR_H - 74, 150, 58,
+  /* Asked twice, because there is no undo and the way back on is a button
+     most people will not have found yet. */
+  if (uiButton(t, UI_PAD, 386, 200, 60,
+               offStage ? "REALLY OFF" : "POWER OFF",
+               offStage ? COL_RED : COL_AMBER, offStage > 0)) {
+    if (!offStage) {
+      offStage = 1;
+    } else {
+      playStop();
+      bleStop();
+      dispClear(COL_BLACK);
+      dispTextCentered(210, "goodbye", TXT_TITLE, COL_DIM);
+      dispShow();
+      delay(900);
+      dispSleep(true);
+      powerOffNow();
+      /* Only reached if the PMU refused - on USB it will not cut the rails,
+         because the power is coming from the cable rather than the battery. */
+      delay(400);
+      offStage = 0;
+      screen = SCR_BATTERY;
+      applyDisplaySettings();
+      statusLine = "unplug it first";
+    }
+  }
+  if (offStage)
+    dispTextCentered(456, "the PWR button turns it back on", TXT_SMALL, COL_DIM);
+
+  if (uiButton(t, LCD_WIDTH - UI_PAD - 150, 386, 150, 60,
                "< BACK", COL_DIM, false)) {
+    offStage = 0;
     screen = SCR_MORE;
   }
 }
@@ -1390,7 +1438,17 @@ void setup() {
 void loop() {
   UiTap tap{ false, 0, 0 };
   tap.happened = touchTapped(&tap.x, &tap.y);
-  if (tap.happened || touchDown()) { lastActivity = millis(); setDim(false); }
+  if (tap.happened || touchDown()) {
+    lastActivity = millis();
+    if (screenIsOff) {
+      /* Wake only. The tap that brings the screen back is not also a press of
+         whatever happened to be under the finger. */
+      screenOff(false);
+      applyDisplaySettings();
+      tap.happened = false;
+    }
+    setDim(false);
+  }
 
   playPoll();
 
@@ -1478,15 +1536,23 @@ void loop() {
     syncAll(false);
   }
 
-  /* Dim for the last quarter of the timeout. Cheap, and it says sleep is
-     coming rather than the screen simply vanishing mid-thought. */
+  /* Dim for the last quarter of the timeout. Cheap, and it says the screen is
+     about to go rather than it simply vanishing mid-thought. */
   const uint32_t idle = millis() - lastActivity;
   const uint32_t limit = SLEEP_CHOICES[cfgSleep];
-  setDim(idle > limit - limit / 4 && !playActive());
+  const bool busy = playActive() || touchDown();
+  setDim(!screenIsOff && idle > limit - limit / 4 && !busy);
 
-  if (idle > limit && !touchDown()
-      && !playActive() && !usbDriveActive()
-      && !(bootedOnUsb && cfgStayOnUsb)) sleepNow();
+  if (idle > limit && !busy && !usbDriveActive()) {
+    if (bootedOnUsb && cfgStayOnUsb) {
+      /* Plugged in: the screen goes, the device stays. Deep sleep here would
+         take USB with it, and the cable is usually in because somebody is
+         working on the thing. */
+      screenOff(true);
+    } else {
+      sleepNow();
+    }
+  }
 
   delay(20);
 }

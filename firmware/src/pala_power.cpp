@@ -41,3 +41,8 @@ bool  powerUsbPresent()        { return ready && pmu.isVbusIn(); }
 int   powerUsbMillivolts()     { return ready ? pmu.getVbusVoltage() : 0; }
 int   powerSystemMillivolts()  { return ready ? pmu.getSystemVoltage() : 0; }
 float powerTemperatureC()      { return ready ? pmu.getTemperature() : 0.0f; }
+
+void powerOffNow() {
+  if (!ready) return;
+  pmu.shutdown();
+}

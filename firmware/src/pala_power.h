@@ -31,6 +31,14 @@ int  powerUsbMillivolts();
 int  powerSystemMillivolts();
 float powerTemperatureC();
 
+/* Switch the board off properly, not to sleep.
+ *
+ * The PWR button does this in hardware - it is wired to the PMU rather than to
+ * a GPIO, so the firmware cannot even see it pressed - but a device with a
+ * screen should not need someone to know about a six second hold. Only VRTC
+ * survives, so the clock keeps time and everything else stops. */
+void powerOffNow();
+
 /* Below this, starting a recording is refused: losing power part way through
    loses the note anyway, and writing to the card as the rail collapses is how
    a filesystem gets corrupted rather than merely a file. */
